@@ -108,3 +108,47 @@ export function formatDate(date, format = 'DD.MM.YYYY HH:mm') {
   if (!date) return '-';
   return dayjs(date).format(format);
 }
+
+// Получение FX-курса только из live-источника
+export async function getConversionRate(fromCurrency, toCurrency) {
+  const quote = await getConversionQuote(fromCurrency, toCurrency);
+  return quote?.rate ?? null;
+}
+
+export async function getConversionQuote(fromCurrency, toCurrency) {
+  if (!fromCurrency || !toCurrency) return { rate: 1, source: 'identity' };
+  if (fromCurrency === toCurrency) return { rate: 1, source: 'identity' };
+
+  const from = String(fromCurrency).toUpperCase();
+  const to = String(toCurrency).toUpperCase();
+  const normalizedFrom = from === 'USDT' ? 'USD' : from;
+  const normalizedTo = to === 'USDT' ? 'USD' : to;
+
+  try {
+    const response = await fetch(
+      `https://api.frankfurter.dev/v1/latest?base=${encodeURIComponent(normalizedFrom)}&symbols=${encodeURIComponent(normalizedTo)}`
+    );
+    if (response.ok) {
+      const payload = await response.json();
+      const rate = payload?.rates?.[normalizedTo];
+      if (typeof rate === 'number' && Number.isFinite(rate) && rate > 0) {
+        return {
+          rate,
+          source: normalizedFrom !== from || normalizedTo !== to ? 'live-proxy-usdt' : 'live'
+        };
+      }
+    }
+  } catch (_) {
+    // Ошибка сети/сервиса - без локального fallback по требованию.
+  }
+
+  return null;
+}
+
+export function convertAmount(amount, rate, decimals = 2) {
+  const numericAmount = Number(amount) || 0;
+  const numericRate = Number(rate);
+  if (!Number.isFinite(numericRate) || numericRate <= 0) return numericAmount;
+  const factor = 10 ** decimals;
+  return Math.round((numericAmount * numericRate) * factor) / factor;
+}

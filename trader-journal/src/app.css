@@ -173,6 +173,12 @@ body {
   margin: 24px 0;
 }
 
+.closed-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
 .trades-table {
   width: 100%;
   border-collapse: collapse;
@@ -408,6 +414,49 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+}
+
+.profile-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.profile-metric {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code-bg);
+  padding: 12px;
+}
+
+.profile-metric-label {
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.profile-metric-value {
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.profile-hint {
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+
+.profile-fx-message {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-bg);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-h);
 }
 
 /* Пустое состояние */

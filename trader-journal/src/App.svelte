@@ -1,12 +1,14 @@
 <script>
-  import { onMount } from 'svelte';
-  import { trades, templates } from './lib/stores';
+  import { trades } from './lib/stores';
   import { formatDate, formatNumber, calculateStats } from './lib/utils';
+  import { parseMt5ReportHtml } from './lib/mt5Parser';
   import TradeForm from './components/TradeForm.svelte';
   import TemplatesPanel from './components/TemplatesPanel.svelte';
   import Statistics from './components/Statistics.svelte';
+  import ProfileModal from './components/ProfileModal.svelte';
   
   let showForm = false;
+  let showProfile = false;
   let currentTrade = null;
   let formMode = 'add';
   let activeTab = 'open';
@@ -17,7 +19,7 @@
   
   function editTrade(trade) {
     currentTrade = trade;
-    formMode = 'edit';
+    formMode = trade?.status === 'closed' ? 'edit-closed' : 'edit';
     showForm = true;
   }
   
@@ -27,9 +29,16 @@
     showForm = true;
   }
   
-  function deleteTrade(id) {
+  function deleteTrade(trade) {
     if (confirm('Удалить сделку?')) {
-      $trades.deleteTrade(id);
+      trades.deleteTrade(trade);
+    }
+  }
+
+  function clearClosedTrades() {
+    if (closedTrades.length === 0) return;
+    if (confirm(`Удалить все закрытые сделки (${closedTrades.length})?`)) {
+      trades.deleteClosedTrades();
     }
   }
   
@@ -52,22 +61,46 @@
   
   function importData(event) {
     const file = event.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const data = JSON.parse(e.target.result);
-          $trades.importTrades(data);
-          alert('Данные импортированы');
-        } catch (err) {
-          alert('Ошибка импорта');
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const raw = String(e.target.result || '');
+        const fileName = file.name.toLowerCase();
+        const isHtml = fileName.endsWith('.html') || fileName.endsWith('.htm');
+
+        if (isHtml) {
+          const parsed = parseMt5ReportHtml(raw);
+          if (!parsed.reportType || parsed.trades.length === 0) {
+            alert('Файл не распознан как отчет MT5 или не содержит сделок');
+            return;
+          }
+
+          const existingById = new Map($trades.map((trade) => [trade.id, trade]));
+          for (const importedTrade of parsed.trades) {
+            existingById.set(importedTrade.id, importedTrade);
+          }
+
+          trades.importTrades(Array.from(existingById.values()));
+          alert(`Импортировано из MT5 (${parsed.reportType}): ${parsed.trades.length} сделок`);
+          event.target.value = '';
+          return;
         }
-      };
-      reader.readAsText(file);
-    }
+
+        const data = JSON.parse(raw);
+        trades.importTrades(data);
+        alert('JSON-данные импортированы');
+      } catch (err) {
+        alert('Ошибка импорта файла');
+      } finally {
+        event.target.value = '';
+      }
+    };
+    reader.readAsText(file);
   }
   
-  function applyTemplate(template) {
+  function applyTemplate() {
     currentTrade = null;
     formMode = 'add';
     showForm = true;
@@ -79,10 +112,11 @@
     <h1>📊 Журнал трейдера</h1>
     <div class="btn-group">
       <button class="btn btn-primary" on:click={addNew}>+ Новая сделка</button>
+      <button class="btn" on:click={() => showProfile = true}>👤 Профиль</button>
       <button class="btn" on:click={exportData}>📤 Экспорт</button>
       <label class="btn import-label">
-        📥 Импорт
-        <input type="file" accept=".json" on:change={importData} hidden />
+        📥 Импорт (JSON/MT5 HTML)
+        <input type="file" accept=".json,.html,.htm" on:change={importData} hidden />
       </label>
     </div>
   </div>
@@ -133,7 +167,7 @@
                   <div class="btn-group">
                     <button class="btn btn-sm" on:click={() => editTrade(trade)}>✏️</button>
                     <button class="btn btn-sm btn-success" on:click={() => handleCloseTrade(trade)}>✅</button>
-                    <button class="btn btn-sm btn-danger" on:click={() => deleteTrade(trade.id)}>🗑️</button>
+                    <button class="btn btn-sm btn-danger" on:click={() => deleteTrade(trade)}>🗑️</button>
                   </div>
                 </td>
               </tr>
@@ -147,6 +181,9 @@
       {#if closedTrades.length === 0}
         <div class="empty-state">📭 Нет закрытых сделок</div>
       {:else}
+        <div class="closed-actions">
+          <button class="btn btn-danger" on:click={clearClosedTrades}>🧹 Удалить все закрытые</button>
+        </div>
         <table class="trades-table">
           <thead>
             <tr>
@@ -175,7 +212,7 @@
                 <td>
                   <div class="btn-group">
                     <button class="btn btn-sm" on:click={() => editTrade(trade)}>✏️</button>
-                    <button class="btn btn-sm btn-danger" on:click={() => deleteTrade(trade.id)}>🗑️</button>
+                    <button class="btn btn-sm btn-danger" on:click={() => deleteTrade(trade)}>🗑️</button>
                   </div>
                 </td>
               </tr>
@@ -189,4 +226,5 @@
   {/if}
   
   <TradeForm bind:open={showForm} trade={currentTrade} mode={formMode} />
+  <ProfileModal bind:open={showProfile} {closedTrades} />
 </div>

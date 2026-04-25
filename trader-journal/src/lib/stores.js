@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { v4 as uuidv4 } from 'uuid';
 import { DEFAULT_TEMPLATES } from './constants';
 
 // Загрузка данных из localStorage
@@ -12,15 +13,34 @@ function saveData(key, data) {
   localStorage.setItem(key, JSON.stringify(data));
 }
 
+function normalizeTrade(trade) {
+  const safeTrade = trade && typeof trade === 'object' ? trade : {};
+  return {
+    ...safeTrade,
+    id: safeTrade.id || uuidv4()
+  };
+}
+
+const DEFAULT_USER_PROFILE = {
+  traderName: '',
+  accountCurrency: 'USD',
+  initialCapital: 10000,
+  riskPerTradePercent: 1,
+  dailyLossLimitPercent: 3,
+  monthlyTargetPercent: 5,
+  commissionPerLot: 0,
+  notes: ''
+};
+
 // Создаем хранилище для сделок
 function createTradesStore() {
-  const initialState = loadData('trades', []);
+  const initialState = loadData('trades', []).map(normalizeTrade);
   const { subscribe, set, update } = writable(initialState);
   
   return {
     subscribe,
     addTrade: (trade) => update(trades => {
-      const newTrades = [...trades, trade];
+      const newTrades = [...trades, normalizeTrade(trade)];
       saveData('trades', newTrades);
       return newTrades;
     }),
@@ -29,14 +49,29 @@ function createTradesStore() {
       saveData('trades', newTrades);
       return newTrades;
     }),
-    deleteTrade: (id) => update(trades => {
-      const newTrades = trades.filter(t => t.id !== id);
+    deleteTrade: (targetTrade) => update(trades => {
+      const newTrades = trades.filter((t) => {
+        if (targetTrade?.id && t.id) return t.id !== targetTrade.id;
+        return !(
+          t.dateOpen === targetTrade?.dateOpen &&
+          t.pair === targetTrade?.pair &&
+          t.priceOpen === targetTrade?.priceOpen &&
+          t.volume === targetTrade?.volume &&
+          t.status === targetTrade?.status
+        );
+      });
+      saveData('trades', newTrades);
+      return newTrades;
+    }),
+    deleteClosedTrades: () => update((trades) => {
+      const newTrades = trades.filter((t) => t.status !== 'closed');
       saveData('trades', newTrades);
       return newTrades;
     }),
     importTrades: (trades) => {
-      set(trades);
-      saveData('trades', trades);
+      const normalizedTrades = Array.isArray(trades) ? trades.map(normalizeTrade) : [];
+      set(normalizedTrades);
+      saveData('trades', normalizedTrades);
     },
     exportTrades: () => {
       let trades;
@@ -71,5 +106,27 @@ function createTemplatesStore() {
   };
 }
 
+function createUserProfileStore() {
+  const initialState = {
+    ...DEFAULT_USER_PROFILE,
+    ...loadData('userProfile', DEFAULT_USER_PROFILE)
+  };
+  const { subscribe, set, update } = writable(initialState);
+
+  return {
+    subscribe,
+    updateProfile: (profileData) => update((profile) => {
+      const next = { ...profile, ...profileData };
+      saveData('userProfile', next);
+      return next;
+    }),
+    resetProfile: () => {
+      set(DEFAULT_USER_PROFILE);
+      saveData('userProfile', DEFAULT_USER_PROFILE);
+    }
+  };
+}
+
 export const trades = createTradesStore();
 export const templates = createTemplatesStore();
+export const userProfile = createUserProfileStore();
