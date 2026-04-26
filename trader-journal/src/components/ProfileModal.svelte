@@ -1,10 +1,16 @@
 <script>
-  import { userProfile } from '../lib/stores';
+  import { trades, userProfile } from '../lib/stores';
   import { convertAmount, formatNumber, getConversionQuote } from '../lib/utils';
+  import { getDisciplineScore, getDisciplinedPnL } from '../lib/risk';
   import Modal from './Modal.svelte';
 
   export let open = false;
   export let closedTrades = [];
+
+  $: discipline = getDisciplineScore($trades);
+  $: disciplinedPnL = getDisciplinedPnL(closedTrades);
+  $: totalClosedPnLRaw = closedTrades.reduce((s, t) => s + (Number(t.profit) || 0), 0);
+  $: pnlGap = totalClosedPnLRaw - disciplinedPnL;
 
   let formData = {
     traderName: '',
@@ -168,6 +174,22 @@
       <div class="profile-metric">
         <div class="profile-metric-label">Цель на год</div>
         <div class="profile-metric-value">{formatNumber(goalYearAmount, 2)} {formData.accountCurrency}</div>
+      </div>
+      <div class="profile-metric">
+        <div class="profile-metric-label">Дисциплина</div>
+        <div class="profile-metric-value {discipline.score >= 95 ? 'profit' : discipline.score >= 80 ? '' : 'loss'}">
+          {formatNumber(discipline.score, 1)}%
+        </div>
+        <div class="profile-metric-sub">
+          {#if discipline.violationsCount > 0}
+            {discipline.violationsCount} нарушений в {discipline.total - discipline.clean} сделках
+            {#if pnlGap !== 0}
+              · разрыв PnL <span class={pnlGap >= 0 ? 'loss' : 'profit'}>{formatNumber(pnlGap, 2)}</span>
+            {/if}
+          {:else}
+            {discipline.total} сделок без нарушений
+          {/if}
+        </div>
       </div>
     </div>
 

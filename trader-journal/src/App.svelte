@@ -20,6 +20,8 @@
   import TemplatesPanel from './components/TemplatesPanel.svelte';
   import Statistics from './components/Statistics.svelte';
   import ProfileModal from './components/ProfileModal.svelte';
+  import Toasts from './components/Toasts.svelte';
+  import RiskHud from './components/RiskHud.svelte';
 
   let showForm = false;
   let showProfile = false;
@@ -270,6 +272,8 @@
       </div>
     </div>
   </div>
+
+  <RiskHud />
 
   <TemplatesPanel on:apply={applyTemplate} />
 
@@ -536,6 +540,8 @@
   <TradeForm bind:open={showForm} trade={currentTrade} mode={formMode} />
   <ProfileModal bind:open={showProfile} {closedTrades} />
 </div>
+
+<Toasts />
 
 <style>
   .table-toolbar {

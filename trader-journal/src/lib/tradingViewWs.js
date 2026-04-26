@@ -19,7 +19,10 @@ const URL = 'wss://data.tradingview.com/socket.io/websocket';
 const AUTH_TOKEN = 'unauthorized_user_token';
 
 // Включи в DevTools-консоли: `localStorage.debugWs = '1'; location.reload()`
-const DEBUG = typeof localStorage !== 'undefined' && localStorage.getItem('debugWs') === '1';
+const DEBUG = (() => {
+  try { return typeof localStorage !== 'undefined' && localStorage.getItem('debugWs') === '1'; }
+  catch { return false; }
+})();
 
 function randomSession(prefix) {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';

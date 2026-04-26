@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Личные торговые отчёты / PII (не коммитить ни при каких условиях)
+otchet/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

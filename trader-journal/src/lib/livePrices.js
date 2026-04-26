@@ -262,7 +262,8 @@ function createLivePrices() {
 export const livePrices = createLivePrices();
 
 // Глобальная диагностика: открой консоль → `__livePrices.snapshot()`
-if (typeof window !== 'undefined') {
+// Доступно только в dev-сборке, чтобы не светить внутреннее API в проде.
+if (typeof window !== 'undefined' && import.meta.env?.DEV) {
   let lastSnap = {};
   livePrices.subscribe((m) => { lastSnap = m; });
   let lastPing = {};
@@ -272,7 +273,13 @@ if (typeof window !== 'undefined') {
     snapshot: () => lastSnap,
     ping: () => lastPing,
     debug: () => livePrices._debug(),
-    enableLog: () => { localStorage.setItem('debugWs', '1'); console.log('debugWs включён, перезагрузи страницу'); },
-    disableLog: () => { localStorage.removeItem('debugWs'); console.log('debugWs выключен, перезагрузи страницу'); }
+    enableLog: () => {
+      try { localStorage.setItem('debugWs', '1'); } catch (_) {}
+      console.log('debugWs включён, перезагрузи страницу');
+    },
+    disableLog: () => {
+      try { localStorage.removeItem('debugWs'); } catch (_) {}
+      console.log('debugWs выключен, перезагрузи страницу');
+    }
   };
 }

@@ -339,8 +339,8 @@ export async function fetchMarketPricesBatch(pairs, opts = {}) {
   return out;
 }
 
-/** Чтобы проверить из консоли в дев-режиме. */
-if (typeof window !== 'undefined') {
+/** Чтобы проверить из консоли в дев-режиме. В проде не вешаем на window. */
+if (typeof window !== 'undefined' && import.meta.env?.DEV) {
   window.__fetchMarketPrice = fetchMarketPrice;
   window.__fetchMarketPricesBatch = fetchMarketPricesBatch;
 }

@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
 import { DEFAULT_CONTRACT_SIZE_BY_SYMBOL, normalizeSymbolKey } from './constants';
 
-function getContractSize(symbol) {
+export function getContractSize(symbol) {
   const key = normalizeSymbolKey(symbol);
   if (!key) return 1;
 

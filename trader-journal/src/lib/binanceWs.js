@@ -15,7 +15,10 @@
 const URL = 'wss://stream.binance.com:9443/stream';
 
 // Включи в DevTools-консоли: `localStorage.debugWs = '1'; location.reload()`
-const DEBUG = typeof localStorage !== 'undefined' && localStorage.getItem('debugWs') === '1';
+const DEBUG = (() => {
+  try { return typeof localStorage !== 'undefined' && localStorage.getItem('debugWs') === '1'; }
+  catch { return false; }
+})();
 
 export class BinanceWs {
   /**

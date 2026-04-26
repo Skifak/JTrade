@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { toasts } from './toasts';
 
 export const THEMES = [
   { id: 'light', label: 'Белая' },
@@ -11,8 +12,12 @@ const DEFAULT_THEME = 'light';
 
 function readInitialTheme() {
   if (typeof localStorage === 'undefined') return DEFAULT_THEME;
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved && THEMES.some((t) => t.id === saved)) return saved;
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved && THEMES.some((t) => t.id === saved)) return saved;
+  } catch (err) {
+    console.warn('[theme] localStorage.getItem failed:', err);
+  }
   return DEFAULT_THEME;
 }
 
@@ -33,7 +38,10 @@ function createThemeStore() {
       const next = THEMES.some((t) => t.id === value) ? value : DEFAULT_THEME;
       try {
         localStorage.setItem(STORAGE_KEY, next);
-      } catch (_) {}
+      } catch (err) {
+        console.warn('[theme] localStorage.setItem failed:', err);
+        toasts.warn('Не удалось сохранить тему в localStorage.');
+      }
       applyThemeToDom(next);
       set(next);
     }
