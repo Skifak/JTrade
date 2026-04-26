@@ -4,8 +4,14 @@
     getEquityCurve,
     getPnLByHour,
     getPnLByWeekday,
-    getStatsByTag
+    getStatsByTag,
+    getStatsByPlay,
+    getStatsByBiasAlignment
   } from '../lib/risk';
+  import { getPnLByKillzone, primaryKillzone, killzoneLabel, KILLZONES } from '../lib/killzones';
+  import { strategies, flattenPlays } from '../lib/playbooks';
+  import { htfBias, findActiveBias, isAlignedWithBias } from '../lib/htfBias';
+  import { prettyTag, isIctTag } from '../lib/ictTaxonomy';
 
   export let stats;
   export let closedTrades = [];
@@ -20,6 +26,8 @@
   let periodFilter = 'all';   // all | day | week | month | 3m | year
   let directionFilter = 'all'; // all | long | short
   let tagFilter = 'all';       // all | <tag>
+  let playFilter = 'all';      // all | <strategyId:playId>
+  let kzFilter = 'all';        // all | <kzId>
   let disciplinedOnly = false;
 
   const periods = [
@@ -65,12 +73,26 @@
       if (start && t.dateClose && new Date(t.dateClose) < start) return false;
       if (directionFilter !== 'all' && t.direction !== directionFilter) return false;
       if (tagFilter !== 'all' && !(Array.isArray(t.tags) && t.tags.includes(tagFilter))) return false;
+      if (playFilter !== 'all') {
+        const key = t.strategyId && t.playId ? `${t.strategyId}:${t.playId}` : '__none';
+        if (playFilter === '__none' ? key !== '__none' : key !== playFilter) return false;
+      }
+      if (kzFilter !== 'all') {
+        const id = t.killzone || primaryKillzone(t.dateOpen) || '_OUT';
+        if (id !== kzFilter) return false;
+      }
       if (disciplinedOnly && Array.isArray(t.ruleViolations) && t.ruleViolations.length > 0) return false;
       return true;
     });
   })();
 
-  $: hasFilter = periodFilter !== 'all' || directionFilter !== 'all' || tagFilter !== 'all' || disciplinedOnly;
+  $: hasFilter =
+    periodFilter !== 'all' ||
+    directionFilter !== 'all' ||
+    tagFilter !== 'all' ||
+    playFilter !== 'all' ||
+    kzFilter !== 'all' ||
+    disciplinedOnly;
 
   // Агрегаты для шапки фильтров
   $: filteredAgg = (() => {
@@ -85,8 +107,28 @@
     periodFilter = 'all';
     directionFilter = 'all';
     tagFilter = 'all';
+    playFilter = 'all';
+    kzFilter = 'all';
     disciplinedOnly = false;
   }
+
+  // ============================================================
+  // PLAY / BIAS / KILLZONE — мета и аналитика
+  // ============================================================
+  $: playOptions = flattenPlays($strategies);
+  $: playMeta = (() => {
+    const m = {};
+    for (const p of playOptions) m[p.strategyId + ':' + p.playId] = { strategyName: p.strategyName, playName: p.playName };
+    return m;
+  })();
+  $: byKZ = getPnLByKillzone(filtered);
+  $: byPlay = getStatsByPlay(filtered, playMeta);
+  $: biasMap = $htfBias;
+  $: byBias = getStatsByBiasAlignment(filtered, (t) => {
+    const ref = t.dateOpen || t.dateClose;
+    const bias = findActiveBias(biasMap, t.pair, ref ? new Date(ref) : new Date());
+    return isAlignedWithBias(bias, t.direction);
+  });
 
   // ============================================================
   // EQUITY CURVE — улучшенная
@@ -461,11 +503,35 @@
         <select class="filter-select" bind:value={tagFilter}>
           <option value="all">Все теги</option>
           {#each allTags as tg}
-            <option value={tg}>{tg}</option>
+            <option value={tg}>{isIctTag(tg) ? prettyTag(tg) : tg}</option>
           {/each}
         </select>
       </div>
     {/if}
+
+    {#if playOptions.length > 0}
+      <div class="filter-group">
+        <span class="filter-label">Setup</span>
+        <select class="filter-select" bind:value={playFilter}>
+          <option value="all">Все сетапы</option>
+          <option value="__none">Без сетапа</option>
+          {#each playOptions as p}
+            <option value={`${p.strategyId}:${p.playId}`}>{p.full}</option>
+          {/each}
+        </select>
+      </div>
+    {/if}
+
+    <div class="filter-group">
+      <span class="filter-label">Killzone</span>
+      <select class="filter-select" bind:value={kzFilter}>
+        <option value="all">Все KZ</option>
+        {#each KILLZONES as kz}
+          <option value={kz.id}>{kz.label}</option>
+        {/each}
+        <option value="_OUT">Вне KZ</option>
+      </select>
+    </div>
 
     <div class="filter-group">
       <label class="filter-check">
@@ -711,6 +777,132 @@ avg/сделка: ${b.avgVal >= 0 ? '+' : ''}${formatNumber(b.avgVal, 2)} ${curr
     </div>
   {/if}
 
+  <!-- PnL by Killzone -->
+  {#if byKZ.some((b) => b.count > 0)}
+    {@const kzMax = Math.max(1, ...byKZ.map((b) => Math.abs(b.sum)))}
+    <h3 class="stats-section-title">
+      PnL по killzone (NY-time)
+      <span class="section-meta">
+        Где твой edge: окна с положительным средним = твоя зона. Отрицательные → выкидывай или backtest.
+      </span>
+    </h3>
+    <div class="chart-wrap">
+      <div class="axis-legend">
+        <span><b>Bar</b> — суммарный PnL за окно, {currency}</span>
+        <span><b>WR</b> — % прибыльных в этом KZ</span>
+        <span class="muted-legend">Killzones — рассчитываются по дате открытия в America/New_York с DST.</span>
+      </div>
+      <table class="kz-table">
+        <thead>
+          <tr>
+            <th>Killzone</th>
+            <th class="num">Сделок</th>
+            <th class="num">WR</th>
+            <th class="num">Net PnL</th>
+            <th>График</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each byKZ as b}
+            {@const wr = b.count ? (b.wins / b.count) * 100 : 0}
+            {@const ratio = Math.abs(b.sum) / kzMax}
+            <tr class:dim={b.count === 0}>
+              <td><span class="kz-tag-cell" title={b.hint}>{b.label}</span></td>
+              <td class="num">{b.count}</td>
+              <td class="num">{b.count ? formatNumber(wr, 1) + '%' : '—'}</td>
+              <td class="num {b.sum >= 0 ? 'profit' : 'loss'}">
+                {b.count ? (b.sum >= 0 ? '+' : '') + formatNumber(b.sum, 2) : '—'}
+              </td>
+              <td class="kz-bar-cell">
+                {#if b.count > 0}
+                  <div class="kz-bar-track">
+                    <div
+                      class="kz-bar-fill {b.sum >= 0 ? 'pos' : 'neg'}"
+                      style="width: {Math.max(2, ratio * 100)}%"
+                    ></div>
+                  </div>
+                {/if}
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  {/if}
+
+  <!-- PnL by Play (плейбуки) -->
+  {#if byPlay.length > 0}
+    <h3 class="stats-section-title">
+      По сетапам (плейбукам)
+      <span class="section-meta">
+        Какой play твой кормилец, какой — слив. Profit Factor &lt; 1 → переписать или выкинуть.
+      </span>
+    </h3>
+    <div class="axis-legend in-table">
+      <span><b>Expectancy</b> — средний PnL на сделку этого сетапа</span>
+      <span><b>PF</b> — Σ прибыли ÷ Σ убытков</span>
+      <span class="muted-legend">Привязка через поле strategyId/playId сделки. Если в сделке нет связи — она не попадает в эту таблицу.</span>
+    </div>
+    <div class="tag-table-wrap">
+      <table class="tag-table">
+        <thead>
+          <tr>
+            <th>Стратегия</th>
+            <th>Setup</th>
+            <th class="num">Сделок</th>
+            <th class="num">WR</th>
+            <th class="num">Net PnL</th>
+            <th class="num">Expectancy</th>
+            <th class="num">PF</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each byPlay as p}
+            <tr>
+              <td><span class="strategy-cell">{p.meta.strategyName}</span></td>
+              <td><span class="play-cell">{p.meta.playName}</span></td>
+              <td class="num">{p.count}</td>
+              <td class="num">{formatNumber(p.winRate, 1)}%</td>
+              <td class="num {p.sum >= 0 ? 'profit' : 'loss'}">{formatNumber(p.sum, 2)}</td>
+              <td class="num {p.expectancy >= 0 ? 'profit' : 'loss'}">{formatNumber(p.expectancy, 2)}</td>
+              <td class="num">{Number.isFinite(p.profitFactor) ? formatNumber(p.profitFactor, 2) : '∞'}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  {/if}
+
+  <!-- Aligned with HTF bias -->
+  {#if (byBias.aligned.count + byBias.against.count) > 0}
+    <h3 class="stats-section-title">
+      Совпадение с HTF Bias
+      <span class="section-meta">
+        Если "против" зарабатывает столько же, как "по" — твой bias предсказательной силы не имеет.
+      </span>
+    </h3>
+    <div class="bias-grid">
+      {#each [['aligned', 'По bias', byBias.aligned], ['against', 'Против bias', byBias.against], ['unknown', 'Bias не задан', byBias.unknown]] as [k, lbl, b]}
+        {@const wr = b.count ? (b.wins / b.count) * 100 : 0}
+        <div class="bias-card {k}">
+          <div class="bias-card-label">{lbl}</div>
+          <div class="bias-card-row">
+            <span>Сделок</span><strong>{b.count}</strong>
+          </div>
+          <div class="bias-card-row">
+            <span>WR</span><strong>{b.count ? formatNumber(wr, 1) + '%' : '—'}</strong>
+          </div>
+          <div class="bias-card-row">
+            <span>Net PnL</span>
+            <strong class={b.sum >= 0 ? 'profit' : 'loss'}>
+              {b.count ? (b.sum >= 0 ? '+' : '') + formatNumber(b.sum, 2) : '—'}
+            </strong>
+          </div>
+        </div>
+      {/each}
+    </div>
+  {/if}
+
   {#if tagStats.length > 0}
     <h3 class="stats-section-title">По тегам сетапов</h3>
     <div class="axis-legend in-table">
@@ -734,7 +926,7 @@ avg/сделка: ${b.avgVal >= 0 ? '+' : ''}${formatNumber(b.avgVal, 2)} ${curr
         <tbody>
           {#each tagStats as t}
             <tr>
-              <td><span class="tag-pill">{t.tag}</span></td>
+              <td><span class="tag-pill">{isIctTag(t.tag) ? prettyTag(t.tag) : t.tag}</span></td>
               <td class="num">{t.count}</td>
               <td class="num">{formatNumber(t.winRate, 1)}%</td>
               <td class="num {t.sum >= 0 ? 'profit' : 'loss'}">{formatNumber(t.sum, 2)}</td>
@@ -1052,5 +1244,97 @@ avg/сделка: ${b.avgVal >= 0 ? '+' : ''}${formatNumber(b.avgVal, 2)} ${curr
     color: var(--text);
     font-size: 12px;
     border: 1px solid var(--border);
+  }
+
+  /* ---- KZ table ---- */
+  .kz-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .kz-table th, .kz-table td {
+    padding: 7px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .kz-table th {
+    background: var(--bg-2);
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+  }
+  .kz-table tr.dim { opacity: 0.4; }
+  .kz-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .kz-tag-cell {
+    display: inline-block;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-2);
+    font-size: 11.5px;
+    color: var(--text-strong);
+  }
+  .kz-bar-cell { width: 240px; }
+  .kz-bar-track {
+    width: 100%;
+    height: 10px;
+    background: var(--bg-3);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .kz-bar-fill {
+    height: 100%;
+    transition: width 200ms ease;
+  }
+  .kz-bar-fill.pos { background: var(--profit); }
+  .kz-bar-fill.neg { background: var(--loss); }
+
+  .strategy-cell {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .play-cell {
+    font-size: 12.5px;
+    color: var(--text-strong);
+    font-weight: 600;
+  }
+
+  /* ---- Bias grid ---- */
+  .bias-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    margin: 0 20px 16px;
+  }
+  .bias-card {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-2);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .bias-card.aligned { border-left: 3px solid var(--profit); }
+  .bias-card.against { border-left: 3px solid var(--loss); }
+  .bias-card.unknown { border-left: 3px solid var(--text-muted); opacity: 0.85; }
+  .bias-card-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    font-weight: 700;
+  }
+  .bias-card-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+  }
+  .bias-card-row span { color: var(--text-muted); }
+  .bias-card-row strong {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-strong);
   }
 </style>

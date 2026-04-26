@@ -22,6 +22,9 @@
     { id: 'quickstart',    icon: '▶',  title: 'Быстрый старт' },
     { id: 'profile',       icon: '◉',  title: 'Профиль и риск' },
     { id: 'trades',        icon: '⇆',  title: 'Сделки' },
+    { id: 'playbooks',     icon: '♚',  title: 'Плейбуки и ICT' },
+    { id: 'killzones',     icon: '⏰', title: 'Killzones' },
+    { id: 'bias',          icon: '⇡',  title: 'HTF Bias' },
     { id: 'risk-hud',      icon: '▤',  title: 'Risk HUD' },
     { id: 'pre-trade',     icon: '⚖',  title: 'Pre-trade gate' },
     { id: 'anti-revenge',  icon: '⏸',  title: 'Anti-revenge' },
@@ -297,6 +300,124 @@
         <div class="formula-sub">
           <strong>side</strong> = +1 для long, −1 для short.&nbsp;
           <strong>contractSize</strong> зависит от инструмента: 100&nbsp;000 (FX-major), 100 (XAU), 1 (BTC/ETH/XRP), 10 (XAG), и т.д.
+        </div>
+      </div>
+    </section>
+
+    <!-- PLAYBOOKS / ICT -->
+    <section id="playbooks" class="guide-section">
+      <h2><span class="num">♚</span>Плейбуки и ICT-таксономия</h2>
+      <p class="lead">
+        Стратегия — это набор сетапов (plays). Каждый play — отдельный сценарий с правилами входа,
+        отмены идеи, требованиями к killzone и HTF bias. Сделка ссылается на конкретный play, и
+        в статистике ты видишь его win-rate, expectancy и Profit Factor отдельно.
+      </p>
+
+      <div class="cols-2">
+        <div class="info-card">
+          <h4>Зачем</h4>
+          <ul>
+            <li>Хаотичный «journal-стиль» (всё в кучу) не отвечает на вопрос «<em>какой именно сетап работает</em>».</li>
+            <li>Плейбук режет статистику по логически разным сценариям — ICT FVG+OTE ≠ Silver Bullet ≠ Judas reverse.</li>
+            <li>Pre-trade чек-лист гарантирует, что без обязательных правил сделка не пройдёт без явного «переступаю».</li>
+          </ul>
+        </div>
+        <div class="info-card">
+          <h4>Структура play</h4>
+          <ul>
+            <li><strong>Preconditions</strong> — что должно быть на графике <em>до</em> входа.</li>
+            <li><strong>Entry conditions</strong> — что подтверждает момент входа.</li>
+            <li><strong>Invalidations</strong> — что отменяет идею (закрытие за уровнем).</li>
+            <li><strong>Killzones</strong> — окна, где этот play валиден.</li>
+            <li><strong>HTF requirement</strong>: aligned (по bias) / against (Judas) / any.</li>
+            <li><strong>R:R</strong> — минимальный и таргет.</li>
+          </ul>
+        </div>
+        <div class="info-card">
+          <h4>ICT-таксономия (теги)</h4>
+          <ul>
+            <li><b>Narrative</b>: Judas Swing, Power of 3, Turtle Soup, SMT, Sweep&Reverse.</li>
+            <li><b>Structure</b>: MSS, CHoCH, BSL/SSL grab.</li>
+            <li><b>POI</b>: FVG, iFVG, OB, Breaker, Mitigation, Rejection.</li>
+            <li><b>Execution</b>: OTE 62/70.5/79, Equilibrium, Premium/Discount.</li>
+          </ul>
+        </div>
+        <div class="info-card">
+          <h4>В сделке</h4>
+          <ul>
+            <li>Выбираешь <em>Стратегия → Setup</em> в форме новой сделки.</li>
+            <li>Появляется чек-лист правил из play. Required-пункты блокируют сохранение без явного подтверждения.</li>
+            <li>В таблице открытых/закрытых сделок появляется колонка «KZ · Setup».</li>
+            <li>В Статистике — фильтр «Setup» и таблица «По сетапам» с PF/expectancy на каждый play.</li>
+          </ul>
+        </div>
+      </div>
+
+      <p class="lead">
+        Стартовый набор: <b>ICT — базовый</b> с тремя play (FVG+OTE в London KZ, Silver Bullet 10–11 NY, Judas reverse).
+        Можно добавлять свои стратегии и play в табе «Плейбуки», экспортировать/импортировать как JSON.
+      </p>
+    </section>
+
+    <!-- KILLZONES -->
+    <section id="killzones" class="guide-section">
+      <h2><span class="num">⏰</span>Killzones — окна повышенной ликвидности</h2>
+      <p class="lead">
+        Killzone определяется автоматически по <code>dateOpen</code> сделки в часовом поясе
+        <strong>America/New_York</strong> (DST учитывается). Сохраняется в поле <code>killzone</code>
+        и используется для аналитики.
+      </p>
+
+      <div class="cols-2">
+        <div class="info-card">
+          <h4>Окна (NY-time)</h4>
+          <ul>
+            <li><b>Asia</b> 20:00 → 00:00 — построение премиум/дискаунт диапазона.</li>
+            <li><b>London Open</b> 02:00 → 05:00.</li>
+            <li><b>NY AM</b> 08:30 → 11:00.</li>
+            <li><b>Silver Bullet</b> 10:00 → 11:00 NY — самое узкое окно ICT.</li>
+            <li><b>London Close</b> 10:00 → 12:00.</li>
+            <li><b>NY PM</b> 13:30 → 16:00.</li>
+          </ul>
+        </div>
+        <div class="info-card">
+          <h4>Где используется</h4>
+          <ul>
+            <li>В форме новой сделки — карточка «Killzone (NY-time)» показывает текущий KZ.</li>
+            <li>В таблицах сделок — колонка «KZ · Setup».</li>
+            <li>В Статистике — фильтр «Killzone» и таблица «PnL по killzone».</li>
+            <li>Если play требует конкретные KZ, а сделка вне них — soft-warning при сохранении.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- HTF BIAS -->
+    <section id="bias" class="guide-section">
+      <h2><span class="num">⇡</span>HTF Bias — направленческий контекст</h2>
+      <p class="lead">
+        Раз в день фиксируешь Daily/H4 bias по символу через кнопку <b>Bias</b> в шапке.
+        Сделки против bias автоматически помечаются как нарушение, а в статистике появляется
+        разрез <em>aligned vs against</em> — это валидация твоего HTF-нарратива.
+      </p>
+
+      <div class="cols-2">
+        <div class="info-card">
+          <h4>Что записываешь</h4>
+          <ul>
+            <li><b>Daily / H4</b>: Bull / Neutral / Bear.</li>
+            <li><b>Нарратив</b>: HTF структура, weekly OB, sweep вчера, новости.</li>
+            <li><b>Ключевые уровни</b>: одна строка = <code>price label</code> (PDH, Asia low, FVG…).</li>
+          </ul>
+        </div>
+        <div class="info-card">
+          <h4>Как используется</h4>
+          <ul>
+            <li>В форме сделки — карточка «HTF Bias» с пометкой aligned/против bias.</li>
+            <li>В Pre-trade gate — <em>warn</em> если сделка против bias и play не «against».</li>
+            <li>В Статистике — секция «Совпадение с HTF Bias» (3 карточки: aligned / против / без bias).</li>
+            <li>Bias один на (символ, дата). Если на сегодня нет — берётся последний за 7 дней.</li>
+          </ul>
         </div>
       </div>
     </section>
@@ -664,7 +785,7 @@ Risk:Reward ≥ 1:2
         <div class="info-card">
           <h4>🎨 Темы</h4>
           <ul>
-            <li>Светло-бежевая, тёмно-серая, белая.</li>
+            <li>Светло-бежевая, тёмно-серая, белая, плюс <strong>Неон ICT</strong> (чёрный фон + лайм).</li>
             <li>Переключатель в правом верхнем углу шапки.</li>
             <li>Выбор сохраняется автоматически.</li>
           </ul>

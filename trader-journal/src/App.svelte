@@ -14,10 +14,13 @@
   } from './lib/utils';
   import { parseMt5ReportHtml } from './lib/mt5Parser';
   import { theme, THEMES } from './lib/theme';
+  import { WORLD_CITIES, formatWorldTime } from './lib/worldClock';
   import { livePrices, pingInfo, tickClock } from './lib/livePrices';
   import { normalizeSymbolKey } from './lib/constants';
   import { cooldown } from './lib/cooldown';
   import { checkDailyStop, computeGoalAmount, getDailyPnL } from './lib/risk';
+  import { primaryKillzone, killzoneLabel } from './lib/killzones';
+  import { strategies, findPlay } from './lib/playbooks';
   import TradeForm from './components/TradeForm.svelte';
   import TemplatesPanel from './components/TemplatesPanel.svelte';
   import Statistics from './components/Statistics.svelte';
@@ -26,9 +29,12 @@
   import RiskHud from './components/RiskHud.svelte';
   import DailyReviewModal from './components/DailyReviewModal.svelte';
   import GuideView from './components/GuideView.svelte';
+  import BiasModal from './components/BiasModal.svelte';
+  import PlaybookView from './components/PlaybookView.svelte';
 
   let showForm = false;
   let showProfile = false;
+  let showBias = false;
   let currentTrade = null;
   let formMode = 'add';
   let activeTab = 'open';
@@ -173,6 +179,16 @@
     return { icon: '✍️', title: 'Ручная сделка' };
   }
 
+  function tradeKzLabel(trade) {
+    const id = trade?.killzone || primaryKillzone(trade?.dateOpen);
+    return id ? killzoneLabel(id) : '—';
+  }
+  function tradePlayLabel(trade) {
+    if (!trade?.strategyId || !trade?.playId) return '';
+    const p = findPlay($strategies, trade.strategyId, trade.playId);
+    return p ? p.name : '';
+  }
+
   function editTrade(trade) {
     currentTrade = trade;
     formMode = trade?.status === 'closed' ? 'edit-closed' : 'edit';
@@ -289,7 +305,17 @@
 
 <div class="trader-journal">
   <div class="journal-header">
-    <h1>Журнал трейдера</h1>
+    <div class="header-left">
+      <h1 title="Журнал трейдера">Журнал</h1>
+      <div class="world-clocks" role="timer" aria-live="polite" aria-label="Мировое время">
+        {#each WORLD_CITIES as c}
+          <span class="wc-item" title="{c.name} · {c.tz}">
+            <span class="wc-abbr">{c.abbr}</span>
+            <span class="wc-time mono">{formatWorldTime($tickClock, c.tz)}</span>
+          </span>
+        {/each}
+      </div>
+    </div>
     <div class="header-right">
       <div class="theme-switch" role="group" aria-label="Тема оформления">
         {#each THEMES as t}
@@ -297,9 +323,9 @@
             type="button"
             class:active={$theme === t.id}
             on:click={() => theme.set(t.id)}
-            title="Тема: {t.label}"
+            title={t.label}
           >
-            {t.label}
+            {t.short}
           </button>
         {/each}
       </div>
@@ -309,11 +335,12 @@
           on:click={addNew}
           disabled={tradingBlocked}
           title={tradingBlocked ? tradingBlockedReason : 'Новая сделка'}
-        >+ Новая сделка</button>
-        <button class="btn" on:click={() => showProfile = true}>Профиль</button>
-        <button class="btn" on:click={exportData}>Экспорт</button>
-        <label class="btn import-label">
-          Импорт (JSON / MT5)
+        >+ Сделка</button>
+        <button class="btn" on:click={() => showBias = true} title="HTF Bias">Bias</button>
+        <button class="btn" on:click={() => showProfile = true} title="Профиль">Профиль</button>
+        <button class="btn" on:click={exportData} title="Экспорт JSON">Экспорт</button>
+        <label class="btn import-label" title="Импорт JSON или отчёт MT5 (HTML)">
+          Импорт
           <input type="file" accept=".json,.html,.htm" on:change={importData} hidden />
         </label>
       </div>
@@ -346,6 +373,9 @@
     </button>
     <button class="tab {activeTab === 'stats' ? 'active' : ''}" on:click={() => activeTab = 'stats'}>
       Статистика
+    </button>
+    <button class="tab {activeTab === 'playbooks' ? 'active' : ''}" on:click={() => activeTab = 'playbooks'}>
+      Плейбуки
     </button>
     <button class="tab {activeTab === 'guide' ? 'active' : ''}" on:click={() => activeTab = 'guide'}>
       Гайд
@@ -418,6 +448,7 @@
               <th>Рынок</th>
               <th>SL</th>
               <th>TP</th>
+              <th title="Killzone (NY) и Setup">KZ · Setup</th>
               <th class="sortable" on:click={() => (openSort = toggleSort(openSort, 'swap'))}>
                 Своп{sortIndicator(openSort, 'swap')}
               </th>
@@ -463,6 +494,12 @@
                 </td>
                 <td class="mono">{trade.sl ? formatPrice(trade.sl) : '-'}</td>
                 <td class="mono">{trade.tp ? formatPrice(trade.tp) : '-'}</td>
+                <td class="kz-cell">
+                  <span class="kz-tag">{tradeKzLabel(trade)}</span>
+                  {#if tradePlayLabel(trade)}
+                    <span class="play-tag" title={tradePlayLabel(trade)}>{tradePlayLabel(trade)}</span>
+                  {/if}
+                </td>
                 <td class={Number(trade.swap) >= 0 ? 'profit' : 'loss'}>
                   {formatNumber(Number(trade.swap) || 0, 2)}
                 </td>
@@ -520,6 +557,7 @@
               <th>Объем</th>
               <th>Откр. / Закр.</th>
               <th>SL / TP</th>
+              <th title="Killzone (NY) и Setup">KZ · Setup</th>
               <th class="sortable" on:click={() => (closedSort = toggleSort(closedSort, 'pips'))}>
                 Pips{sortIndicator(closedSort, 'pips')}
               </th>
@@ -553,6 +591,12 @@
                 <td>{trade.volume}</td>
                 <td class="mono">{formatPrice(trade.priceOpen)} / {formatPrice(trade.priceClose)}</td>
                 <td class="mono">{trade.sl ? formatPrice(trade.sl) : '-'} / {trade.tp ? formatPrice(trade.tp) : '-'}</td>
+                <td class="kz-cell">
+                  <span class="kz-tag">{tradeKzLabel(trade)}</span>
+                  {#if tradePlayLabel(trade)}
+                    <span class="play-tag" title={tradePlayLabel(trade)}>{tradePlayLabel(trade)}</span>
+                  {/if}
+                </td>
                 <td class={pips == null ? '' : pips >= 0 ? 'profit' : 'loss'}>
                   {pips != null ? formatNumber(pips, 1) : '-'}
                 </td>
@@ -580,7 +624,7 @@
           </tbody>
           <tfoot>
             <tr class="totals">
-              <td colspan="11" style="text-align: right;"><strong>Итого:</strong></td>
+              <td colspan="12" style="text-align: right;"><strong>Итого:</strong></td>
               <td class={closedTotals.commission >= 0 ? 'profit' : 'loss'}>
                 {formatNumber(closedTotals.commission, 2)}
               </td>
@@ -598,12 +642,15 @@
     </div>
   {:else if activeTab === 'stats'}
     <Statistics stats={stats} {closedTrades} initialCapital={Number($userProfile?.initialCapital) || 0} currency={$userProfile?.accountCurrency || 'USD'} />
+  {:else if activeTab === 'playbooks'}
+    <PlaybookView />
   {:else if activeTab === 'guide'}
     <GuideView on:openProfile={() => showProfile = true} />
   {/if}
 
   <TradeForm bind:open={showForm} trade={currentTrade} mode={formMode} />
   <ProfileModal bind:open={showProfile} {closedTrades} />
+  <BiasModal bind:open={showBias} />
   <DailyReviewModal
     open={showDailyReview}
     {dailyPnL}
@@ -725,5 +772,35 @@
   .ping-ms {
     color: var(--text-strong);
     font-weight: 600;
+  }
+
+  .kz-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    align-items: flex-start;
+    white-space: nowrap;
+  }
+  .kz-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    background: var(--bg-2);
+    line-height: 1.3;
+  }
+  .play-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 10.5px;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    line-height: 1.3;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 </style>

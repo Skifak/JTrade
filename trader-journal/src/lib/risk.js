@@ -349,6 +349,71 @@ export function evaluateTradeRules(trade, profile, ctx = {}) {
     });
   }
 
+  // Playbook preconditions — required-пункты выбранного play должны быть отмечены.
+  const play = ctx.play;
+  if (play) {
+    const ackedPlay = Array.isArray(ctx.acknowledgedPlayRules) ? ctx.acknowledgedPlayRules : [];
+    const requiredPre = (play.preconditions || []).filter((r) => r.required);
+    const requiredEntry = (play.entryConditions || []).filter((r) => r.required);
+    const allRequired = [...requiredPre, ...requiredEntry];
+    const missedReq = allRequired.filter((r) => !ackedPlay.includes(r.id));
+    if (missedReq.length > 0) {
+      violations.push({
+        severity: 'block',
+        code: 'play-preconditions',
+        message:
+          `Play «${play.name}»: не отмечены обязательные правила ` +
+          `(${missedReq.length} из ${allRequired.length}). ` +
+          `Без них сделка нарушает плейбук.`
+      });
+    }
+
+    // Killzones — если play требует конкретные KZ.
+    if (Array.isArray(play.killzones) && play.killzones.length > 0 && ctx.currentKillzone) {
+      if (!play.killzones.includes(ctx.currentKillzone)) {
+        violations.push({
+          severity: 'warn',
+          code: 'play-killzone',
+          message:
+            `Play «${play.name}» рассчитан на killzones [${play.killzones.join(', ')}]. ` +
+            `Сейчас сделка попадает в ${ctx.currentKillzone}.`
+        });
+      }
+    } else if (Array.isArray(play.killzones) && play.killzones.length > 0 && !ctx.currentKillzone) {
+      violations.push({
+        severity: 'warn',
+        code: 'play-killzone-out',
+        message:
+          `Play «${play.name}» рассчитан на killzones [${play.killzones.join(', ')}], ` +
+          `а сделка открывается вне любых KZ.`
+      });
+    }
+  }
+
+  // HTF Bias — направление сделки должно совпадать с daily/h4 bias.
+  if (ctx.bias && trade?.direction) {
+    const aligned = ctx.biasAligned;
+    const playReq = play?.htfRequirement;
+    if (aligned === false && playReq !== 'against') {
+      violations.push({
+        severity: 'warn',
+        code: 'against-bias',
+        message:
+          `Сделка ${trade.direction === 'long' ? 'Long' : 'Short'} против bias ` +
+          `(${ctx.biasLabel || 'bias установлен в обратную сторону'}). ` +
+          `ICT-сетапы против HTF почти всегда ловят SL.`
+      });
+    } else if (aligned === true && playReq === 'against') {
+      violations.push({
+        severity: 'warn',
+        code: 'play-against-but-aligned',
+        message:
+          `Play «${play.name}» работает только против bias (Judas-style), ` +
+          `а сделка идёт ПО bias.`
+      });
+    }
+  }
+
   return violations;
 }
 
@@ -526,6 +591,72 @@ export function parseNotesChecklist(notes) {
     .split(/\r?\n/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0 && !s.startsWith('#'));
+}
+
+/* ------------------- bias / play analytics ------------------- */
+
+/**
+ * Сравнивает PnL по сделкам "по bias" vs "против bias".
+ * tradeBias(t) -> true|false|null (null = unknown/neutral, не учитывается).
+ */
+export function getStatsByBiasAlignment(closedTrades, tradeAlignedFn) {
+  const buckets = {
+    aligned: { count: 0, sum: 0, wins: 0 },
+    against: { count: 0, sum: 0, wins: 0 },
+    unknown: { count: 0, sum: 0, wins: 0 }
+  };
+  if (!Array.isArray(closedTrades)) return buckets;
+  for (const t of closedTrades) {
+    const a = typeof tradeAlignedFn === 'function' ? tradeAlignedFn(t) : null;
+    const bucket = a === true ? buckets.aligned : a === false ? buckets.against : buckets.unknown;
+    const p = num(t.profit);
+    bucket.count += 1;
+    bucket.sum += p;
+    if (p > 0) bucket.wins += 1;
+  }
+  return buckets;
+}
+
+/**
+ * Сводка по play — winrate / expectancy / PF в разрезе сетапа из плейбука.
+ * tradeKey(t) -> 'strategyId:playId' или null.
+ * playMeta — объект { 'sId:pId': { strategyName, playName } }.
+ */
+export function getStatsByPlay(closedTrades, playMeta = {}) {
+  const map = new Map();
+  if (!Array.isArray(closedTrades)) return [];
+  for (const t of closedTrades) {
+    if (!t.strategyId || !t.playId) continue;
+    const key = `${t.strategyId}:${t.playId}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        strategyId: t.strategyId,
+        playId: t.playId,
+        meta: playMeta[key] || { strategyName: '?', playName: '?' },
+        count: 0,
+        wins: 0,
+        losses: 0,
+        sum: 0,
+        grossWin: 0,
+        grossLoss: 0
+      });
+    }
+    const b = map.get(key);
+    const p = num(t.profit);
+    b.count += 1;
+    b.sum += p;
+    if (p > 0) { b.wins += 1; b.grossWin += p; }
+    else if (p < 0) { b.losses += 1; b.grossLoss += -p; }
+  }
+  return [...map.values()]
+    .map((b) => ({
+      ...b,
+      winRate: b.count ? (b.wins / b.count) * 100 : 0,
+      expectancy: b.count ? b.sum / b.count : 0,
+      profitFactor: b.grossLoss ? b.grossWin / b.grossLoss : (b.grossWin ? Infinity : 0)
+    }))
+    .sort((a, b) => b.sum - a.sum);
 }
 
 /* ------------------- floating PnL aggregate ------------------- */

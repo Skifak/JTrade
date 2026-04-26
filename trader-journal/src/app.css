@@ -1,5 +1,5 @@
 /* =========================================================
-   Trader Journal — строгая десктопная тема (light / beige / dark)
+   Trader Journal — темы: light / beige / dark / neon (ICT-палитра)
    Темы переключаются через [data-theme="..."] на <html>.
    ========================================================= */
 
@@ -67,6 +67,28 @@
             rgba(0, 0, 0, 0.35) 0 2px 6px -2px;
 }
 
+/* Неон ICT: глубокий чёрный, лайм #B3FF50, контуры как на RB-референсе */
+[data-theme='neon'] {
+  --bg: #0b0b0b;
+  --bg-2: #111111;
+  --bg-3: #1a1a1a;
+  --bg-hover: #1e1e1e;
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --text: #e4e4e7;
+  --text-muted: #9ca3af;
+  --text-strong: #fafafa;
+  --accent: #b3ff50;
+  --accent-fg: #0b0b0b;
+  --accent-bg: rgba(179, 255, 80, 0.14);
+  --accent-border: rgba(179, 255, 80, 0.5);
+  --profit: #b3ff50;
+  --loss: #ff5a5a;
+  --warning: #f5c84c;
+  --shadow: rgba(0, 0, 0, 0.75) 0 10px 24px -6px,
+            rgba(179, 255, 80, 0.04) 0 0 0 1px;
+}
+
 :root {
   --sans: 'Inter', system-ui, 'Segoe UI', Roboto, Arial, sans-serif;
   --mono: ui-monospace, 'JetBrains Mono', Consolas, 'SFMono-Regular', monospace;
@@ -114,41 +136,88 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 20px;
+  padding: 6px 16px;
   border-bottom: 1px solid var(--border);
-  gap: 12px;
+  gap: 10px;
   background: var(--bg-2);
   position: sticky;
   top: 0;
   z-index: 50;
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .journal-header h1 {
   margin: 0;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-strong);
-  letter-spacing: 0.2px;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.world-clocks {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  min-width: 0;
+}
+
+.wc-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.wc-abbr {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+.wc-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+  font-size: 11px;
 }
 
 .header-right {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 /* ---------- Кнопки ---------- */
 .btn {
-  padding: 5px 11px;
-  height: 28px;
+  padding: 4px 9px;
+  height: 26px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   border-radius: 4px;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s, color 0.12s;
@@ -233,10 +302,12 @@ body {
   border: none;
   background: transparent;
   color: var(--text-muted);
-  padding: 4px 10px;
-  height: 28px;
+  padding: 3px 8px;
+  min-width: 28px;
+  height: 26px;
   font: inherit;
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 600;
   cursor: pointer;
   border-right: 1px solid var(--border);
   transition: background 0.12s, color 0.12s;
@@ -760,23 +831,27 @@ body {
 
 /* ---------- Скроллбары (dark/beige чтобы вписывались) ---------- */
 [data-theme='dark'] ::-webkit-scrollbar,
+[data-theme='neon'] ::-webkit-scrollbar,
 [data-theme='beige'] ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
 [data-theme='dark'] ::-webkit-scrollbar-track,
+[data-theme='neon'] ::-webkit-scrollbar-track,
 [data-theme='beige'] ::-webkit-scrollbar-track {
   background: var(--bg-2);
 }
 
 [data-theme='dark'] ::-webkit-scrollbar-thumb,
+[data-theme='neon'] ::-webkit-scrollbar-thumb,
 [data-theme='beige'] ::-webkit-scrollbar-thumb {
   background: var(--border-strong);
   border-radius: 6px;
 }
 
 [data-theme='dark'] ::-webkit-scrollbar-thumb:hover,
+[data-theme='neon'] ::-webkit-scrollbar-thumb:hover,
 [data-theme='beige'] ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }

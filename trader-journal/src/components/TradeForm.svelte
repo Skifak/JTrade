@@ -13,8 +13,13 @@
   } from '../lib/risk';
   import { cooldown } from '../lib/cooldown';
   import { tickClock } from '../lib/livePrices';
+  import { strategies, findPlay } from '../lib/playbooks';
+  import { primaryKillzone, killzoneLabel, KILLZONES } from '../lib/killzones';
+  import { ICT_GROUPS, isIctTag, prettyTag } from '../lib/ictTaxonomy';
+  import { htfBias, findActiveBias, isAlignedWithBias, biasLabel } from '../lib/htfBias';
   import Modal from './Modal.svelte';
   import RiskConfirmModal from './RiskConfirmModal.svelte';
+  import BiasModal from './BiasModal.svelte';
 
   export let open = false;
   export let trade = null;
@@ -38,6 +43,10 @@
 
   // Notes checklist — какие пункты уже отметил пользователь
   let acknowledgedChecklist = [];
+  // Playbook checklist — отмеченные правила выбранного play
+  let acknowledgedPlayRules = [];
+  // Bias modal
+  let showBiasModal = false;
 
   $: notesChecklist = parseNotesChecklist($userProfile?.notes);
   $: if (open) {
@@ -50,6 +59,60 @@
     } else {
       acknowledgedChecklist = [...acknowledgedChecklist, item];
     }
+  }
+
+  // ----- Plays / Strategies -----
+  $: selectedPlay = formData.strategyId && formData.playId
+    ? findPlay($strategies, formData.strategyId, formData.playId)
+    : null;
+  $: playRules = selectedPlay
+    ? [
+        ...(selectedPlay.preconditions || []).map((r) => ({ ...r, kind: 'pre' })),
+        ...(selectedPlay.entryConditions || []).map((r) => ({ ...r, kind: 'entry' }))
+      ]
+    : [];
+  $: if (open) {
+    acknowledgedPlayRules = acknowledgedPlayRules.filter((id) => playRules.some((r) => r.id === id));
+  }
+  function togglePlayRule(id) {
+    if (acknowledgedPlayRules.includes(id)) {
+      acknowledgedPlayRules = acknowledgedPlayRules.filter((x) => x !== id);
+    } else {
+      acknowledgedPlayRules = [...acknowledgedPlayRules, id];
+    }
+  }
+  function selectStrategy(stratId) {
+    const strat = $strategies.find((s) => s.id === stratId);
+    formData = {
+      ...formData,
+      strategyId: stratId,
+      playId: strat?.plays?.[0]?.id || null
+    };
+    acknowledgedPlayRules = [];
+  }
+  function selectPlay(pId) {
+    formData = { ...formData, playId: pId };
+    acknowledgedPlayRules = [];
+  }
+  function clearPlay() {
+    formData = { ...formData, strategyId: null, playId: null };
+    acknowledgedPlayRules = [];
+  }
+
+  // ----- Killzone (auto from dateOpen) -----
+  $: kzId = primaryKillzone(formData.dateOpen);
+  $: kzLabel = killzoneLabel(kzId);
+
+  // ----- HTF Bias -----
+  $: activeBias = findActiveBias($htfBias, formData.pair);
+  $: biasAligned = isAlignedWithBias(activeBias, formData.direction);
+  $: biasLabelText = biasLabel(activeBias);
+
+  // ----- ICT tag selector -----
+  function toggleIctTag(key) {
+    const cur = Array.isArray(formData.tags) ? formData.tags : [];
+    const next = cur.includes(key) ? cur.filter((x) => x !== key) : [...cur, key];
+    formData = { ...formData, tags: next };
   }
   
   $: if (trade && open) {
@@ -153,7 +216,13 @@
         closedTrades: closedTradesAll,
         isEditing: mode === 'edit',
         cooldownRemainingMs,
-        acknowledgedChecklist
+        acknowledgedChecklist,
+        play: selectedPlay,
+        acknowledgedPlayRules,
+        currentKillzone: kzId,
+        bias: activeBias,
+        biasAligned,
+        biasLabel: biasLabelText
       })
     : [];
   $: hasBlockingViolation = liveViolations.some((v) => v.severity === 'block');
@@ -216,31 +285,45 @@
       const violations = evaluateTradeRules(formData, $userProfile, {
         openTrades: allTrades.filter((t) => t.status === 'open'),
         closedTrades: allTrades.filter((t) => t.status === 'closed'),
-        isEditing: mode === 'edit'
+        isEditing: mode === 'edit',
+        cooldownRemainingMs,
+        acknowledgedChecklist,
+        play: selectedPlay,
+        acknowledgedPlayRules,
+        currentKillzone: kzId,
+        bias: activeBias,
+        biasAligned,
+        biasLabel: biasLabelText
       });
+      // Прикрепляем killzone к сделке всегда
+      const extra = { killzone: kzId || null };
       if (violations.length > 0) {
         pendingViolations = violations;
         pendingMode = mode;
+        pendingExtra = extra;
         showRiskConfirm = true;
         return;
       }
-      commitTrade({ ruleViolations: [] });
+      commitTrade({ ruleViolations: [], ...extra });
       return;
     }
     commitTrade();
   }
+  let pendingExtra = {};
 
   function onRiskConfirmed() {
     showRiskConfirm = false;
-    commitTrade({ ruleViolations: pendingViolations });
+    commitTrade({ ruleViolations: pendingViolations, ...pendingExtra });
     pendingViolations = [];
     pendingMode = null;
+    pendingExtra = {};
   }
 
   function onRiskCancelled() {
     showRiskConfirm = false;
     pendingViolations = [];
     pendingMode = null;
+    pendingExtra = {};
   }
 
   function closeModal() {
@@ -520,6 +603,127 @@
         </div>
       {/if}
 
+      <!-- Killzone + Bias индикаторы -->
+      <div class="ctx-row">
+        <div class="ctx-card">
+          <div class="ctx-label">Killzone (NY-time)</div>
+          <div class="ctx-value">
+            {#if kzId}
+              <span class="kz-pill on">{kzLabel}</span>
+            {:else}
+              <span class="kz-pill">Вне KZ</span>
+            {/if}
+          </div>
+        </div>
+        <div class="ctx-card">
+          <div class="ctx-label">
+            HTF Bias
+            <button type="button" class="ctx-mini-btn" on:click={() => (showBiasModal = true)}>
+              {activeBias ? '✎' : '+'}
+            </button>
+          </div>
+          <div class="ctx-value">
+            {#if activeBias}
+              <span class="bias-pill {biasAligned === true ? 'on' : biasAligned === false ? 'against' : ''}">
+                {biasLabelText}
+              </span>
+              {#if biasAligned === true}<span class="ctx-flag profit">aligned</span>
+              {:else if biasAligned === false}<span class="ctx-flag loss">против bias</span>
+              {/if}
+            {:else}
+              <span class="bias-pill">не задан</span>
+            {/if}
+          </div>
+        </div>
+      </div>
+
+      <!-- Strategy / Play selector -->
+      {#if $strategies.length > 0}
+        <div class="play-selector">
+          <div class="play-selector-row">
+            <div class="form-group">
+              <label for="strategy-sel">Стратегия</label>
+              <select id="strategy-sel" value={formData.strategyId || ''} on:change={(e) => selectStrategy(e.target.value)}>
+                <option value="">— без плейбука —</option>
+                {#each $strategies as s}
+                  <option value={s.id}>{s.name}</option>
+                {/each}
+              </select>
+            </div>
+            {#if formData.strategyId}
+              {@const strat = $strategies.find((s) => s.id === formData.strategyId)}
+              {#if strat?.plays?.length}
+                <div class="form-group">
+                  <label for="play-sel">Setup</label>
+                  <select id="play-sel" value={formData.playId || ''} on:change={(e) => selectPlay(e.target.value)}>
+                    {#each strat.plays as p}
+                      <option value={p.id}>{p.name}</option>
+                    {/each}
+                  </select>
+                </div>
+              {/if}
+              <button type="button" class="btn btn-sm" on:click={clearPlay}>×</button>
+            {/if}
+          </div>
+          {#if selectedPlay && playRules.length > 0}
+            <div class="play-rules">
+              <div class="play-rules-title">
+                Чек-лист сетапа · «{selectedPlay.name}»
+                {#if selectedPlay.htfRequirement && selectedPlay.htfRequirement !== 'any'}
+                  <span class="play-htf-req">HTF: {selectedPlay.htfRequirement === 'aligned' ? 'по bias' : 'против bias'}</span>
+                {/if}
+              </div>
+              {#each playRules as r}
+                <label class="play-rule">
+                  <input
+                    type="checkbox"
+                    checked={acknowledgedPlayRules.includes(r.id)}
+                    on:change={() => togglePlayRule(r.id)}
+                  />
+                  <span class={acknowledgedPlayRules.includes(r.id) ? 'done' : ''}>
+                    {r.label}
+                    {#if r.required}<em class="req-tag">required</em>{/if}
+                    <em class="rule-kind">{r.kind === 'pre' ? 'precond' : 'entry'}</em>
+                  </span>
+                </label>
+              {/each}
+              {#if selectedPlay.killzones?.length > 0}
+                <div class="play-killzones">
+                  Допустимые KZ: {selectedPlay.killzones.map(killzoneLabel).join(', ')}
+                  · сейчас: <strong>{kzId ? kzLabel : 'вне KZ'}</strong>
+                </div>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      <!-- ICT taxonomy tags -->
+      <div class="ict-tags">
+        <div class="ict-tags-title">Теги ICT (по 4 осям)</div>
+        {#each ICT_GROUPS as group}
+          <div class="ict-group">
+            <div class="ict-group-label" title={group.hint}>{group.label}</div>
+            <div class="ict-group-items">
+              {#each group.items as it}
+                {@const key = `${group.id}:${it.id}`}
+                {@const on = Array.isArray(formData.tags) && formData.tags.includes(key)}
+                <button
+                  type="button"
+                  class="ict-chip {on ? 'on' : ''}"
+                  on:click={() => toggleIctTag(key)}
+                >{it.label}</button>
+              {/each}
+            </div>
+          </div>
+        {/each}
+        {#if Array.isArray(formData.tags) && formData.tags.some((t) => !isIctTag(t))}
+          <div class="ict-tags-extra">
+            Прочие теги: {formData.tags.filter((t) => !isIctTag(t)).join(', ')}
+          </div>
+        {/if}
+      </div>
+
       {#if notesChecklist.length > 0}
         <div class="notes-checklist">
           <div class="notes-checklist-title">📋 Чек-лист из заметок профиля</div>
@@ -582,6 +786,8 @@
   on:confirm={onRiskConfirmed}
   on:close={onRiskCancelled}
 />
+
+<BiasModal bind:open={showBiasModal} symbol={formData.pair || ''} />
 
 <style>
   .market-msg {
@@ -712,5 +918,196 @@
   .notes-checklist-item .done {
     color: var(--text-muted);
     text-decoration: line-through;
+  }
+
+  /* ----- Killzone / Bias ----- */
+  .ctx-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 0 0 10px;
+  }
+  .ctx-card {
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 8px 10px;
+    background: var(--bg-2);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .ctx-label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ctx-mini-btn {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 0 6px;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.4;
+  }
+  .ctx-mini-btn:hover { color: var(--text-strong); }
+  .ctx-value {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .kz-pill, .bias-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    background: var(--bg);
+  }
+  .kz-pill.on { color: var(--text-strong); border-color: var(--accent); background: var(--bg-2); }
+  .bias-pill.on { color: var(--profit); border-color: var(--profit); }
+  .bias-pill.against { color: var(--loss); border-color: var(--loss); }
+  .ctx-flag { font-size: 11px; font-weight: 600; }
+
+  /* ----- Strategy/Play selector ----- */
+  .play-selector {
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    background: var(--bg-2);
+    border-radius: 3px;
+  }
+  .play-selector-row {
+    display: flex;
+    gap: 10px;
+    align-items: end;
+    flex-wrap: wrap;
+  }
+  .play-selector-row .form-group { flex: 1 1 180px; margin-bottom: 0; }
+
+  .play-rules { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
+  .play-rules-title {
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-strong);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .play-htf-req {
+    font-size: 10.5px;
+    padding: 1px 6px;
+    background: var(--bg-3);
+    border-radius: 2px;
+    color: var(--text-muted);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .play-rule {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 3px 0;
+    font-size: 12.5px;
+    cursor: pointer;
+    color: var(--text);
+  }
+  .play-rule input { margin-top: 3px; }
+  .play-rule .done { color: var(--text-muted); text-decoration: line-through; }
+  .req-tag {
+    font-size: 9.5px;
+    text-transform: uppercase;
+    background: var(--loss);
+    color: #fff;
+    padding: 1px 4px;
+    border-radius: 2px;
+    margin-left: 4px;
+    font-style: normal;
+    letter-spacing: 0.4px;
+  }
+  .rule-kind {
+    font-size: 9.5px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-left: 4px;
+    font-style: normal;
+    letter-spacing: 0.4px;
+  }
+  .play-killzones {
+    margin-top: 6px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+  }
+  .play-killzones strong { color: var(--text-strong); }
+
+  /* ----- ICT tags ----- */
+  .ict-tags {
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--bg-2);
+  }
+  .ict-tags-title {
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-strong);
+    margin-bottom: 8px;
+  }
+  .ict-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    margin-bottom: 6px;
+  }
+  .ict-group-label {
+    width: 76px;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-muted);
+    font-weight: 700;
+    cursor: help;
+  }
+  .ict-group-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .ict-chip {
+    padding: 3px 8px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg);
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 120ms;
+  }
+  .ict-chip:hover { background: var(--bg-3); color: var(--text); }
+  .ict-chip.on {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .ict-tags-extra {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+    border-top: 1px dashed var(--border);
+    padding-top: 6px;
   }
 </style>

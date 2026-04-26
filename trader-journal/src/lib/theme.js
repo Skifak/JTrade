@@ -2,9 +2,10 @@ import { writable } from 'svelte/store';
 import { toasts } from './toasts';
 
 export const THEMES = [
-  { id: 'light', label: 'Белая' },
-  { id: 'beige', label: 'Бежевая' },
-  { id: 'dark', label: 'Тёмная' }
+  { id: 'light', label: 'Белая', short: 'Св' },
+  { id: 'beige', label: 'Бежевая', short: 'Бж' },
+  { id: 'dark', label: 'Тёмная', short: 'Тм' },
+  { id: 'neon', label: 'Неон ICT', short: 'Нм' }
 ];
 
 const STORAGE_KEY = 'theme';
