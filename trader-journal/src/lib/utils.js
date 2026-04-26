@@ -110,6 +110,20 @@ export function calculateProfit(trade) {
   return rawPnL - commission - swap;
 }
 
+/**
+ * Плавающий P/L открытой сделки по live-цене.
+ * Если livePrice не задан — возвращает текущий trade.profit (импортировано из MT5)
+ * либо null.
+ */
+export function calculateFloatingProfit(trade, livePrice) {
+  if (!trade) return null;
+  const price = Number(livePrice);
+  if (!Number.isFinite(price) || price <= 0) {
+    return trade.profit != null ? Number(trade.profit) : null;
+  }
+  return calculateProfit({ ...trade, status: 'closed', priceClose: price });
+}
+
 // Закрытие сделки
 export function closeTrade(trade, closePrice) {
   const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
@@ -294,7 +308,29 @@ export function calculateStats(closedTrades, options = {}) {
 // Форматирование чисел
 export function formatNumber(num, decimals = 2) {
   if (num === null || num === undefined) return '-';
-  return num.toFixed(decimals);
+  return Number(num).toFixed(decimals);
+}
+
+/**
+ * Адаптивный формат цены в зависимости от величины актива.
+ *  ≥ 1000   (BTC, индексы, US30) → 2 знака
+ *  ≥ 100    (золото, нефть)      → 3 знака
+ *  ≥ 10     (нефть, акции)       → 4 знака
+ *  ≥ 1      (FX major: EURUSD)   → 5 знаков
+ *  ≥ 0.01   (мини-крипта)        → 6 знаков
+ *  меньше                        → 8 знаков
+ */
+export function formatPrice(num) {
+  if (num === null || num === undefined || !Number.isFinite(Number(num))) return '-';
+  const v = Math.abs(Number(num));
+  let d;
+  if (v >= 1000) d = 2;
+  else if (v >= 100) d = 3;
+  else if (v >= 10) d = 4;
+  else if (v >= 1) d = 5;
+  else if (v >= 0.01) d = 6;
+  else d = 8;
+  return Number(num).toFixed(d);
 }
 
 // Форматирование даты

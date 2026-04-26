@@ -1,15 +1,21 @@
 <script>
+  import { onMount, onDestroy } from 'svelte';
   import { trades, userProfile } from './lib/stores';
   import {
     formatDate,
     formatNumber,
+    formatPrice,
     formatDuration,
     calculateStats,
     calculatePips,
     calculatePricePercent,
+    calculateFloatingProfit,
     getTradeSource
   } from './lib/utils';
   import { parseMt5ReportHtml } from './lib/mt5Parser';
+  import { theme, THEMES } from './lib/theme';
+  import { livePrices, pingInfo, tickClock } from './lib/livePrices';
+  import { normalizeSymbolKey } from './lib/constants';
   import TradeForm from './components/TradeForm.svelte';
   import TemplatesPanel from './components/TemplatesPanel.svelte';
   import Statistics from './components/Statistics.svelte';
@@ -28,6 +34,24 @@
 
   $: openTrades = $trades.filter((t) => t.status === 'open');
   $: closedTrades = $trades.filter((t) => t.status === 'closed');
+
+  $: livePrices.setPairs(openTrades.map((t) => t.pair));
+
+  onMount(() => {
+    livePrices.start();
+  });
+  onDestroy(() => livePrices.stop());
+
+  function pickPrice(lp, trade) {
+    if (lp && lp.price != null) return Number(lp.price);
+    if (trade?.marketPrice != null) return Number(trade.marketPrice);
+    return null;
+  }
+
+  function floatingFor(lp, trade) {
+    if (lp && lp.price != null) return calculateFloatingProfit(trade, Number(lp.price));
+    return trade?.profit != null ? Number(trade.profit) : null;
+  }
   $: stats = calculateStats(closedTrades, {
     initialCapital: Number($userProfile?.initialCapital) || 0
   });
@@ -221,15 +245,29 @@
 
 <div class="trader-journal">
   <div class="journal-header">
-    <h1>📊 Журнал трейдера</h1>
-    <div class="btn-group">
-      <button class="btn btn-primary" on:click={addNew}>+ Новая сделка</button>
-      <button class="btn" on:click={() => showProfile = true}>👤 Профиль</button>
-      <button class="btn" on:click={exportData}>📤 Экспорт</button>
-      <label class="btn import-label">
-        📥 Импорт (JSON/MT5 HTML)
-        <input type="file" accept=".json,.html,.htm" on:change={importData} hidden />
-      </label>
+    <h1>Журнал трейдера</h1>
+    <div class="header-right">
+      <div class="theme-switch" role="group" aria-label="Тема оформления">
+        {#each THEMES as t}
+          <button
+            type="button"
+            class:active={$theme === t.id}
+            on:click={() => theme.set(t.id)}
+            title="Тема: {t.label}"
+          >
+            {t.label}
+          </button>
+        {/each}
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" on:click={addNew}>+ Новая сделка</button>
+        <button class="btn" on:click={() => showProfile = true}>Профиль</button>
+        <button class="btn" on:click={exportData}>Экспорт</button>
+        <label class="btn import-label">
+          Импорт (JSON / MT5)
+          <input type="file" accept=".json,.html,.htm" on:change={importData} hidden />
+        </label>
+      </div>
     </div>
   </div>
 
@@ -262,6 +300,38 @@
               {/each}
             </select>
           </label>
+          <div class="ping-row">
+            {#each [['binance', 'Binance'], ['tradingview', 'TradingView']] as [p, label]}
+              {@const info = $pingInfo[p]}
+              {@const tickAge = info.lastTickAt ? $tickClock - info.lastTickAt : null}
+              {@const changeAge = info.lastChangeAt ? $tickClock - info.lastChangeAt : null}
+              {@const dot = !info.connected
+                ? (info.error ? 'err' : 'idle')
+                : tickAge == null ? 'warn'
+                : tickAge < 10_000 ? 'ok'
+                : tickAge < 60_000 ? 'warn'
+                : 'err'}
+              {@const changeLabel = changeAge == null
+                ? '—'
+                : changeAge < 60_000 ? `${Math.max(0, Math.floor(changeAge / 1000))} с`
+                : changeAge < 3_600_000 ? `${Math.floor(changeAge / 60000)} мин`
+                : `${Math.floor(changeAge / 3_600_000)} ч`}
+              <span
+                class="ping-pill ping-{dot}"
+                title={info.error
+                  ? `${label}: ${info.error}`
+                  : info.connected
+                    ? `${label}: WS открыт` +
+                      (info.lastTickAt ? ` · последний тик ${new Date(info.lastTickAt).toLocaleTimeString()}` : ' · ждём данных') +
+                      (info.lastChangeAt ? ` · цена менялась ${new Date(info.lastChangeAt).toLocaleTimeString()}` : '')
+                    : `${label}: WS не подключён`}
+              >
+                <span class="ping-dot"></span>
+                {label}
+                <span class="ping-ms" title="Время с последнего изменения цены">Δ {changeLabel}</span>
+              </span>
+            {/each}
+          </div>
         </div>
         <table class="trades-table">
           <thead>
@@ -296,21 +366,41 @@
           <tbody>
             {#each filteredOpenTrades as trade}
               {@const src = sourceIcon(trade)}
+              {@const lp = $livePrices[normalizeSymbolKey(trade.pair)]}
+              {@const mp = pickPrice(lp, trade)}
+              {@const fp = floatingFor(lp, trade)}
               <tr>
                 <td title={src.title}>{src.icon}</td>
                 <td>{formatDate(trade.dateOpen)}</td>
                 <td><strong>{trade.pair}</strong></td>
                 <td>{trade.direction === 'long' ? '📈 Long' : '📉 Short'}</td>
                 <td>{trade.volume}</td>
-                <td>{trade.priceOpen}</td>
-                <td>{trade.marketPrice ?? '-'}</td>
-                <td>{trade.sl || '-'}</td>
-                <td>{trade.tp || '-'}</td>
+                <td class="mono">{formatPrice(trade.priceOpen)}</td>
+                <td
+                  class="mono"
+                  title={lp?.error
+                    ? lp.error
+                    : lp?.source
+                      ? `${lp.source}${lp.timestamp ? ` · ${new Date(lp.timestamp).toLocaleTimeString()}` : ''}`
+                      : ''}
+                >
+                  {#if lp?.loading && mp == null}
+                    …
+                  {:else if mp != null}
+                    {formatPrice(mp)}
+                  {:else if lp?.error}
+                    <span class="market-err">×</span>
+                  {:else}
+                    -
+                  {/if}
+                </td>
+                <td class="mono">{trade.sl ? formatPrice(trade.sl) : '-'}</td>
+                <td class="mono">{trade.tp ? formatPrice(trade.tp) : '-'}</td>
                 <td class={Number(trade.swap) >= 0 ? 'profit' : 'loss'}>
                   {formatNumber(Number(trade.swap) || 0, 2)}
                 </td>
-                <td class={Number(trade.profit) >= 0 ? 'profit' : 'loss'}>
-                  {trade.profit != null ? `${formatNumber(trade.profit, 2)} $` : '-'}
+                <td class={fp == null ? '' : fp >= 0 ? 'profit' : 'loss'}>
+                  {fp != null ? `${formatNumber(fp, 2)} $` : '-'}
                 </td>
                 <td>{formatDuration(trade.dateOpen, null)}</td>
                 <td>
@@ -394,8 +484,8 @@
                 <td><strong>{trade.pair}</strong></td>
                 <td>{trade.direction === 'long' ? '📈 Long' : '📉 Short'}</td>
                 <td>{trade.volume}</td>
-                <td class="mono">{trade.priceOpen} / {trade.priceClose}</td>
-                <td class="mono">{trade.sl || '-'} / {trade.tp || '-'}</td>
+                <td class="mono">{formatPrice(trade.priceOpen)} / {formatPrice(trade.priceClose)}</td>
+                <td class="mono">{trade.sl ? formatPrice(trade.sl) : '-'} / {trade.tp ? formatPrice(trade.tp) : '-'}</td>
                 <td class={pips == null ? '' : pips >= 0 ? 'profit' : 'loss'}>
                   {pips != null ? formatNumber(pips, 1) : '-'}
                 </td>
@@ -474,5 +564,57 @@
     border-top: 2px solid currentColor;
     font-weight: 600;
     padding-top: 8px;
+  }
+  .market-err {
+    color: var(--loss);
+    font-weight: 700;
+    cursor: help;
+  }
+  .ping-row {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    margin-left: 4px;
+  }
+  .ping-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    height: 22px;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--bg);
+    cursor: help;
+  }
+  .ping-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .ping-ok .ping-dot {
+    background: var(--profit);
+    box-shadow: 0 0 4px var(--profit);
+  }
+  .ping-err .ping-dot {
+    background: var(--loss);
+    box-shadow: 0 0 4px var(--loss);
+  }
+  .ping-idle .ping-dot {
+    background: var(--text-muted);
+    opacity: 0.5;
+  }
+  .ping-warn .ping-dot {
+    background: var(--warning);
+    box-shadow: 0 0 4px var(--warning);
+  }
+  .ping-ms {
+    color: var(--text-strong);
+    font-weight: 600;
   }
 </style>

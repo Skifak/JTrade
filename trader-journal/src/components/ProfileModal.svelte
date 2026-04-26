@@ -24,12 +24,8 @@
     maxOpenTrades: 3,
     maxConsecutiveLosses: 3,
     commissionPerLot: 0,
-    notes: '',
-    apiBinanceKey: '',
-    apiFcsapiKey: ''
+    notes: ''
   };
-  let showBinanceKey = false;
-  let showFcsapiKey = false;
   let wasOpen = false;
   let previousCurrency = 'USD';
   let pnlConversionRate = 1;
@@ -90,9 +86,7 @@
       goalYearValue: Number(formData.goalYearValue) || 0,
       maxOpenTrades: Number(formData.maxOpenTrades) || 0,
       maxConsecutiveLosses: Number(formData.maxConsecutiveLosses) || 0,
-      commissionPerLot: Number(formData.commissionPerLot) || 0,
-      apiBinanceKey: String(formData.apiBinanceKey || '').trim(),
-      apiFcsapiKey: String(formData.apiFcsapiKey || '').trim()
+      commissionPerLot: Number(formData.commissionPerLot) || 0
     });
     closeModal();
   }
@@ -251,48 +245,6 @@
         <div class="form-group">
           <label for="max-consecutive-losses">Макс. убыточных подряд</label>
           <input id="max-consecutive-losses" type="number" min="1" step="1" bind:value={formData.maxConsecutiveLosses} />
-        </div>
-      </div>
-    </div>
-
-    <div class="profile-section">
-      <div class="profile-section-title">API ключи (рыночные данные)</div>
-      <div class="form-group">
-        <label for="api-binance">Binance API key (крипта)</label>
-        <div class="value-mode-row">
-          <input
-            id="api-binance"
-            type={showBinanceKey ? 'text' : 'password'}
-            autocomplete="off"
-            spellcheck="false"
-            bind:value={formData.apiBinanceKey}
-            placeholder="оставь пустым для публичных запросов"
-          />
-          <button type="button" class="btn btn-sm" on:click={() => (showBinanceKey = !showBinanceKey)}>
-            {showBinanceKey ? '🙈' : '👁️'}
-          </button>
-        </div>
-        <div class="profile-hint" style="margin: 4px 0 0;">
-          Для котировок Binance ключ не обязателен; добавляется в заголовок X-MBX-APIKEY, если задан.
-        </div>
-      </div>
-      <div class="form-group">
-        <label for="api-fcsapi">FCSAPI access key (FX, металлы)</label>
-        <div class="value-mode-row">
-          <input
-            id="api-fcsapi"
-            type={showFcsapiKey ? 'text' : 'password'}
-            autocomplete="off"
-            spellcheck="false"
-            bind:value={formData.apiFcsapiKey}
-            placeholder="обязателен для котировок FX/металлов"
-          />
-          <button type="button" class="btn btn-sm" on:click={() => (showFcsapiKey = !showFcsapiKey)}>
-            {showFcsapiKey ? '🙈' : '👁️'}
-          </button>
-        </div>
-        <div class="profile-hint" style="margin: 4px 0 0;">
-          Ключи хранятся локально в браузере (localStorage). Не публикуй экспорт профиля с ключами.
         </div>
       </div>
     </div>

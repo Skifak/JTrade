@@ -1,6 +1,6 @@
 <script>
   import { createNewTrade, closeTrade, calculateProfit, isBrokerImportedTrade } from '../lib/utils';
-  import { trades, userProfile } from '../lib/stores';
+  import { trades } from '../lib/stores';
   import { PAIRS } from '../lib/constants';
   import { fetchMarketPrice } from '../lib/marketData';
   import Modal from './Modal.svelte';
@@ -43,10 +43,7 @@
     }
     marketLoading = true;
     marketError = '';
-    const result = await fetchMarketPrice(formData.pair, {
-      binanceKey: $userProfile?.apiBinanceKey,
-      fcsapiKey: $userProfile?.apiFcsapiKey
-    });
+    const result = await fetchMarketPrice(formData.pair);
     marketLoading = false;
     if (result?.error) {
       marketError = result.error;
