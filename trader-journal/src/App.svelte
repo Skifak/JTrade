@@ -16,12 +16,16 @@
   import { theme, THEMES } from './lib/theme';
   import { livePrices, pingInfo, tickClock } from './lib/livePrices';
   import { normalizeSymbolKey } from './lib/constants';
+  import { cooldown } from './lib/cooldown';
+  import { checkDailyStop, computeGoalAmount, getDailyPnL } from './lib/risk';
   import TradeForm from './components/TradeForm.svelte';
   import TemplatesPanel from './components/TemplatesPanel.svelte';
   import Statistics from './components/Statistics.svelte';
   import ProfileModal from './components/ProfileModal.svelte';
   import Toasts from './components/Toasts.svelte';
   import RiskHud from './components/RiskHud.svelte';
+  import DailyReviewModal from './components/DailyReviewModal.svelte';
+  import GuideView from './components/GuideView.svelte';
 
   let showForm = false;
   let showProfile = false;
@@ -38,6 +42,39 @@
   $: closedTrades = $trades.filter((t) => t.status === 'closed');
 
   $: livePrices.setPairs(openTrades.map((t) => t.pair));
+
+  // Kill-switch: дневной лимит убытка пробит (для блокировки "Новая сделка")
+  $: dailyStop = checkDailyStop(closedTrades, $userProfile);
+  // Cooldown остаток — реактив на сам cooldown store + tickClock (для тика)
+  $: cooldownLeftMs = ($tickClock, $cooldown?.until ? Math.max(0, $cooldown.until - Date.now()) : 0);
+  $: tradingBlocked = dailyStop.hit || cooldownLeftMs > 0;
+  $: tradingBlockedReason = dailyStop.hit
+    ? `Дневной лимит убытка пробит (${dailyStop.pnl.toFixed(2)} ≤ −${dailyStop.limit.toFixed(2)}). Торговля закрыта до полуночи.`
+    : cooldownLeftMs > 0
+      ? `Cooldown после убытка: ещё ${Math.ceil(cooldownLeftMs / 60000)} мин. Не входи в revenge-trade.`
+      : '';
+
+  // Daily review prompt: если цель дня достигнута и сегодня ещё не показывали
+  $: goalDayAmount = computeGoalAmount($userProfile, 'Day');
+  $: dailyPnL = ($tickClock, getDailyPnL(closedTrades));
+  let showDailyReview = false;
+  $: if (
+    $userProfile?.dailyReviewEnabled !== false &&
+    goalDayAmount > 0 &&
+    dailyPnL >= goalDayAmount &&
+    $userProfile?.lastDailyReviewDate !== todayKey() &&
+    !showDailyReview
+  ) {
+    showDailyReview = true;
+  }
+  function todayKey() {
+    const d = new Date();
+    return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  }
+  function dismissDailyReview() {
+    userProfile.updateProfile({ lastDailyReviewDate: todayKey() });
+    showDailyReview = false;
+  }
 
   onMount(() => {
     livePrices.start();
@@ -181,9 +218,14 @@
   }
 
   function addNew() {
+    if (tradingBlocked) return;
     currentTrade = null;
     formMode = 'add';
     showForm = true;
+  }
+  function cancelCooldown() {
+    if (!confirm('Отменить cooldown? Только если ты уверен, что не на тильте.')) return;
+    cooldown.cancel();
   }
 
   function exportData() {
@@ -262,7 +304,12 @@
         {/each}
       </div>
       <div class="btn-group">
-        <button class="btn btn-primary" on:click={addNew}>+ Новая сделка</button>
+        <button
+          class="btn btn-primary"
+          on:click={addNew}
+          disabled={tradingBlocked}
+          title={tradingBlocked ? tradingBlockedReason : 'Новая сделка'}
+        >+ Новая сделка</button>
         <button class="btn" on:click={() => showProfile = true}>Профиль</button>
         <button class="btn" on:click={exportData}>Экспорт</button>
         <label class="btn import-label">
@@ -275,6 +322,19 @@
 
   <RiskHud />
 
+  {#if tradingBlocked}
+    <div class="kill-switch {dailyStop.hit ? 'severe' : 'warn'}">
+      <div class="kill-switch-icon">{dailyStop.hit ? '⛔' : '⏸'}</div>
+      <div class="kill-switch-body">
+        <strong>{dailyStop.hit ? 'Торговля заблокирована' : 'Cooldown активен'}</strong>
+        <span>{tradingBlockedReason}</span>
+      </div>
+      {#if cooldownLeftMs > 0 && !dailyStop.hit}
+        <button class="btn btn-sm" on:click={cancelCooldown}>Отменить cooldown</button>
+      {/if}
+    </div>
+  {/if}
+
   <TemplatesPanel on:apply={applyTemplate} />
 
   <div class="tabs">
@@ -286,6 +346,9 @@
     </button>
     <button class="tab {activeTab === 'stats' ? 'active' : ''}" on:click={() => activeTab = 'stats'}>
       Статистика
+    </button>
+    <button class="tab {activeTab === 'guide' ? 'active' : ''}" on:click={() => activeTab = 'guide'}>
+      Гайд
     </button>
   </div>
 
@@ -534,16 +597,56 @@
       {/if}
     </div>
   {:else if activeTab === 'stats'}
-    <Statistics stats={stats} />
+    <Statistics stats={stats} {closedTrades} initialCapital={Number($userProfile?.initialCapital) || 0} currency={$userProfile?.accountCurrency || 'USD'} />
+  {:else if activeTab === 'guide'}
+    <GuideView on:openProfile={() => showProfile = true} />
   {/if}
 
   <TradeForm bind:open={showForm} trade={currentTrade} mode={formMode} />
   <ProfileModal bind:open={showProfile} {closedTrades} />
+  <DailyReviewModal
+    open={showDailyReview}
+    {dailyPnL}
+    {goalDayAmount}
+    currency={$userProfile?.accountCurrency || 'USD'}
+    on:close={dismissDailyReview}
+  />
 </div>
 
 <Toasts />
 
 <style>
+  .kill-switch {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    margin: 0 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-2);
+  }
+  .kill-switch.severe {
+    border-color: var(--loss);
+    border-left: 4px solid var(--loss);
+    background: rgba(185, 28, 28, 0.08);
+  }
+  .kill-switch.warn {
+    border-color: var(--warning);
+    border-left: 4px solid var(--warning);
+    background: rgba(180, 83, 9, 0.08);
+  }
+  .kill-switch-icon { font-size: 22px; }
+  .kill-switch-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+  .kill-switch-body strong { color: var(--text-strong); }
+
   .table-toolbar {
     display: flex;
     gap: 12px;

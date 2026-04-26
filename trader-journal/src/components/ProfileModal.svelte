@@ -30,7 +30,10 @@
     maxOpenTrades: 3,
     maxConsecutiveLosses: 3,
     commissionPerLot: 0,
-    notes: ''
+    notes: '',
+    cooldownAfterLossMin: 0,
+    streakScalingEnabled: false,
+    dailyReviewEnabled: true
   };
   let wasOpen = false;
   let previousCurrency = 'USD';
@@ -92,7 +95,10 @@
       goalYearValue: Number(formData.goalYearValue) || 0,
       maxOpenTrades: Number(formData.maxOpenTrades) || 0,
       maxConsecutiveLosses: Number(formData.maxConsecutiveLosses) || 0,
-      commissionPerLot: Number(formData.commissionPerLot) || 0
+      commissionPerLot: Number(formData.commissionPerLot) || 0,
+      cooldownAfterLossMin: Number(formData.cooldownAfterLossMin) || 0,
+      streakScalingEnabled: !!formData.streakScalingEnabled,
+      dailyReviewEnabled: !!formData.dailyReviewEnabled
     });
     closeModal();
   }
@@ -267,6 +273,29 @@
         <div class="form-group">
           <label for="max-consecutive-losses">Макс. убыточных подряд</label>
           <input id="max-consecutive-losses" type="number" min="1" step="1" bind:value={formData.maxConsecutiveLosses} />
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-section">
+      <div class="profile-section-title">Поведенческие ограничения</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="cooldown-after-loss">
+            Cooldown после убытка (мин)
+            <span class="hint-inline">0 — выкл</span>
+          </label>
+          <input id="cooldown-after-loss" type="number" min="0" max="240" step="1" bind:value={formData.cooldownAfterLossMin} />
+        </div>
+        <div class="form-group">
+          <label class="checkbox-row">
+            <input type="checkbox" bind:checked={formData.streakScalingEnabled} />
+            <span>Anti-martingale (после 2+ убытков подряд резать риск ×½)</span>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" bind:checked={formData.dailyReviewEnabled} />
+            <span>Напоминание «закрой день при цели»</span>
+          </label>
         </div>
       </div>
     </div>

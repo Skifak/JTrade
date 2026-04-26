@@ -91,7 +91,11 @@ const DEFAULT_USER_PROFILE = {
   maxOpenTrades: 3,
   maxConsecutiveLosses: 3,
   commissionPerLot: 0,
-  notes: ''
+  notes: '',
+  cooldownAfterLossMin: 0,
+  streakScalingEnabled: false,
+  dailyReviewEnabled: true,
+  lastDailyReviewDate: null
 };
 
 // Создаем хранилище для сделок

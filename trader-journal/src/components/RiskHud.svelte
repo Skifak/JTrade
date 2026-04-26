@@ -11,8 +11,10 @@
     getDisciplineScore,
     computeMaxRiskAmount,
     computeMaxDailyLossAmount,
-    computeGoalAmount
+    computeGoalAmount,
+    getCurrentRiskScale
   } from '../lib/risk';
+  import { cooldown } from '../lib/cooldown';
 
   $: openTrades = $trades.filter((t) => t.status === 'open');
   $: closedTrades = $trades.filter((t) => t.status === 'closed');
@@ -104,6 +106,19 @@
   })();
 
   $: ccy = $userProfile?.accountCurrency || 'USD';
+
+  // Cooldown / anti-martingale
+  $: cooldownLeftMs = ($tickClock, $cooldown?.until ? Math.max(0, $cooldown.until - Date.now()) : 0);
+  $: cooldownLeftMin = Math.ceil(cooldownLeftMs / 60000);
+  $: riskScale = getCurrentRiskScale(closedTrades, $userProfile);
+
+  function formatMs(ms) {
+    if (ms <= 0) return '00:00';
+    const totalSec = Math.ceil(ms / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
 </script>
 
 <section class="hud" aria-label="Риск-показатели">
@@ -227,6 +242,19 @@
     {/if}
   </div>
 
+  {#if cooldownLeftMs > 0 || riskScale < 1}
+    <div class="hud-card">
+      <div class="hud-label">Anti-revenge</div>
+      {#if cooldownLeftMs > 0}
+        <div class="hud-value state-warn">⏸ {formatMs(cooldownLeftMs)}</div>
+        <div class="hud-sub muted">cooldown ещё {cooldownLeftMin} мин</div>
+      {:else}
+        <div class="hud-value state-warn">×{riskScale}</div>
+        <div class="hud-sub muted">риск урезан после серии убытков</div>
+      {/if}
+    </div>
+  {/if}
+
   <!-- Discipline -->
   <div class="hud-card">
     <div class="hud-label">Дисциплина</div>
@@ -311,5 +339,6 @@
   .hud-bar-fill.state-warn   { background: var(--warning); }
   .hud-bar-fill.state-danger { background: var(--loss); }
   .hud-bar-fill.state-loss   { background: var(--loss); }
-  .state-neutral, .hud-bar-fill.state-neutral { color: inherit; background: var(--accent); }
+  .hud-value.state-neutral { color: inherit; background: transparent; }
+  .hud-bar-fill.state-neutral { background: var(--accent); }
 </style>

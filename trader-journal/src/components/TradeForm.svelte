@@ -7,8 +7,12 @@
     calculateTradeRisk,
     suggestVolumeForRisk,
     evaluateTradeRules,
-    computeMaxRiskAmount
+    computeMaxRiskAmount,
+    getCurrentRiskScale,
+    parseNotesChecklist
   } from '../lib/risk';
+  import { cooldown } from '../lib/cooldown';
+  import { tickClock } from '../lib/livePrices';
   import Modal from './Modal.svelte';
   import RiskConfirmModal from './RiskConfirmModal.svelte';
 
@@ -31,6 +35,22 @@
   let pendingViolations = [];
   let showRiskConfirm = false;
   let pendingMode = null;
+
+  // Notes checklist — какие пункты уже отметил пользователь
+  let acknowledgedChecklist = [];
+
+  $: notesChecklist = parseNotesChecklist($userProfile?.notes);
+  $: if (open) {
+    // сбрасываем чек-лист при открытии формы
+    acknowledgedChecklist = acknowledgedChecklist.filter((v) => notesChecklist.includes(v));
+  }
+  function toggleChecklistItem(item) {
+    if (acknowledgedChecklist.includes(item)) {
+      acknowledgedChecklist = acknowledgedChecklist.filter((v) => v !== item);
+    } else {
+      acknowledgedChecklist = [...acknowledgedChecklist, item];
+    }
+  }
   
   $: if (trade && open) {
     formData = { ...trade };
@@ -107,15 +127,36 @@
         : calculateProfit({ ...formData, status: 'closed' }) || 0
       : null;
 
+  // Anti-martingale scale (если включено в профиле)
+  $: closedTradesAll = $trades.filter((t) => t.status === 'closed');
+  $: openTradesAll = $trades.filter((t) => t.status === 'open');
+  $: riskScale = getCurrentRiskScale(closedTradesAll, $userProfile);
+
   // Live-риск открываемой/редактируемой сделки
   $: tradeRisk = (mode === 'add' || mode === 'edit')
     ? calculateTradeRisk(formData, $userProfile)
     : null;
-  $: maxRiskAmount = computeMaxRiskAmount($userProfile);
+  $: baseRiskAmount = computeMaxRiskAmount($userProfile);
+  $: maxRiskAmount = baseRiskAmount * riskScale;
   $: suggestedVolume = (mode === 'add' || mode === 'edit')
-    ? suggestVolumeForRisk(formData, $userProfile)
+    ? suggestVolumeForRisk(formData, $userProfile, { closedTrades: closedTradesAll })
     : null;
-  $: riskOverLimit = !!(tradeRisk?.riskAmount != null && maxRiskAmount > 0 && tradeRisk.riskAmount > maxRiskAmount * 1.001);
+  $: riskOverLimit = !!(tradeRisk?.riskAmount != null && maxRiskAmount > 0 && tradeRisk.riskAmount > maxRiskAmount + 0.005);
+
+  // Cooldown — ms осталось (тикает через tickClock).
+  $: cooldownRemainingMs = ($tickClock, $cooldown?.until ? Math.max(0, $cooldown.until - Date.now()) : 0);
+
+  // Реактивный preview нарушений — юзер видит проблемы ДО нажатия "Сохранить".
+  $: liveViolations = (mode === 'add' || mode === 'edit') && open
+    ? evaluateTradeRules(formData, $userProfile, {
+        openTrades: openTradesAll,
+        closedTrades: closedTradesAll,
+        isEditing: mode === 'edit',
+        cooldownRemainingMs,
+        acknowledgedChecklist
+      })
+    : [];
+  $: hasBlockingViolation = liveViolations.some((v) => v.severity === 'block');
 
   function applySuggestedVolume() {
     if (suggestedVolume && suggestedVolume > 0) {
@@ -132,6 +173,12 @@
       };
       const closed = closeTrade(base, Number(closePrice));
       trades.updateTrade(trade.id, closed);
+
+      // Anti-revenge: после убыточной сделки запускаем cooldown.
+      const cdMin = Number($userProfile?.cooldownAfterLossMin) || 0;
+      if (cdMin > 0 && Number(closed.profit) < 0) {
+        cooldown.startAfterLoss(cdMin);
+      }
     } else if (mode === 'edit-closed') {
       const updatedClosed = {
         ...trade,
@@ -445,7 +492,19 @@
               <span class="risk-card-label">Лимит из профиля</span>
               <span class="risk-card-value">
                 {formatNumber(maxRiskAmount, 2)} {$userProfile?.accountCurrency || 'USD'}
+                {#if riskScale < 1}
+                  <span class="warn-text">
+                    (×{riskScale} из {formatNumber(baseRiskAmount, 2)} — anti-martingale)
+                  </span>
+                {/if}
                 {#if riskOverLimit}<span class="loss"> · превышен</span>{/if}
+              </span>
+            </div>
+          {:else}
+            <div class="risk-card-row">
+              <span class="risk-card-label">Лимит из профиля</span>
+              <span class="risk-card-value warn-text">
+                не задан — открой профиль и заполни «Риск на сделку»
               </span>
             </div>
           {/if}
@@ -461,6 +520,43 @@
         </div>
       {/if}
 
+      {#if notesChecklist.length > 0}
+        <div class="notes-checklist">
+          <div class="notes-checklist-title">📋 Чек-лист из заметок профиля</div>
+          {#each notesChecklist as item}
+            <label class="notes-checklist-item">
+              <input
+                type="checkbox"
+                checked={acknowledgedChecklist.includes(item)}
+                on:change={() => toggleChecklistItem(item)}
+              />
+              <span class={acknowledgedChecklist.includes(item) ? 'done' : ''}>{item}</span>
+            </label>
+          {/each}
+        </div>
+      {/if}
+
+      {#if liveViolations.length > 0}
+        <div class="violations-preview">
+          <div class="violations-preview-title">
+            {hasBlockingViolation ? '⛔ Нарушения правил' : '⚠️ Предупреждения'}
+          </div>
+          <ul class="violations-preview-list">
+            {#each liveViolations as v}
+              <li class="violation severity-{v.severity}">
+                <span class="violation-badge">{v.severity === 'block' ? 'BLOCK' : 'WARN'}</span>
+                <span class="violation-text">{v.message}</span>
+              </li>
+            {/each}
+          </ul>
+          <div class="violations-preview-hint">
+            {hasBlockingViolation
+              ? 'При сохранении потребуется явное подтверждение, и сделка будет помечена как «нарушение».'
+              : 'Можно сохранить как есть — нарушение будет залоггировано в истории сделки.'}
+          </div>
+        </div>
+      {/if}
+
       <div class="form-group">
         <label for="comment">Комментарий</label>
         <textarea id="comment" bind:value={formData.comment} rows="3"></textarea>
@@ -470,7 +566,13 @@
   
   <div slot="footer">
     <button type="button" on:click={closeModal}>Отмена</button>
-    <button type="button" class="btn btn-primary" on:click={save}>Сохранить</button>
+    <button
+      type="button"
+      class="btn {hasBlockingViolation ? 'btn-danger' : liveViolations.length > 0 ? 'btn-warn' : 'btn-primary'}"
+      on:click={save}
+    >
+      {hasBlockingViolation ? 'Сохранить (нарушает правила)' : liveViolations.length > 0 ? 'Сохранить (с предупреждением)' : 'Сохранить'}
+    </button>
   </div>
 </Modal>
 
@@ -515,5 +617,100 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     color: var(--text-strong);
     text-align: right;
+  }
+  .warn-text { color: var(--warning); }
+
+  .violations-preview {
+    margin: 0 0 12px 0;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--warning);
+    background: var(--bg-2);
+    border-radius: 3px;
+  }
+  .violations-preview-title {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-strong);
+    margin-bottom: 8px;
+  }
+  .violations-preview-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 6px 0;
+  }
+  .violation {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 2px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    font-size: 12.5px;
+    line-height: 1.4;
+  }
+  .violation.severity-block { border-left: 3px solid var(--loss); }
+  .violation.severity-warn  { border-left: 3px solid var(--warning); }
+  .violation-badge {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    padding: 1px 5px;
+    border-radius: 2px;
+    background: var(--bg-3);
+    color: var(--text-strong);
+    flex-shrink: 0;
+  }
+  .severity-block .violation-badge { background: var(--loss); color: #fff; }
+  .severity-warn  .violation-badge { background: var(--warning); color: #fff; }
+  .violation-text { flex: 1; color: var(--text); }
+  .violations-preview-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+
+  .btn-warn {
+    background: var(--warning);
+    color: #fff;
+    border-color: var(--warning);
+  }
+  .btn-warn:hover { filter: brightness(1.05); }
+
+  .notes-checklist {
+    margin: 0 0 12px 0;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent-border);
+    background: var(--bg-2);
+    border-radius: 3px;
+  }
+  .notes-checklist-title {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-strong);
+    margin-bottom: 8px;
+  }
+  .notes-checklist-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 13px;
+    line-height: 1.4;
+    cursor: pointer;
+    color: var(--text);
+  }
+  .notes-checklist-item input { margin-top: 3px; }
+  .notes-checklist-item .done {
+    color: var(--text-muted);
+    text-decoration: line-through;
   }
 </style>

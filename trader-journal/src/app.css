@@ -721,6 +721,24 @@ body {
   gap: 10px;
 }
 
+.checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  padding: 4px 0;
+  color: var(--text);
+}
+.checkbox-row input { margin-top: 3px; }
+.hint-inline {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+  margin-left: 6px;
+}
+
 /* ---------- Empty state ---------- */
 .empty-state {
   text-align: center;

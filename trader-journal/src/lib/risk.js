@@ -34,6 +34,24 @@ function unitsPerPriceUnit(trade) {
   return volume * effectiveContractSize(trade);
 }
 
+/* ----------------- streak scaling ----------------- */
+
+/**
+ * Anti-martingale: после серии убытков предлагаемый объём режется в N раз.
+ *  - 0 убытков подряд          → 1.0
+ *  - 1 убыток                  → 1.0 (даём шанс)
+ *  - 2 подряд                  → 0.5
+ *  - 3 подряд                  → 0.25
+ *  - 4+                        → 0.125 (минимум)
+ */
+export function getCurrentRiskScale(closedTrades, profile) {
+  if (!profile?.streakScalingEnabled) return 1;
+  const streak = getCurrentStreak(closedTrades);
+  if (streak.kind !== 'loss' || streak.length < 2) return 1;
+  const factor = 0.5 ** (streak.length - 1);
+  return Math.max(0.125, factor);
+}
+
 /* ------------------ risk per trade ---------------- */
 
 /**
@@ -83,12 +101,15 @@ export function calculateTradeRisk(trade, profile) {
  * Какой volume выбрать, чтобы риск сделки совпал с maxRiskAmount.
  * Возвращает null если нельзя посчитать (нет SL / нет priceOpen).
  *
- *   newVolume = maxRiskAmount / (|entry - SL| * contractSize)
+ *   newVolume = maxRiskAmount * scale / (|entry - SL| * contractSize)
+ *
+ * scale — антимартингейл-множитель (см. getCurrentRiskScale). Если профиль
+ * выключил streakScalingEnabled — scale = 1.
  *
  * Округляем вниз до 0.01 лота (стандартный шаг MT5), чтобы не
  * превышать лимит из-за ошибки округления.
  */
-export function suggestVolumeForRisk(trade, profile) {
+export function suggestVolumeForRisk(trade, profile, ctx = {}) {
   const entry = num(trade?.priceOpen);
   const sl = num(trade?.sl);
   if (!entry || !sl || entry === sl) return null;
@@ -96,10 +117,15 @@ export function suggestVolumeForRisk(trade, profile) {
   const cs = effectiveContractSize(trade);
   if (!cs) return null;
 
-  const maxRiskAmount = computeMaxRiskAmount(profile);
-  if (!maxRiskAmount || maxRiskAmount <= 0) return null;
+  const baseRisk = computeMaxRiskAmount(profile);
+  if (!baseRisk || baseRisk <= 0) return null;
 
-  const raw = maxRiskAmount / (Math.abs(entry - sl) * cs);
+  const scale = Array.isArray(ctx.closedTrades)
+    ? getCurrentRiskScale(ctx.closedTrades, profile)
+    : 1;
+  const targetRisk = baseRisk * scale;
+
+  const raw = targetRisk / (Math.abs(entry - sl) * cs);
   if (!Number.isFinite(raw) || raw <= 0) return null;
 
   const stepped = Math.floor(raw * 100) / 100;
@@ -216,7 +242,9 @@ export function evaluateTradeRules(trade, profile, ctx = {}) {
   const otherOpen = isEdit ? openTrades.filter((t) => t.id !== editingId) : openTrades;
 
   const risk = calculateTradeRisk(trade, profile);
-  const maxRiskAmount = computeMaxRiskAmount(profile);
+  const baseRiskAmount = computeMaxRiskAmount(profile);
+  const scale = getCurrentRiskScale(closedTrades, profile);
+  const maxRiskAmount = baseRiskAmount * scale;
   const maxDailyLossAmount = computeMaxDailyLossAmount(profile);
   const dailyPnL = getDailyPnL(closedTrades);
   const streak = getCurrentStreak(closedTrades);
@@ -227,14 +255,15 @@ export function evaluateTradeRules(trade, profile, ctx = {}) {
       code: 'no-sl',
       message: 'Stop Loss не задан — невозможно посчитать риск сделки.'
     });
-  } else if (maxRiskAmount > 0 && risk.riskAmount != null && risk.riskAmount > maxRiskAmount * 1.001) {
-    const suggestion = suggestVolumeForRisk(trade, profile);
+  } else if (maxRiskAmount > 0 && risk.riskAmount != null && risk.riskAmount > maxRiskAmount + 0.005) {
+    const suggestion = suggestVolumeForRisk(trade, profile, { closedTrades });
+    const scaleNote = scale < 1 ? ` (anti-martingale урезает лимит до ${maxRiskAmount.toFixed(2)})` : '';
     violations.push({
       severity: 'block',
       code: 'risk-exceeds',
       message:
         `Риск сделки ${risk.riskAmount.toFixed(2)} превышает лимит ` +
-        `${maxRiskAmount.toFixed(2)} (на ${(risk.riskAmount - maxRiskAmount).toFixed(2)}).` +
+        `${maxRiskAmount.toFixed(2)}${scaleNote}.` +
         (suggestion ? ` Рекомендуемый объём: ${suggestion} лот.` : '')
     });
   }
@@ -295,6 +324,31 @@ export function evaluateTradeRules(trade, profile, ctx = {}) {
     }
   }
 
+  // Cooldown — после убыточной сделки.
+  if (ctx.cooldownRemainingMs && ctx.cooldownRemainingMs > 0) {
+    const min = Math.ceil(ctx.cooldownRemainingMs / 60000);
+    violations.push({
+      severity: 'block',
+      code: 'cooldown',
+      message: `Cooldown после убыточной сделки: подожди ещё ${min} мин. ` +
+        'Не входи в revenge-trade.'
+    });
+  }
+
+  // Notes checklist — все строки в profile.notes должны быть отмечены.
+  const checklist = parseNotesChecklist(profile?.notes);
+  const acked = Array.isArray(ctx.acknowledgedChecklist) ? ctx.acknowledgedChecklist : [];
+  const missed = checklist.filter((item) => !acked.includes(item));
+  if (checklist.length > 0 && missed.length > 0) {
+    violations.push({
+      severity: 'warn',
+      code: 'notes-checklist',
+      message:
+        `Чек-лист из заметок профиля не пройден ` +
+        `(${missed.length} из ${checklist.length}).`
+    });
+  }
+
   return violations;
 }
 
@@ -336,6 +390,142 @@ export function getDisciplinedPnL(closedTrades) {
     sum += num(t.profit);
   }
   return sum;
+}
+
+/* ------------------- daily stop ------------------- */
+
+/**
+ * Дневной стоп пробит — для kill-switch UI.
+ * Возвращает { hit: bool, pnl: number, limit: number }.
+ */
+export function checkDailyStop(closedTrades, profile) {
+  const limit = computeMaxDailyLossAmount(profile);
+  const pnl = getDailyPnL(closedTrades);
+  return {
+    hit: limit > 0 && pnl <= -limit,
+    pnl,
+    limit
+  };
+}
+
+/* ------------------- equity curve ------------------- */
+
+/**
+ * Equity-кривая: точки (timestamp, real, disciplined) по закрытым сделкам.
+ * - real          : initialCapital + Σ profit (все сделки)
+ * - disciplined   : initialCapital + Σ profit ТОЛЬКО без ruleViolations
+ *
+ * Старые сделки без поля ruleViolations считаются «чистыми».
+ */
+export function getEquityCurve(closedTrades, initialCapital = 0) {
+  if (!Array.isArray(closedTrades) || !closedTrades.length) return [];
+  const sorted = [...closedTrades]
+    .filter((t) => t?.dateClose)
+    .sort((a, b) => new Date(a.dateClose).getTime() - new Date(b.dateClose).getTime());
+
+  const out = [{ ts: sorted[0] ? new Date(sorted[0].dateClose).getTime() - 1 : Date.now(), real: initialCapital, disciplined: initialCapital }];
+  let real = initialCapital;
+  let disc = initialCapital;
+  for (const t of sorted) {
+    const p = num(t.profit);
+    real += p;
+    const v = Array.isArray(t.ruleViolations) ? t.ruleViolations : [];
+    if (v.length === 0) disc += p;
+    out.push({ ts: new Date(t.dateClose).getTime(), real, disciplined: disc });
+  }
+  return out;
+}
+
+/* ------------------- time-of-day analytics ------------------- */
+
+/** PnL по часам открытия сделки (0..23). */
+export function getPnLByHour(closedTrades) {
+  const buckets = Array.from({ length: 24 }, (_, h) => ({ hour: h, sum: 0, count: 0, wins: 0 }));
+  if (!Array.isArray(closedTrades)) return buckets;
+  for (const t of closedTrades) {
+    const ref = t?.dateOpen || t?.dateClose;
+    if (!ref) continue;
+    const h = new Date(ref).getHours();
+    if (h < 0 || h > 23) continue;
+    const p = num(t.profit);
+    buckets[h].sum += p;
+    buckets[h].count += 1;
+    if (p > 0) buckets[h].wins += 1;
+  }
+  return buckets;
+}
+
+/** PnL по дням недели (0=Пн … 6=Вс). */
+export function getPnLByWeekday(closedTrades) {
+  const labels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+  const buckets = labels.map((label, i) => ({ weekday: i, label, sum: 0, count: 0, wins: 0 }));
+  if (!Array.isArray(closedTrades)) return buckets;
+  for (const t of closedTrades) {
+    const ref = t?.dateOpen || t?.dateClose;
+    if (!ref) continue;
+    const jsDow = new Date(ref).getDay(); // 0=Sun
+    const idx = (jsDow + 6) % 7;          // 0=Mon
+    const p = num(t.profit);
+    buckets[idx].sum += p;
+    buckets[idx].count += 1;
+    if (p > 0) buckets[idx].wins += 1;
+  }
+  return buckets;
+}
+
+/* ------------------- tag analytics ------------------- */
+
+/**
+ * Разбивка по тегам сетапов.
+ *  - Сделка без тегов → группа '(без тега)'.
+ *  - Сделка с несколькими тегами учитывается в каждой группе.
+ */
+export function getStatsByTag(closedTrades) {
+  const map = new Map();
+  if (!Array.isArray(closedTrades)) return [];
+
+  function bucket(tag) {
+    if (!map.has(tag)) {
+      map.set(tag, { tag, count: 0, wins: 0, losses: 0, sum: 0, grossWin: 0, grossLoss: 0 });
+    }
+    return map.get(tag);
+  }
+
+  for (const t of closedTrades) {
+    const tags = Array.isArray(t.tags) && t.tags.length ? t.tags : ['(без тега)'];
+    const p = num(t.profit);
+    for (const tg of tags) {
+      const b = bucket(tg);
+      b.count += 1;
+      b.sum += p;
+      if (p > 0) { b.wins += 1; b.grossWin += p; }
+      else if (p < 0) { b.losses += 1; b.grossLoss += -p; }
+    }
+  }
+
+  return [...map.values()]
+    .map((b) => ({
+      ...b,
+      winRate: b.count ? (b.wins / b.count) * 100 : 0,
+      expectancy: b.count ? b.sum / b.count : 0,
+      profitFactor: b.grossLoss ? b.grossWin / b.grossLoss : (b.grossWin ? Infinity : 0)
+    }))
+    .sort((a, b) => b.sum - a.sum);
+}
+
+/* ------------------- notes checklist ------------------- */
+
+/**
+ * Превращает свободные заметки профиля в чек-лист.
+ * Каждая непустая строка → элемент чек-листа.
+ * Игнорируются строки-комментарии (начинаются с #).
+ */
+export function parseNotesChecklist(notes) {
+  if (!notes || typeof notes !== 'string') return [];
+  return notes
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && !s.startsWith('#'));
 }
 
 /* ------------------- floating PnL aggregate ------------------- */
