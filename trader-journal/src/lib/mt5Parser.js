@@ -55,6 +55,9 @@ function getSectionRows(doc, sectionName) {
 }
 
 function buildOpenTrade(values) {
+  // "Торговый отчет" / секция "Позиции" (открытые):
+  // [0]Символ [1]Позиция [2]Время [3]Тип [4]Объем [5]Цена [6]S/L [7]T/P
+  // [8]Рыночная цена [9]Своп [10]Прибыль(плавающая) [11]Комментарий
   if (values.length < 11) return null;
   const pair = values[0];
   const position = values[1];
@@ -65,6 +68,7 @@ function buildOpenTrade(values) {
   const priceOpen = parseNumber(values[5]);
   const sl = values[6] ? parseNumber(values[6]) : null;
   const tp = values[7] ? parseNumber(values[7]) : null;
+  const marketPrice = values[8] ? parseNumber(values[8]) : null;
   const swap = parseNumber(values[9]);
   const floatingProfit = parseNumber(values[10]);
   const comment = values[11] || '';
@@ -82,6 +86,7 @@ function buildOpenTrade(values) {
     status: 'open',
     dateClose: null,
     priceClose: null,
+    marketPrice,
     commission: 0,
     swap,
     profit: floatingProfit,
@@ -159,11 +164,33 @@ export function parseMt5ReportHtml(htmlContent) {
   }
 
   if (title.includes('отчет торговой истории')) {
-    const rows = getSectionRows(doc, 'Позиции');
-    const trades = rows
+    const positionRows = getSectionRows(doc, 'Позиции');
+    const trades = positionRows
       .map(getRowValues)
       .map(buildClosedPositionFromHistory)
       .filter(Boolean);
+
+    // Подтянем комментарии из секции "Сделки" по совпадению (dateClose + symbol)
+    const dealRows = getSectionRows(doc, 'Сделки');
+    const dealComments = new Map();
+    for (const row of dealRows) {
+      const v = getRowValues(row);
+      // [0]Время [1]Сделка [2]Символ [3]Тип [4]Направление ... [14]Комментарий
+      if (v.length < 15) continue;
+      const entryDirection = cleanText(v[4]).toLowerCase();
+      if (entryDirection !== 'out') continue;
+      const dateClose = normalizeDate(v[0]);
+      const pair = v[2];
+      const comment = v[14];
+      if (!dateClose || !pair || !comment) continue;
+      dealComments.set(`${dateClose}|${pair}`, comment);
+    }
+
+    for (const t of trades) {
+      const key = `${t.dateClose}|${t.pair}`;
+      if (dealComments.has(key)) t.comment = dealComments.get(key);
+    }
+
     return { reportType: 'history', trades };
   }
 
