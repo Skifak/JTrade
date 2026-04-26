@@ -1,5 +1,5 @@
 <script>
-  import { createNewTrade, closeTrade, calculateProfit } from '../lib/utils';
+  import { createNewTrade, closeTrade, calculateProfit, isBrokerImportedTrade } from '../lib/utils';
   import { trades } from '../lib/stores';
   import { PAIRS } from '../lib/constants';
   import Modal from './Modal.svelte';
@@ -33,6 +33,27 @@
   } else {
     previewProfit = null;
   }
+
+  function tradeFieldsEdited(original, current) {
+    if (!original || !current) return false;
+    const num = (v) => Number(v) || 0;
+    return (
+      num(original.priceOpen) !== num(current.priceOpen) ||
+      num(original.priceClose) !== num(current.priceClose) ||
+      num(original.volume) !== num(current.volume) ||
+      num(original.commission) !== num(current.commission) ||
+      num(original.swap) !== num(current.swap) ||
+      String(original.direction) !== String(current.direction) ||
+      String(original.pair) !== String(current.pair)
+    );
+  }
+
+  $: editClosedDisplayProfit =
+    mode === 'edit-closed' && trade && formData
+      ? isBrokerImportedTrade(trade) && !tradeFieldsEdited(trade, formData)
+        ? Number(formData.profit) || 0
+        : calculateProfit({ ...formData, status: 'closed' }) || 0
+      : null;
   
   function save() {
     if (mode === 'close') {
@@ -52,7 +73,10 @@
         commission: Number(formData.commission) || 0,
         swap: Number(formData.swap) || 0
       };
-      updatedClosed.profit = calculateProfit(updatedClosed);
+      updatedClosed.profit =
+        isBrokerImportedTrade(trade) && !tradeFieldsEdited(trade, updatedClosed)
+          ? Number(formData.profit) || 0
+          : calculateProfit(updatedClosed);
       trades.updateTrade(trade.id, updatedClosed);
     } else {
       if (!useCurrentTime && !formData.dateOpen) {
@@ -183,9 +207,13 @@
 
       <div class="info-box">
         <p>
-          Обновленный результат:&nbsp;
-          <span class={(calculateProfit({ ...formData, status: 'closed' }) || 0) >= 0 ? 'profit' : 'loss'}>
-            {(calculateProfit({ ...formData, status: 'closed' }) || 0).toFixed(2)} $
+          {#if isBrokerImportedTrade(trade) && !tradeFieldsEdited(trade, formData)}
+            P&amp;L из отчёта MT5 (без пересчёта):&nbsp;
+          {:else}
+            Обновленный результат (по формуле):&nbsp;
+          {/if}
+          <span class={(editClosedDisplayProfit || 0) >= 0 ? 'profit' : 'loss'}>
+            {(editClosedDisplayProfit || 0).toFixed(2)} $
           </span>
         </p>
       </div>

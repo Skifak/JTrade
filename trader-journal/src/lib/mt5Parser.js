@@ -91,49 +91,52 @@ function buildOpenTrade(values) {
   };
 }
 
-function buildClosedTrade(values) {
-  // Формат блока "Сделки" в MT5:
-  // [0]Время [1]Сделка [2]Символ [3]Тип [4]Направление [5]Объем [6]Цена [7]Ордер
-  // [8]Издержки(hidden) [9]Комиссия [10]Сбор [11]Своп [12]Прибыль [13]Баланс [14]Комментарий
-  if (values.length < 13) return null;
-  const dateClose = normalizeDate(values[0]);
-  const dealId = values[1];
+function buildClosedPositionFromHistory(values) {
+  // Формат блока "Позиции" в "Отчете торговой истории" MT5:
+  // [0]Время(откр) [1]Позиция [2]Символ [3]Тип [4]hidden(colspan=8)
+  // [5]Объем [6]Цена(откр) [7]S/L [8]T/P [9]Время(закр) [10]Цена(закр)
+  // [11]Комиссия [12]Своп [13]Прибыль(colspan=2)
+  if (values.length < 14) return null;
+
+  const dateOpen = normalizeDate(values[0]);
+  const positionId = values[1];
   const pair = values[2];
   const type = cleanText(values[3]).toLowerCase();
-  const entryDirection = cleanText(values[4]).toLowerCase();
 
-  // Берем только реальные рыночные исполнения закрытия позиции.
-  if (!/^\d+$/.test(dealId)) return null;
+  if (!/^\d+$/.test(positionId)) return null;
   if (!pair) return null;
   if (type !== 'buy' && type !== 'sell') return null;
-  if (entryDirection !== 'out') return null;
 
   const direction = normalizeDirection(values[3]);
   const volume = parseNumber(values[5]);
-  const priceClose = parseNumber(values[6]);
-  const commission = parseNumber(values[9]);
-  const swap = parseNumber(values[11]);
-  const profit = parseNumber(values[12]);
+  const priceOpen = parseNumber(values[6]);
+  const sl = values[7] ? parseNumber(values[7]) : null;
+  const tp = values[8] ? parseNumber(values[8]) : null;
+  const dateClose = normalizeDate(values[9]);
+  const priceClose = parseNumber(values[10]);
+  const commission = parseNumber(values[11]);
+  const swap = parseNumber(values[12]);
+  const profit = parseNumber(values[13]);
 
   return {
-    id: `mt5_deal_${dealId}`,
-    dateOpen: dateClose,
+    id: `mt5_pos_${positionId}`,
+    dateOpen,
     dateOpenManual: true,
     pair,
     direction,
     volume,
-    priceOpen: priceClose,
-    sl: null,
-    tp: null,
+    priceOpen,
+    sl,
+    tp,
     status: 'closed',
     dateClose,
     priceClose,
     commission,
     swap,
     profit,
-    tags: ['mt5', 'mt5-history-report', 'mt5-deals-only'],
+    tags: ['mt5', 'mt5-history-report'],
     templateUsed: null,
-    comment: values[14] || ''
+    comment: ''
   };
 }
 
@@ -156,10 +159,10 @@ export function parseMt5ReportHtml(htmlContent) {
   }
 
   if (title.includes('отчет торговой истории')) {
-    const rows = getSectionRows(doc, 'Сделки');
+    const rows = getSectionRows(doc, 'Позиции');
     const trades = rows
       .map(getRowValues)
-      .map(buildClosedTrade)
+      .map(buildClosedPositionFromHistory)
       .filter(Boolean);
     return { reportType: 'history', trades };
   }

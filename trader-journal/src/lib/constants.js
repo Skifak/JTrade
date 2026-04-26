@@ -4,6 +4,29 @@ export const PAIRS = [
   'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY', 'BTCUSD', 'ETHUSD'
 ];
 
+/** Единиц базового актива на 1.0 лот (как в спецификации брокера / Excel I2). */
+export const DEFAULT_CONTRACT_SIZE_BY_SYMBOL = {
+  EURUSD: 100000,
+  GBPUSD: 100000,
+  USDJPY: 100000,
+  USDCHF: 100000,
+  AUDUSD: 100000,
+  USDCAD: 100000,
+  NZDUSD: 100000,
+  EURGBP: 100000,
+  EURJPY: 100000,
+  GBPJPY: 100000,
+  BTCUSD: 1,
+  ETHUSD: 1
+};
+
+/** Тикер для справочника: EURUSD.a → EURUSD */
+export function normalizeSymbolKey(symbol) {
+  const raw = String(symbol || '').toUpperCase().trim().replace(/\s+/g, '');
+  if (!raw) return '';
+  return raw.split('.')[0].split('#')[0];
+}
+
 // Направления сделки
 export const DIRECTIONS = ['long', 'short'];
 

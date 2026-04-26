@@ -1,6 +1,7 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   export let open = false;
+  export let modalClass = '';
   const dispatch = createEventDispatcher();
   
   function handleBackdropClick(e) {
@@ -12,7 +13,7 @@
 
 {#if open}
   <div class="modal-overlay" on:click={handleBackdropClick}>
-    <div class="modal">
+    <div class={`modal ${modalClass}`}>
       <div class="modal-header">
         <slot name="header" />
         <button class="modal-close" on:click={() => dispatch('close')}>×</button>

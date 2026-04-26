@@ -1,5 +1,37 @@
 import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
+import { DEFAULT_CONTRACT_SIZE_BY_SYMBOL, normalizeSymbolKey } from './constants';
+
+function getContractSize(symbol) {
+  const key = normalizeSymbolKey(symbol);
+  if (!key) return 1;
+
+  if (Object.prototype.hasOwnProperty.call(DEFAULT_CONTRACT_SIZE_BY_SYMBOL, key)) {
+    return DEFAULT_CONTRACT_SIZE_BY_SYMBOL[key];
+  }
+
+  // Metals (типичные CFD MT5).
+  if (key.startsWith('XAU')) return 100;
+  if (key.startsWith('XAG')) return 5000;
+
+  // Крипто CFD: 1 монета на 1.0 лот (часто; уточняй у брокера).
+  if (
+    key.endsWith('USD') &&
+    /^(BTC|ETH|LTC|XRP|SOL|DOGE|ADA|DOT|LINK|AVAX|BNB|MATIC|TRX|SHIB|TON|UNI|ATOM|NEAR|APT|SUI)/.test(key)
+  ) {
+    return 1;
+  }
+
+  // Классический спот-FX: ровно 6 латинских букв (после нормализации суффиксов).
+  if (/^[A-Z]{6}$/.test(key)) return 100000;
+
+  return 1;
+}
+
+function isFxSymbol(symbol) {
+  const key = normalizeSymbolKey(symbol);
+  return /^[A-Z]{6}$/.test(key);
+}
 
 // Генерация новой сделки
 export function createNewTrade(template = null) {
@@ -21,6 +53,8 @@ export function createNewTrade(template = null) {
     commission: 0,
     swap: 0,
     profit: null,
+    /** Переопределение размера контракта на 1.0 лот; null = из справочника по паре */
+    contractSize: null,
     tags: [],
     templateUsed: template?.name || null,
     comment: ''
@@ -34,19 +68,46 @@ export function createNewTrade(template = null) {
   return baseTrade;
 }
 
+/** Закрытая сделка из отчёта «История торговли» MT5 — колонка «Прибыль», не пересчёт из цен. */
+export function isBrokerImportedTrade(trade) {
+  return Array.isArray(trade?.tags) && trade.tags.includes('mt5-history-report');
+}
+
 // Расчет прибыли
 export function calculateProfit(trade) {
   if (trade.status !== 'closed' || !trade.priceClose) return null;
-  
-  let pips = 0;
-  if (trade.direction === 'long') {
-    pips = (trade.priceClose - trade.priceOpen) * 10000;
-  } else {
-    pips = (trade.priceOpen - trade.priceClose) * 10000;
+
+  const volume = Number(trade.volume) || 0;
+  const priceOpen = Number(trade.priceOpen) || 0;
+  const priceClose = Number(trade.priceClose) || 0;
+  const commission = Number(trade.commission) || 0;
+  const swap = Number(trade.swap) || 0;
+  const pair = String(trade.pair || '').toUpperCase();
+  const override = Number(trade.contractSize);
+  const contractSize =
+    Number.isFinite(override) && override > 0 ? override : getContractSize(pair);
+
+  const directionMultiplier = trade.direction === 'short' ? -1 : 1;
+  const units = volume * contractSize;
+  const priceDiff = (priceClose - priceOpen) * directionMultiplier;
+  let rawPnL = priceDiff * units;
+
+  // Community-standard FX conversion to USD account currency:
+  // - XXXUSD: profit already in USD
+  // - USDXXX: profit in quote currency -> convert to USD by dividing by close
+  // - XXXYYY: without YYYUSD feed cannot convert exactly in sync mode
+  if (isFxSymbol(pair)) {
+    const base = pair.slice(0, 3);
+    const quote = pair.slice(3, 6);
+
+    if (quote === 'USD') {
+      // already USD
+    } else if (base === 'USD') {
+      rawPnL = priceClose !== 0 ? rawPnL / priceClose : 0;
+    }
   }
-  
-  const profit = pips * trade.volume * 10;
-  return profit - trade.commission - trade.swap;
+
+  return rawPnL - commission - swap;
 }
 
 // Закрытие сделки

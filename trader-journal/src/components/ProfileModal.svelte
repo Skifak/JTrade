@@ -10,9 +10,19 @@
     traderName: '',
     accountCurrency: 'USD',
     initialCapital: 10000,
+    riskMode: 'percent',
     riskPerTradePercent: 1,
+    riskPerTradeAmount: 100,
+    dailyLossLimitMode: 'percent',
     dailyLossLimitPercent: 3,
-    monthlyTargetPercent: 5,
+    dailyLossLimitAmount: 300,
+    goalMode: 'percent',
+    goalDayValue: 1,
+    goalWeekValue: 2,
+    goalMonthValue: 5,
+    goalYearValue: 20,
+    maxOpenTrades: 3,
+    maxConsecutiveLosses: 3,
     commissionPerLot: 0,
     notes: ''
   };
@@ -39,9 +49,24 @@
   $: totalClosedPnL = closedTrades.reduce((sum, trade) => sum + (trade.profit || 0), 0);
   $: convertedClosedPnL = convertAmount(totalClosedPnL, pnlConversionRate, 2);
   $: currentBalance = Number(formData.initialCapital || 0) + convertedClosedPnL;
-  $: maxRiskAmount = (Number(formData.initialCapital || 0) * Number(formData.riskPerTradePercent || 0)) / 100;
-  $: maxDailyLossAmount = (Number(formData.initialCapital || 0) * Number(formData.dailyLossLimitPercent || 0)) / 100;
-  $: monthlyTargetAmount = (Number(formData.initialCapital || 0) * Number(formData.monthlyTargetPercent || 0)) / 100;
+  $: maxRiskAmount = formData.riskMode === 'amount'
+    ? Number(formData.riskPerTradeAmount || 0)
+    : (Number(formData.initialCapital || 0) * Number(formData.riskPerTradePercent || 0)) / 100;
+  $: maxDailyLossAmount = formData.dailyLossLimitMode === 'amount'
+    ? Number(formData.dailyLossLimitAmount || 0)
+    : (Number(formData.initialCapital || 0) * Number(formData.dailyLossLimitPercent || 0)) / 100;
+  $: goalDayAmount = formData.goalMode === 'amount'
+    ? Number(formData.goalDayValue || 0)
+    : (Number(formData.initialCapital || 0) * Number(formData.goalDayValue || 0)) / 100;
+  $: goalWeekAmount = formData.goalMode === 'amount'
+    ? Number(formData.goalWeekValue || 0)
+    : (Number(formData.initialCapital || 0) * Number(formData.goalWeekValue || 0)) / 100;
+  $: goalMonthAmount = formData.goalMode === 'amount'
+    ? Number(formData.goalMonthValue || 0)
+    : (Number(formData.initialCapital || 0) * Number(formData.goalMonthValue || 0)) / 100;
+  $: goalYearAmount = formData.goalMode === 'amount'
+    ? Number(formData.goalYearValue || 0)
+    : (Number(formData.initialCapital || 0) * Number(formData.goalYearValue || 0)) / 100;
 
   function closeModal() {
     open = false;
@@ -51,9 +76,16 @@
     userProfile.updateProfile({
       ...formData,
       initialCapital: Number(formData.initialCapital) || 0,
+      riskPerTradeAmount: Number(formData.riskPerTradeAmount) || 0,
       riskPerTradePercent: Number(formData.riskPerTradePercent) || 0,
+      dailyLossLimitAmount: Number(formData.dailyLossLimitAmount) || 0,
       dailyLossLimitPercent: Number(formData.dailyLossLimitPercent) || 0,
-      monthlyTargetPercent: Number(formData.monthlyTargetPercent) || 0,
+      goalDayValue: Number(formData.goalDayValue) || 0,
+      goalWeekValue: Number(formData.goalWeekValue) || 0,
+      goalMonthValue: Number(formData.goalMonthValue) || 0,
+      goalYearValue: Number(formData.goalYearValue) || 0,
+      maxOpenTrades: Number(formData.maxOpenTrades) || 0,
+      maxConsecutiveLosses: Number(formData.maxConsecutiveLosses) || 0,
       commissionPerLot: Number(formData.commissionPerLot) || 0
     });
     closeModal();
@@ -93,6 +125,12 @@
       ...formData,
       accountCurrency: nextCurrency,
       initialCapital: convertAmount(formData.initialCapital, rate, 2),
+      riskPerTradeAmount: convertAmount(formData.riskPerTradeAmount, rate, 2),
+      dailyLossLimitAmount: convertAmount(formData.dailyLossLimitAmount, rate, 2),
+      goalDayValue: formData.goalMode === 'amount' ? convertAmount(formData.goalDayValue, rate, 2) : formData.goalDayValue,
+      goalWeekValue: formData.goalMode === 'amount' ? convertAmount(formData.goalWeekValue, rate, 2) : formData.goalWeekValue,
+      goalMonthValue: formData.goalMode === 'amount' ? convertAmount(formData.goalMonthValue, rate, 2) : formData.goalMonthValue,
+      goalYearValue: formData.goalMode === 'amount' ? convertAmount(formData.goalYearValue, rate, 2) : formData.goalYearValue,
       commissionPerLot: convertAmount(formData.commissionPerLot, rate, 4)
     };
     previousCurrency = nextCurrency;
@@ -102,7 +140,7 @@
   }
 </script>
 
-<Modal {open} on:close={closeModal}>
+<Modal {open} modalClass="profile-modal" on:close={closeModal}>
   <div slot="header">
     <h2>Профиль трейдера</h2>
   </div>
@@ -125,56 +163,119 @@
       </div>
       <div class="profile-metric">
         <div class="profile-metric-label">Цель на месяц</div>
-        <div class="profile-metric-value">{formatNumber(monthlyTargetAmount, 2)} {formData.accountCurrency}</div>
+        <div class="profile-metric-value">{formatNumber(goalMonthAmount, 2)} {formData.accountCurrency}</div>
+      </div>
+      <div class="profile-metric">
+        <div class="profile-metric-label">Цель на год</div>
+        <div class="profile-metric-value">{formatNumber(goalYearAmount, 2)} {formData.accountCurrency}</div>
       </div>
     </div>
 
-    <div class="form-row">
-      <div class="form-group">
-        <label for="trader-name">Имя</label>
-        <input id="trader-name" type="text" bind:value={formData.traderName} placeholder="Например, Alex" />
+    <div class="profile-section">
+      <div class="profile-section-title">Основное</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="trader-name">Имя</label>
+          <input id="trader-name" type="text" bind:value={formData.traderName} placeholder="Например, Alex" />
+        </div>
+        <div class="form-group">
+          <label for="account-currency">Валюта счета</label>
+          <select
+            id="account-currency"
+            bind:value={formData.accountCurrency}
+            on:change={handleCurrencyChange}
+            disabled={isConvertingCurrency}
+          >
+            <option value="USD">USD</option>
+            <option value="EUR">EUR</option>
+            <option value="RUB">RUB</option>
+            <option value="USDT">USDT</option>
+          </select>
+        </div>
       </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="initial-capital">Размер капитала</label>
+          <input id="initial-capital" type="number" min="0" step="10" bind:value={formData.initialCapital} />
+        </div>
+        <div class="form-group">
+          <label for="commission-per-lot">Комиссия за 1 лот</label>
+          <input id="commission-per-lot" type="number" min="0" step="0.01" bind:value={formData.commissionPerLot} />
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-section">
+      <div class="profile-section-title">Риск и ограничения</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="risk-mode">Риск на сделку</label>
+          <div class="value-mode-row">
+            <select id="risk-mode" bind:value={formData.riskMode}>
+              <option value="percent">В процентах</option>
+              <option value="amount">Фикс. сумма</option>
+            </select>
+            {#if formData.riskMode === 'amount'}
+              <input type="number" min="0" step="1" bind:value={formData.riskPerTradeAmount} placeholder={`Сумма (${formData.accountCurrency})`} />
+            {:else}
+              <input id="risk-per-trade" type="number" min="0" max="100" step="0.1" bind:value={formData.riskPerTradePercent} placeholder="% от капитала" />
+            {/if}
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="daily-loss-mode">Дневной лимит убытка</label>
+          <div class="value-mode-row">
+            <select id="daily-loss-mode" bind:value={formData.dailyLossLimitMode}>
+              <option value="percent">В процентах</option>
+              <option value="amount">Фикс. сумма</option>
+            </select>
+            {#if formData.dailyLossLimitMode === 'amount'}
+              <input type="number" min="0" step="1" bind:value={formData.dailyLossLimitAmount} placeholder={`Сумма (${formData.accountCurrency})`} />
+            {:else}
+              <input id="daily-loss-limit" type="number" min="0" max="100" step="0.1" bind:value={formData.dailyLossLimitPercent} placeholder="% от капитала" />
+            {/if}
+          </div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="max-open-trades">Макс. открытых позиций</label>
+          <input id="max-open-trades" type="number" min="1" step="1" bind:value={formData.maxOpenTrades} />
+        </div>
+        <div class="form-group">
+          <label for="max-consecutive-losses">Макс. убыточных подряд</label>
+          <input id="max-consecutive-losses" type="number" min="1" step="1" bind:value={formData.maxConsecutiveLosses} />
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-section">
+      <div class="profile-section-title">Цели (Prop Plan)</div>
       <div class="form-group">
-        <label for="account-currency">Валюта счета</label>
-        <select
-          id="account-currency"
-          bind:value={formData.accountCurrency}
-          on:change={handleCurrencyChange}
-          disabled={isConvertingCurrency}
-        >
-          <option value="USD">USD</option>
-          <option value="EUR">EUR</option>
-          <option value="RUB">RUB</option>
-          <option value="USDT">USDT</option>
+        <label for="goal-mode">Формат целей</label>
+        <select id="goal-mode" bind:value={formData.goalMode}>
+          <option value="percent">В процентах</option>
+          <option value="amount">В сумме</option>
         </select>
       </div>
-    </div>
-
-    <div class="form-row">
-      <div class="form-group">
-        <label for="initial-capital">Размер капитала</label>
-        <input id="initial-capital" type="number" min="0" step="10" bind:value={formData.initialCapital} />
+      <div class="goal-grid">
+        <div class="form-group">
+          <label for="goal-day">Цель на день</label>
+          <input id="goal-day" type="number" min="0" step="0.1" bind:value={formData.goalDayValue} placeholder={formData.goalMode === 'amount' ? formData.accountCurrency : '%'} />
+        </div>
+        <div class="form-group">
+          <label for="goal-week">Цель на неделю</label>
+          <input id="goal-week" type="number" min="0" step="0.1" bind:value={formData.goalWeekValue} placeholder={formData.goalMode === 'amount' ? formData.accountCurrency : '%'} />
+        </div>
+        <div class="form-group">
+          <label for="goal-month">Цель на месяц</label>
+          <input id="goal-month" type="number" min="0" step="0.1" bind:value={formData.goalMonthValue} placeholder={formData.goalMode === 'amount' ? formData.accountCurrency : '%'} />
+        </div>
+        <div class="form-group">
+          <label for="goal-year">Цель на год</label>
+          <input id="goal-year" type="number" min="0" step="0.1" bind:value={formData.goalYearValue} placeholder={formData.goalMode === 'amount' ? formData.accountCurrency : '%'} />
+        </div>
       </div>
-      <div class="form-group">
-        <label for="risk-per-trade">Риск на сделку (%)</label>
-        <input id="risk-per-trade" type="number" min="0" max="100" step="0.1" bind:value={formData.riskPerTradePercent} />
-      </div>
-    </div>
-
-    <div class="form-row">
-      <div class="form-group">
-        <label for="daily-loss-limit">Дневной лимит убытка (%)</label>
-        <input id="daily-loss-limit" type="number" min="0" max="100" step="0.1" bind:value={formData.dailyLossLimitPercent} />
-      </div>
-      <div class="form-group">
-        <label for="monthly-target">Цель на месяц (%)</label>
-        <input id="monthly-target" type="number" min="0" max="1000" step="0.1" bind:value={formData.monthlyTargetPercent} />
-      </div>
-    </div>
-
-    <div class="form-group">
-      <label for="commission-per-lot">Комиссия за 1 лот</label>
-      <input id="commission-per-lot" type="number" min="0" step="0.01" bind:value={formData.commissionPerLot} />
     </div>
 
     <div class="profile-hint">
@@ -188,6 +289,7 @@
       {:else}
         Live-курс сейчас недоступен.
       {/if}
+      Активные лимиты: риск {formatNumber(maxRiskAmount, 2)} {formData.accountCurrency}, дневной стоп {formatNumber(maxDailyLossAmount, 2)} {formData.accountCurrency}, цели D/W/M/Y: {formatNumber(goalDayAmount, 2)} / {formatNumber(goalWeekAmount, 2)} / {formatNumber(goalMonthAmount, 2)} / {formatNumber(goalYearAmount, 2)} {formData.accountCurrency}.
     </div>
 
     {#if fxMessage}

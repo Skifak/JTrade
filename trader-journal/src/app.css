@@ -459,6 +459,41 @@ body {
   color: var(--text-h);
 }
 
+.value-mode-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.profile-modal {
+  width: 96%;
+  max-width: 980px;
+  min-height: 72vh;
+}
+
+.profile-section {
+  border: 1px solid var(--border);
+  background: var(--code-bg);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.profile-section-title {
+  font-size: 13px;
+  letter-spacing: 0.2px;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--text-h);
+  margin-bottom: 12px;
+}
+
+.goal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
 /* Пустое состояние */
 .empty-state {
   text-align: center;
@@ -518,8 +553,18 @@ body {
     width: 95%;
     max-height: 90vh;
   }
+
+  .profile-modal {
+    width: 98%;
+    max-width: none;
+    min-height: auto;
+  }
   
   .modal-body {
     padding: 16px;
+  }
+
+  .goal-grid {
+    grid-template-columns: 1fr;
   }
 }
