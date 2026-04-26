@@ -39,7 +39,9 @@ const DEFAULT_USER_PROFILE = {
   maxOpenTrades: 3,
   maxConsecutiveLosses: 3,
   commissionPerLot: 0,
-  notes: ''
+  notes: '',
+  apiBinanceKey: '',
+  apiFcsapiKey: ''
 };
 
 // Создаем хранилище для сделок

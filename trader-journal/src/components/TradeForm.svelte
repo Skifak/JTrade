@@ -1,17 +1,24 @@
 <script>
   import { createNewTrade, closeTrade, calculateProfit, isBrokerImportedTrade } from '../lib/utils';
-  import { trades } from '../lib/stores';
+  import { trades, userProfile } from '../lib/stores';
   import { PAIRS } from '../lib/constants';
+  import { fetchMarketPrice } from '../lib/marketData';
   import Modal from './Modal.svelte';
-  
+
   export let open = false;
   export let trade = null;
   export let mode = 'add';
-  
+
   let formData = {};
   let useCurrentTime = true;
   let closePrice = 0;
   let previewProfit = null;
+
+  let useMarketPrice = false;
+  let marketLoading = false;
+  let marketError = '';
+  let marketSource = '';
+  let marketTimestamp = null;
   
   $: if (trade && open) {
     formData = { ...trade };
@@ -19,6 +26,42 @@
   } else if (!trade && open) {
     formData = createNewTrade();
     useCurrentTime = true;
+  }
+
+  $: if (!open) {
+    useMarketPrice = false;
+    marketLoading = false;
+    marketError = '';
+    marketSource = '';
+    marketTimestamp = null;
+  }
+
+  async function refreshMarketPrice() {
+    if (!formData?.pair) {
+      marketError = 'Сначала выбери пару';
+      return;
+    }
+    marketLoading = true;
+    marketError = '';
+    const result = await fetchMarketPrice(formData.pair, {
+      binanceKey: $userProfile?.apiBinanceKey,
+      fcsapiKey: $userProfile?.apiFcsapiKey
+    });
+    marketLoading = false;
+    if (result?.error) {
+      marketError = result.error;
+      marketSource = result.source || '';
+      return;
+    }
+    if (result?.price) {
+      formData.priceOpen = Number(result.price);
+      marketSource = result.source;
+      marketTimestamp = result.timestamp;
+    }
+  }
+
+  $: if (useMarketPrice && open && mode === 'add' && formData?.pair) {
+    refreshMarketPrice();
   }
 
   $: if (mode === 'close' && trade && closePrice) {
@@ -250,7 +293,35 @@
         </div>
         <div class="form-group">
           <label for="price-open">Цена открытия</label>
-          <input id="price-open" type="number" step="0.00001" bind:value={formData.priceOpen} />
+          <div class="value-mode-row">
+            <input
+              id="price-open"
+              type="number"
+              step="0.00001"
+              bind:value={formData.priceOpen}
+              disabled={useMarketPrice && marketLoading}
+            />
+            <button
+              type="button"
+              class="btn btn-sm"
+              on:click={refreshMarketPrice}
+              disabled={marketLoading || !formData.pair}
+              title="Обновить рыночную цену"
+            >
+              {marketLoading ? '⏳' : '↻'}
+            </button>
+          </div>
+          <label class="checkbox-label" style="margin-top: 6px;">
+            <input type="checkbox" bind:checked={useMarketPrice} />
+            📡 По рынку (live-цена)
+          </label>
+          {#if marketError}
+            <div class="market-msg loss">{marketError}</div>
+          {:else if useMarketPrice && marketSource && !marketLoading}
+            <div class="market-msg">
+              Источник: {marketSource}{marketTimestamp ? ` · ${new Date(marketTimestamp).toLocaleTimeString()}` : ''}
+            </div>
+          {/if}
         </div>
       </div>
       
@@ -290,3 +361,11 @@
     <button type="button" class="btn btn-primary" on:click={save}>Сохранить</button>
   </div>
 </Modal>
+
+<style>
+  .market-msg {
+    margin-top: 4px;
+    font-size: 12px;
+    opacity: 0.85;
+  }
+</style>
