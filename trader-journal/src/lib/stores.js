@@ -172,11 +172,26 @@ function createTemplatesStore() {
   };
 }
 
+// Список валют, которые мы поддерживаем после удаления RUB. Если в профиле
+// сохранилась несуществующая больше валюта (RUB после удаления, или старые
+// инсталляции) — мягко мигрируем её в USD, чтобы UI не сломался.
+const SUPPORTED_ACCOUNT_CURRENCIES = new Set([
+  'USD', 'EUR', 'GBP', 'JPY', 'CHF', 'CAD', 'AUD', 'NZD', 'USDT', 'BTC'
+]);
+
+function migrateProfile(raw) {
+  const next = { ...DEFAULT_USER_PROFILE, ...(raw || {}) };
+  const ccy = String(next.accountCurrency || '').toUpperCase();
+  if (!SUPPORTED_ACCOUNT_CURRENCIES.has(ccy)) {
+    next.accountCurrency = 'USD';
+  } else {
+    next.accountCurrency = ccy;
+  }
+  return next;
+}
+
 function createUserProfileStore() {
-  const initialState = {
-    ...DEFAULT_USER_PROFILE,
-    ...loadData('userProfile', DEFAULT_USER_PROFILE)
-  };
+  const initialState = migrateProfile(loadData('userProfile', DEFAULT_USER_PROFILE));
   const { subscribe, set, update } = writable(initialState);
 
   return {

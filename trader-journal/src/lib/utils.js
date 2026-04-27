@@ -406,34 +406,81 @@ export async function getConversionRate(fromCurrency, toCurrency) {
   return quote?.rate ?? null;
 }
 
+/**
+ * Универсальный конвертер курса между валютами.
+ *
+ *   USD ↔ USDT       → 1:1 (стейбл)
+ *   BTC ↔ USD/USDT   → BTCUSDT с Binance REST
+ *   BTC ↔ fiat       → BTC*USD * USD→fiat (комбо Binance + Frankfurter)
+ *   fiat ↔ fiat      → Frankfurter
+ *
+ * Возвращает { rate, source } или null если курс получить не удалось.
+ */
 export async function getConversionQuote(fromCurrency, toCurrency) {
   if (!fromCurrency || !toCurrency) return { rate: 1, source: 'identity' };
-  if (fromCurrency === toCurrency) return { rate: 1, source: 'identity' };
 
   const from = String(fromCurrency).toUpperCase();
   const to = String(toCurrency).toUpperCase();
-  const normalizedFrom = from === 'USDT' ? 'USD' : from;
-  const normalizedTo = to === 'USDT' ? 'USD' : to;
+  if (from === to) return { rate: 1, source: 'identity' };
 
-  try {
-    const response = await fetch(
-      `https://api.frankfurter.dev/v1/latest?base=${encodeURIComponent(normalizedFrom)}&symbols=${encodeURIComponent(normalizedTo)}`
-    );
-    if (response.ok) {
-      const payload = await response.json();
-      const rate = payload?.rates?.[normalizedTo];
-      if (typeof rate === 'number' && Number.isFinite(rate) && rate > 0) {
-        return {
-          rate,
-          source: normalizedFrom !== from || normalizedTo !== to ? 'live-proxy-usdt' : 'live'
-        };
-      }
+  // USDT ≈ USD: 1:1.
+  const sFrom = from === 'USDT' ? 'USD' : from;
+  const sTo = to === 'USDT' ? 'USD' : to;
+  if (sFrom === sTo) return { rate: 1, source: 'usdt-proxy' };
+
+  // BTC требует биржевой источник.
+  if (sFrom === 'BTC' || sTo === 'BTC') {
+    const btcUsd = await fetchBtcUsdRate();
+    if (!btcUsd) return null;
+
+    if (sFrom === 'BTC' && sTo === 'USD') return { rate: btcUsd, source: 'binance' };
+    if (sFrom === 'USD' && sTo === 'BTC') return { rate: 1 / btcUsd, source: 'binance' };
+
+    // Кросс с другим фиатом — через USD-прокси.
+    if (sFrom === 'BTC') {
+      const usdToFiat = await fetchFrankfurterRate('USD', sTo);
+      if (!usdToFiat) return null;
+      return { rate: btcUsd * usdToFiat, source: 'binance+frankfurter' };
     }
-  } catch (_) {
-    // Ошибка сети/сервиса - без локального fallback по требованию.
+    // sTo === 'BTC'
+    const fiatToUsd = await fetchFrankfurterRate(sFrom, 'USD');
+    if (!fiatToUsd) return null;
+    return { rate: fiatToUsd / btcUsd, source: 'frankfurter+binance' };
   }
 
-  return null;
+  // Pure fiat ↔ fiat.
+  const r = await fetchFrankfurterRate(sFrom, sTo);
+  if (r == null) return null;
+  return {
+    rate: r,
+    source: sFrom !== from || sTo !== to ? 'live-proxy-usdt' : 'live'
+  };
+}
+
+async function fetchBtcUsdRate() {
+  try {
+    const res = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT');
+    if (!res.ok) return null;
+    const data = await res.json();
+    const p = Number(data?.price);
+    return Number.isFinite(p) && p > 0 ? p : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function fetchFrankfurterRate(from, to) {
+  try {
+    const res = await fetch(
+      `https://api.frankfurter.dev/v1/latest?base=${encodeURIComponent(from)}&symbols=${encodeURIComponent(to)}`
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const rate = data?.rates?.[to];
+    return Number.isFinite(rate) && rate > 0 ? rate : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 export function convertAmount(amount, rate, decimals = 2) {

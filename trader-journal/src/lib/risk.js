@@ -10,8 +10,6 @@
  *   - getCurrentStreak(closedTrades)       : текущая серия выигрышей/проигрышей
  *   - getOpenRisk(openTrades)              : Σ потенциальных убытков по открытым
  *   - evaluateTradeRules(trade, profile, ctx) : массив нарушений pre-trade
- *   - getDisciplineScore(trades)           : доля сделок без зарегистрированных
- *                                            нарушений правил
  *
  * Функции чистые, без сторов — стор тянет их сверху.
  */
@@ -21,6 +19,49 @@ import { getContractSize, calculateProfit } from './utils';
 /* -------------------- helpers -------------------- */
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+
+/** Сделка с зарегистрированными нарушениями плейбука (не учитывается в disciplined PnL). */
+function hasRuleViolations(t) {
+  return Array.isArray(t?.ruleViolations) && t.ruleViolations.length > 0;
+}
+
+/**
+ * Метрика дисциплины по закрытым сделкам (UI: RiskHud, Profile, Guide).
+ *  - score: % сделок без ruleViolations (0–100)
+ *  - violationsCount: сумма длин ruleViolations по «грязным» сделкам
+ */
+export function getDisciplineScore(trades) {
+  const base = { score: 100, total: 0, clean: 0, violationsCount: 0 };
+  if (!Array.isArray(trades) || !trades.length) return { ...base };
+  const closed = trades.filter((t) => t?.status === 'closed');
+  if (!closed.length) return { ...base };
+  let clean = 0;
+  let violationsCount = 0;
+  for (const t of closed) {
+    if (!hasRuleViolations(t)) {
+      clean += 1;
+    } else {
+      violationsCount += t.ruleViolations.length;
+    }
+  }
+  const total = closed.length;
+  const score = total ? (clean / total) * 100 : 100;
+  return { score, total, clean, violationsCount };
+}
+
+/**
+ * Суммарный PnL только по сделкам без ruleViolations.
+ */
+export function getDisciplinedPnL(closedTrades) {
+  if (!Array.isArray(closedTrades)) return 0;
+  let sum = 0;
+  for (const t of closedTrades) {
+    if (t?.status !== 'closed') continue;
+    if (hasRuleViolations(t)) continue;
+    sum += num(t.profit);
+  }
+  return sum;
+}
 
 function effectiveContractSize(trade) {
   const override = Number(trade?.contractSize);
@@ -417,46 +458,6 @@ export function evaluateTradeRules(trade, profile, ctx = {}) {
   return violations;
 }
 
-/* ------------------- discipline ------------------- */
-
-/**
- * Discipline Score:
- *   1) % сделок без зарегистрированных нарушений
- *   2) violationsCount — суммарное число нарушений
- *
- * Старые сделки без поля ruleViolations считаются «чистыми».
- */
-export function getDisciplineScore(trades) {
-  if (!Array.isArray(trades) || !trades.length) {
-    return { score: 100, total: 0, clean: 0, violationsCount: 0 };
-  }
-  let clean = 0;
-  let violationsCount = 0;
-  for (const t of trades) {
-    const v = Array.isArray(t.ruleViolations) ? t.ruleViolations : [];
-    if (v.length === 0) clean += 1;
-    violationsCount += v.length;
-  }
-  const total = trades.length;
-  const score = total ? Math.round((clean / total) * 1000) / 10 : 100;
-  return { score, total, clean, violationsCount };
-}
-
-/**
- * What-if equity: сумма PnL только по «дисциплинированным» закрытым сделкам.
- * Полезно показать в Statistics: «без нарушений у тебя было бы X».
- */
-export function getDisciplinedPnL(closedTrades) {
-  if (!Array.isArray(closedTrades) || !closedTrades.length) return 0;
-  let sum = 0;
-  for (const t of closedTrades) {
-    const v = Array.isArray(t.ruleViolations) ? t.ruleViolations : [];
-    if (v.length > 0) continue;
-    sum += num(t.profit);
-  }
-  return sum;
-}
-
 /* ------------------- daily stop ------------------- */
 
 /**
@@ -476,11 +477,10 @@ export function checkDailyStop(closedTrades, profile) {
 /* ------------------- equity curve ------------------- */
 
 /**
- * Equity-кривая: точки (timestamp, real, disciplined) по закрытым сделкам.
- * - real          : initialCapital + Σ profit (все сделки)
- * - disciplined   : initialCapital + Σ profit ТОЛЬКО без ruleViolations
- *
- * Старые сделки без поля ruleViolations считаются «чистыми».
+ * Equity-кривая по закрытым сделкам (по dateClose, по возрастанию).
+ *  - real: initialCapital + Σ profit
+ *  - disciplined: то же, но сделки с непустым ruleViolations не меняют баланс
+ *    («что было бы, если не входил в нарушающие сделки»).
  */
 export function getEquityCurve(closedTrades, initialCapital = 0) {
   if (!Array.isArray(closedTrades) || !closedTrades.length) return [];
@@ -488,15 +488,20 @@ export function getEquityCurve(closedTrades, initialCapital = 0) {
     .filter((t) => t?.dateClose)
     .sort((a, b) => new Date(a.dateClose).getTime() - new Date(b.dateClose).getTime());
 
-  const out = [{ ts: sorted[0] ? new Date(sorted[0].dateClose).getTime() - 1 : Date.now(), real: initialCapital, disciplined: initialCapital }];
+  const out = [
+    {
+      ts: sorted[0] ? new Date(sorted[0].dateClose).getTime() - 1 : Date.now(),
+      real: initialCapital,
+      disciplined: initialCapital
+    }
+  ];
   let real = initialCapital;
-  let disc = initialCapital;
+  let disciplined = initialCapital;
   for (const t of sorted) {
     const p = num(t.profit);
     real += p;
-    const v = Array.isArray(t.ruleViolations) ? t.ruleViolations : [];
-    if (v.length === 0) disc += p;
-    out.push({ ts: new Date(t.dateClose).getTime(), real, disciplined: disc });
+    if (!hasRuleViolations(t)) disciplined += p;
+    out.push({ ts: new Date(t.dateClose).getTime(), real, disciplined });
   }
   return out;
 }

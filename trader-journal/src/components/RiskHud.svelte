@@ -1,6 +1,7 @@
 <script>
   import { trades, userProfile } from '../lib/stores';
   import { livePrices, tickClock } from '../lib/livePrices';
+  import { fxRate, formatAccountMoney, convertUsd } from '../lib/fxRate';
   import { normalizeSymbolKey } from '../lib/constants';
   import { formatNumber } from '../lib/utils';
   import {
@@ -19,40 +20,52 @@
   $: openTrades = $trades.filter((t) => t.status === 'open');
   $: closedTrades = $trades.filter((t) => t.status === 'closed');
 
+  // ВАЖНО про валюту: profile-значения (initialCapital, maxRisk, лимиты, цели)
+  // хранятся в валюте счёта. PnL по сделкам считается в USD (`calculateProfit`
+  // → USD-flavor для FX-USD пар). Чтобы equity/daily/streak были в одной
+  // системе с лимитами — конвертим USD-агрегаты через $fxRate в валюту счёта.
   $: maxRiskAmount = computeMaxRiskAmount($userProfile);
   $: maxDailyLossAmount = computeMaxDailyLossAmount($userProfile);
   $: goalDayAmount = computeGoalAmount($userProfile, 'Day');
   $: goalWeekAmount = computeGoalAmount($userProfile, 'Week');
   $: goalMonthAmount = computeGoalAmount($userProfile, 'Month');
 
-  // Σ floating PnL — реактивно зависит от $livePrices и $tickClock
-  $: floatingPnL = ($tickClock, getOpenFloatingPnL(openTrades, $livePrices, (t) => normalizeSymbolKey(t.pair)));
-
-  $: closedPnLTotal = closedTrades.reduce((s, t) => s + (Number(t.profit) || 0), 0);
-  $: equity = Number($userProfile?.initialCapital || 0) + closedPnLTotal + floatingPnL;
-  $: equityDelta = equity - Number($userProfile?.initialCapital || 0);
-
-  $: dailyPnL = getDailyPnL(closedTrades);
-  $: weeklyPnL = closedTrades.reduce((s, t) => {
+  // USD-агрегаты:
+  $: floatingPnLUsd = ($tickClock, getOpenFloatingPnL(openTrades, $livePrices, (t) => normalizeSymbolKey(t.pair)));
+  $: closedPnLTotalUsd = closedTrades.reduce((s, t) => s + (Number(t.profit) || 0), 0);
+  $: dailyPnLUsd = getDailyPnL(closedTrades);
+  $: weeklyPnLUsd = closedTrades.reduce((s, t) => {
     if (!t?.dateClose) return s;
     const d = new Date(t.dateClose);
     const now = new Date();
     const startWeek = new Date(now);
-    const dow = (now.getDay() + 6) % 7; // понедельник = 0
+    const dow = (now.getDay() + 6) % 7;
     startWeek.setDate(now.getDate() - dow);
     startWeek.setHours(0, 0, 0, 0);
     return d >= startWeek ? s + (Number(t.profit) || 0) : s;
   }, 0);
-  $: monthlyPnL = closedTrades.reduce((s, t) => {
+  $: monthlyPnLUsd = closedTrades.reduce((s, t) => {
     if (!t?.dateClose) return s;
     const d = new Date(t.dateClose);
     const now = new Date();
     return (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth())
       ? s + (Number(t.profit) || 0) : s;
   }, 0);
+  $: streakUsd = getCurrentStreak(closedTrades);
+  $: openRiskUsd = getOpenRisk(openTrades, $userProfile);
 
-  $: streak = getCurrentStreak(closedTrades);
-  $: openRisk = getOpenRisk(openTrades, $userProfile);
+  // Конвертация в валюту счёта:
+  $: floatingPnL = convertUsd(floatingPnLUsd, $fxRate);
+  $: closedPnLTotal = convertUsd(closedPnLTotalUsd, $fxRate);
+  $: dailyPnL = convertUsd(dailyPnLUsd, $fxRate);
+  $: weeklyPnL = convertUsd(weeklyPnLUsd, $fxRate);
+  $: monthlyPnL = convertUsd(monthlyPnLUsd, $fxRate);
+  $: openRiskTotal = convertUsd(openRiskUsd.totalRisk, $fxRate);
+  $: streak = { ...streakUsd, sum: convertUsd(streakUsd.sum, $fxRate) };
+
+  $: equity = Number($userProfile?.initialCapital || 0) + closedPnLTotal + floatingPnL;
+  $: equityDelta = equity - Number($userProfile?.initialCapital || 0);
+
   $: discipline = getDisciplineScore($trades);
 
   $: maxOpen = Number($userProfile?.maxOpenTrades || 0);
@@ -79,7 +92,7 @@
 
   $: riskState = (() => {
     if (!riskBudget) return 'neutral';
-    const ratio = openRisk.totalRisk / riskBudget;
+    const ratio = openRiskTotal / riskBudget;
     if (ratio > 1) return 'danger';
     if (ratio > 0.8) return 'warn';
     return 'ok';
@@ -105,8 +118,6 @@
     return 'danger';
   })();
 
-  $: ccy = $userProfile?.accountCurrency || 'USD';
-
   // Cooldown / anti-martingale
   $: cooldownLeftMs = ($tickClock, $cooldown?.until ? Math.max(0, $cooldown.until - Date.now()) : 0);
   $: cooldownLeftMin = Math.ceil(cooldownLeftMs / 60000);
@@ -126,11 +137,11 @@
   <div class="hud-card">
     <div class="hud-label">Equity</div>
     <div class="hud-value {equityDelta >= 0 ? 'profit' : 'loss'}">
-      {formatNumber(equity, 2)} {ccy}
+      {formatAccountMoney(equity, $fxRate)}
     </div>
     <div class="hud-sub">
-      {equityDelta >= 0 ? '+' : ''}{formatNumber(equityDelta, 2)}
-      <span class="muted">· float {formatNumber(floatingPnL, 2)}</span>
+      {formatAccountMoney(equityDelta, $fxRate, { signed: true })}
+      <span class="muted">· float {formatAccountMoney(floatingPnL, $fxRate)}</span>
     </div>
   </div>
 
@@ -138,7 +149,7 @@
   <div class="hud-card">
     <div class="hud-label">Дневной P/L</div>
     <div class="hud-value state-{dailyState}">
-      {dailyPnL >= 0 ? '+' : ''}{formatNumber(dailyPnL, 2)} {ccy}
+      {formatAccountMoney(dailyPnL, $fxRate, { signed: true })}
     </div>
     {#if maxDailyLossAmount > 0}
       <div class="hud-bar">
@@ -148,7 +159,7 @@
         ></div>
       </div>
       <div class="hud-sub muted">
-        стоп −{formatNumber(maxDailyLossAmount, 0)} {ccy}
+        стоп −{formatAccountMoney(maxDailyLossAmount, $fxRate, { decimals: 0 })}
       </div>
     {:else}
       <div class="hud-sub muted">лимит не задан</div>
@@ -159,24 +170,24 @@
   <div class="hud-card">
     <div class="hud-label">Открытый риск</div>
     <div class="hud-value state-{riskState}">
-      {formatNumber(openRisk.totalRisk, 2)} {ccy}
+      {formatAccountMoney(openRiskTotal, $fxRate)}
     </div>
     {#if riskBudget > 0}
       <div class="hud-bar">
         <div
           class="hud-bar-fill state-{riskState}"
-          style="width: {pct(openRisk.totalRisk, riskBudget)}%"
+          style="width: {pct(openRiskTotal, riskBudget)}%"
         ></div>
       </div>
       <div class="hud-sub muted">
-        бюджет {formatNumber(riskBudget, 0)} {ccy}
-        {#if openRisk.withoutSlCount > 0}
-          · <span class="warn">{openRisk.withoutSlCount} без SL</span>
+        бюджет {formatAccountMoney(riskBudget, $fxRate, { decimals: 0 })}
+        {#if openRiskUsd.withoutSlCount > 0}
+          · <span class="warn">{openRiskUsd.withoutSlCount} без SL</span>
         {/if}
       </div>
     {:else}
       <div class="hud-sub muted">
-        {openRisk.withoutSlCount > 0 ? `${openRisk.withoutSlCount} без SL` : 'нет открытых с SL'}
+        {openRiskUsd.withoutSlCount > 0 ? `${openRiskUsd.withoutSlCount} без SL` : 'нет открытых с SL'}
       </div>
     {/if}
   </div>
@@ -215,7 +226,7 @@
       {#if maxStreak > 0 && streak.kind === 'loss'}
         стоп при {maxStreak}
       {:else}
-        {formatNumber(streak.sum, 2)} {ccy}
+        {formatAccountMoney(streak.sum, $fxRate)}
       {/if}
     </div>
   </div>
@@ -224,7 +235,7 @@
   <div class="hud-card">
     <div class="hud-label">Цель день</div>
     <div class="hud-value {dailyPnL >= goalDayAmount && goalDayAmount > 0 ? 'profit' : ''}">
-      {formatNumber(dailyPnL, 0)} / {formatNumber(goalDayAmount, 0)}
+      {formatAccountMoney(dailyPnL, $fxRate, { decimals: 0 })} / {formatAccountMoney(goalDayAmount, $fxRate, { decimals: 0 })}
     </div>
     {#if goalDayAmount > 0}
       <div class="hud-bar">
@@ -234,8 +245,8 @@
         ></div>
       </div>
       <div class="hud-sub muted">
-        нед {formatNumber(weeklyPnL, 0)}/{formatNumber(goalWeekAmount, 0)} ·
-        мес {formatNumber(monthlyPnL, 0)}/{formatNumber(goalMonthAmount, 0)}
+        нед {formatAccountMoney(weeklyPnL, $fxRate, { decimals: 0 })}/{formatAccountMoney(goalWeekAmount, $fxRate, { decimals: 0 })} ·
+        мес {formatAccountMoney(monthlyPnL, $fxRate, { decimals: 0 })}/{formatAccountMoney(goalMonthAmount, $fxRate, { decimals: 0 })}
       </div>
     {:else}
       <div class="hud-sub muted">цели не заданы</div>

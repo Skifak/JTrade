@@ -1,8 +1,7 @@
 <script>
   import { createNewTrade, closeTrade, calculateProfit, isBrokerImportedTrade, formatNumber } from '../lib/utils';
   import { trades, userProfile } from '../lib/stores';
-  import { PAIRS } from '../lib/constants';
-  import { fetchMarketPrice } from '../lib/marketData';
+  import { PAIRS, normalizeSymbolKey } from '../lib/constants';
   import {
     calculateTradeRisk,
     suggestVolumeForRisk,
@@ -12,13 +11,15 @@
     parseNotesChecklist
   } from '../lib/risk';
   import { cooldown } from '../lib/cooldown';
-  import { tickClock } from '../lib/livePrices';
+  import { tickClock, livePrices, formPairs } from '../lib/livePrices';
+  import { fxRate, formatMoney, formatAccountMoney, convertUsd, currencySymbol } from '../lib/fxRate';
   import { strategies, findPlay } from '../lib/playbooks';
   import { primaryKillzone, killzoneLabel } from '../lib/killzones';
   import { journalSettings } from '../lib/journalSettings';
   import { ICT_GROUPS, isIctTag, prettyTag } from '../lib/ictTaxonomy';
   import { htfBias, findActiveBias, isAlignedWithBias, biasLabel } from '../lib/htfBias';
   import Modal from './Modal.svelte';
+  import PairPicker from './PairPicker.svelte';
   import RiskConfirmModal from './RiskConfirmModal.svelte';
   import BiasModal from './BiasModal.svelte';
 
@@ -131,31 +132,49 @@
     marketError = '';
     marketSource = '';
     marketTimestamp = null;
+    formPairs.set([]);
   }
 
-  async function refreshMarketPrice() {
+  // Когда форма открыта и «По рынку» включено — подписываем WS на пару формы.
+  // App.svelte сольёт это с openPairs и поднимет нужный feed (Binance/TV).
+  // Это решает CORS-ошибку Stooq для FX и делает поведение единым для всех
+  // инструментов: цена прилетает не REST'ом, а WebSocket'ом.
+  $: shouldTrackForm = open && useMarketPrice && (mode === 'add' || mode === 'edit') && !!formData?.pair;
+  $: formPairs.set(shouldTrackForm ? [formData.pair] : []);
+
+  // Реактивный pull live-цены в формовое поле priceOpen.
+  $: if (shouldTrackForm) {
+    const key = normalizeSymbolKey(formData.pair);
+    const lp = $livePrices[key];
+    if (lp?.price != null && Number.isFinite(Number(lp.price))) {
+      const next = Number(lp.price);
+      if (Number(formData.priceOpen) !== next) {
+        formData.priceOpen = next;
+      }
+      marketSource = lp.source || `WS · ${formData.pair}`;
+      marketTimestamp = lp.timestamp || lp.lastChangeAt || Date.now();
+      marketError = '';
+      marketLoading = false;
+    } else if (lp?.error) {
+      marketError = lp.error;
+      marketLoading = false;
+    } else {
+      marketLoading = true;
+      marketError = '';
+    }
+  }
+
+  // Кнопка ↻ — форсит ре-подписку (на случай если WS был закрыт по какой-то
+  // причине). Реально просто сбрасываем formPairs и ставим обратно через тик.
+  function refreshMarketPrice() {
     if (!formData?.pair) {
       marketError = 'Сначала выбери пару';
       return;
     }
-    marketLoading = true;
     marketError = '';
-    const result = await fetchMarketPrice(formData.pair);
-    marketLoading = false;
-    if (result?.error) {
-      marketError = result.error;
-      marketSource = result.source || '';
-      return;
-    }
-    if (result?.price) {
-      formData.priceOpen = Number(result.price);
-      marketSource = result.source;
-      marketTimestamp = result.timestamp;
-    }
-  }
-
-  $: if (useMarketPrice && open && mode === 'add' && formData?.pair) {
-    refreshMarketPrice();
+    marketLoading = true;
+    formPairs.set([]);
+    setTimeout(() => formPairs.set([formData.pair]), 50);
   }
 
   $: if (mode === 'close' && trade && closePrice) {
@@ -401,7 +420,7 @@
           <p>
             Предварительный результат:&nbsp;
             <span class={previewProfit >= 0 ? 'profit' : 'loss'}>
-              {previewProfit.toFixed(2)} $
+              {formatMoney(previewProfit, $fxRate)}
             </span>
           </p>
         </div>
@@ -450,18 +469,14 @@
             Обновленный результат (по формуле):&nbsp;
           {/if}
           <span class={(editClosedDisplayProfit || 0) >= 0 ? 'profit' : 'loss'}>
-            {(editClosedDisplayProfit || 0).toFixed(2)} $
+            {formatMoney(editClosedDisplayProfit || 0, $fxRate)}
           </span>
         </p>
       </div>
     {:else}
       <div class="form-group">
-        <label for="pair">Валютная пара</label>
-        <select id="pair" bind:value={formData.pair}>
-          {#each PAIRS as pair}
-            <option value={pair}>{pair}</option>
-          {/each}
-        </select>
+        <label for="pair">Инструмент</label>
+        <PairPicker bind:value={formData.pair} />
       </div>
       
       <div class="form-group">
@@ -491,7 +506,7 @@
               on:click={applySuggestedVolume}
               disabled={!suggestedVolume}
               title={suggestedVolume
-                ? `Подобрать объём под лимит риска (${formatNumber(maxRiskAmount, 2)} ${$userProfile?.accountCurrency || 'USD'}): ${suggestedVolume} лот`
+                ? `Подобрать объём под лимит риска (${formatAccountMoney(maxRiskAmount, $fxRate)}): ${suggestedVolume} лот`
                 : 'Заполни цену открытия и SL — кнопка подберёт объём под лимит риска из профиля'}
             >🎯</button>
           </div>
@@ -565,7 +580,7 @@
             <span class="risk-card-label">Риск сделки</span>
             <span class="risk-card-value {riskOverLimit ? 'loss' : ''}">
               {tradeRisk.hasSl && tradeRisk.riskAmount != null
-                ? `${formatNumber(tradeRisk.riskAmount, 2)} ${$userProfile?.accountCurrency || 'USD'}` +
+                ? `${formatMoney(tradeRisk.riskAmount, $fxRate)}` +
                   (tradeRisk.riskPercentOfCapital != null
                     ? ` (${formatNumber(tradeRisk.riskPercentOfCapital, 2)}% капитала)`
                     : '')
@@ -576,10 +591,10 @@
             <div class="risk-card-row">
               <span class="risk-card-label">Лимит из профиля</span>
               <span class="risk-card-value">
-                {formatNumber(maxRiskAmount, 2)} {$userProfile?.accountCurrency || 'USD'}
+                {formatAccountMoney(maxRiskAmount, $fxRate)}
                 {#if riskScale < 1}
                   <span class="warn-text">
-                    (×{riskScale} из {formatNumber(baseRiskAmount, 2)} — anti-martingale)
+                    (×{riskScale} из {formatAccountMoney(baseRiskAmount, $fxRate)} — anti-martingale)
                   </span>
                 {/if}
                 {#if riskOverLimit}<span class="loss"> · превышен</span>{/if}

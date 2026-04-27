@@ -15,6 +15,12 @@ dist-ssr
 # Личные торговые отчёты / PII (не коммитить ни при каких условиях)
 otchet/
 
+# Tauri (Rust) — артефакты сборки
+src-tauri/target/
+src-tauri/gen/
+src-tauri/.cargo/
+src-tauri/WixTools/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

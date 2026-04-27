@@ -13,6 +13,8 @@
   import { strategies, flattenPlays } from '../lib/playbooks';
   import { htfBias, findActiveBias, isAlignedWithBias } from '../lib/htfBias';
   import { prettyTag, isIctTag } from '../lib/ictTaxonomy';
+  import { fxRate, convertUsd } from '../lib/fxRate';
+  import { calculateStats } from '../lib/utils';
 
   export let stats;
   export let closedTrades = [];
@@ -69,7 +71,10 @@
     return [...set].sort();
   })();
 
-  $: filtered = (() => {
+  // Сделки сначала фильтруем как есть (USD-profit), затем применяем
+  // конвертацию USD→валюта счёта во ВСЕХ агрегаторах ниже. initialCapital
+  // приходит уже в валюте счёта, поэтому equity curve складывается корректно.
+  $: filteredRaw = (() => {
     journalSnap;
     const start = periodStart(Date.now(), periodFilter);
     return closedTrades.filter((t) => {
@@ -88,6 +93,14 @@
       return true;
     });
   })();
+  $: filtered = filteredRaw.map((t) => ({
+    ...t,
+    profit: convertUsd(t.profit, $fxRate)
+  }));
+
+  // Перерасчитываем агрегированные статы в валюте счёта (входной prop `stats`
+  // приходил в USD, что давало "€" над числами, но цифры были долларовые).
+  $: stats = calculateStats(filtered, { initialCapital });
 
   $: hasFilter =
     periodFilter !== 'all' ||
@@ -325,18 +338,18 @@
     <div class="stat-card">
       <div class="stat-label">Чистая прибыль</div>
       <div class="stat-value {stats.netProfit >= 0 ? 'profit' : 'loss'}">
-        ${formatNumber(stats.netProfit, 2)}
+        {formatNumber(stats.netProfit, 2)} {currency}
       </div>
     </div>
 
     <div class="stat-card">
       <div class="stat-label">Общая прибыль</div>
-      <div class="stat-value profit">${formatNumber(stats.grossProfit, 2)}</div>
+      <div class="stat-value profit">{formatNumber(stats.grossProfit, 2)} {currency}</div>
     </div>
 
     <div class="stat-card">
       <div class="stat-label">Общий убыток</div>
-      <div class="stat-value loss">-${formatNumber(stats.grossLoss, 2)}</div>
+      <div class="stat-value loss">−{formatNumber(stats.grossLoss, 2)} {currency}</div>
     </div>
 
     <div class="stat-card">
@@ -349,21 +362,21 @@
     <div class="stat-card">
       <div class="stat-label">Матожидание</div>
       <div class="stat-value {stats.expectancy >= 0 ? 'profit' : 'loss'}">
-        ${formatNumber(stats.expectancy, 2)}
+        {formatNumber(stats.expectancy, 2)} {currency}
       </div>
     </div>
 
     <div class="stat-card">
       <div class="stat-label">Сумма комиссий</div>
       <div class="stat-value {stats.sumCommission >= 0 ? 'profit' : 'loss'}">
-        ${formatNumber(stats.sumCommission, 2)}
+        {formatNumber(stats.sumCommission, 2)} {currency}
       </div>
     </div>
 
     <div class="stat-card">
       <div class="stat-label">Сумма свопов</div>
       <div class="stat-value {stats.sumSwap >= 0 ? 'profit' : 'loss'}">
-        ${formatNumber(stats.sumSwap, 2)}
+        {formatNumber(stats.sumSwap, 2)} {currency}
       </div>
     </div>
   </div>
@@ -386,22 +399,22 @@
 
     <div class="stat-card">
       <div class="stat-label">Средняя прибыль</div>
-      <div class="stat-value profit">${formatNumber(stats.avgProfit, 2)}</div>
+      <div class="stat-value profit">{formatNumber(stats.avgProfit, 2)} {currency}</div>
     </div>
 
     <div class="stat-card">
       <div class="stat-label">Средний убыток</div>
-      <div class="stat-value loss">-${formatNumber(stats.avgLoss, 2)}</div>
+      <div class="stat-value loss">−{formatNumber(stats.avgLoss, 2)} {currency}</div>
     </div>
 
     <div class="stat-card">
       <div class="stat-label">Макс. прибыль</div>
-      <div class="stat-value profit">${formatNumber(stats.maxProfit, 2)}</div>
+      <div class="stat-value profit">{formatNumber(stats.maxProfit, 2)} {currency}</div>
     </div>
 
     <div class="stat-card">
       <div class="stat-label">Макс. убыток</div>
-      <div class="stat-value loss">${formatNumber(stats.maxLoss, 2)}</div>
+      <div class="stat-value loss">{formatNumber(stats.maxLoss, 2)} {currency}</div>
     </div>
   </div>
 
@@ -428,7 +441,7 @@
       <div class="stat-label">Макс. подряд выигрышей</div>
       <div class="stat-value">
         {stats.maxConsecutiveWins}
-        <small class="stat-sub">(${formatNumber(stats.maxConsecutiveWinAmount, 2)})</small>
+        <small class="stat-sub">({formatNumber(stats.maxConsecutiveWinAmount, 2)} {currency})</small>
       </div>
     </div>
 
@@ -436,7 +449,7 @@
       <div class="stat-label">Макс. подряд проигрышей</div>
       <div class="stat-value">
         {stats.maxConsecutiveLosses}
-        <small class="stat-sub">(${formatNumber(stats.maxConsecutiveLossAmount, 2)})</small>
+        <small class="stat-sub">({formatNumber(stats.maxConsecutiveLossAmount, 2)} {currency})</small>
       </div>
     </div>
 
@@ -454,8 +467,8 @@
   <h3 class="stats-section-title">Риск</h3>
   <div class="stats-grid">
     <div class="stat-card">
-      <div class="stat-label">Макс. просадка ($)</div>
-      <div class="stat-value loss">-${formatNumber(stats.maxDrawdown, 2)}</div>
+      <div class="stat-label">Макс. просадка</div>
+      <div class="stat-value loss">−{formatNumber(stats.maxDrawdown, 2)} {currency}</div>
     </div>
 
     <div class="stat-card">
@@ -590,7 +603,11 @@
       <div class="axis-legend">
         <span><b>Y</b> — Equity, {currency}</span>
         <span><b>X</b> — дата закрытия сделки</span>
-        <span class="muted-legend">пунктирная линия = стартовый капитал</span>
+        <span class="muted-legend equity-legend-colors">
+          <i class="eq-key eq-key-real"></i>реальная ·
+          <i class="eq-key eq-key-disc"></i>disciplined (без сделок с нарушениями)
+          · пунктир оси = стартовый капитал
+        </span>
       </div>
 
       <svg viewBox="0 0 {EQ_W} {EQ_H}" class="chart-svg" preserveAspectRatio="none">
@@ -620,9 +637,9 @@
         <!-- area под real -->
         <path d={eq.realArea} class="area-real" />
 
-        <!-- линии -->
-        <path d={eq.discLine} class="line-disc" fill="none" stroke-width="1.6" stroke-dasharray="4 3" />
-        <path d={eq.realLine} class="line-real" fill="none" stroke-width="2" />
+        <!-- зелёная = disciplined, красная = реальная (часть поверх) -->
+        <path d={eq.discLine} class="line-disc" fill="none" stroke-width="1.1" />
+        <path d={eq.realLine} class="line-real" fill="none" stroke-width="1.1" />
 
         <!-- маркер последней точки -->
         <circle cx={eq.lastX} cy={eq.lastDiscY} r="3" class="dot-svg-disc" />
@@ -1137,12 +1154,14 @@ avg/сделка: ${b.avgVal >= 0 ? '+' : ''}${formatNumber(b.avgVal, 2)} ${curr
     margin: 0 20px 10px;
   }
 
-  .line-real { stroke: var(--accent); }
-  .line-disc { stroke: var(--profit); opacity: 0.9; }
-  .area-real { fill: var(--accent); opacity: 0.12; }
+  .line-real { stroke: var(--loss); }
+  .line-disc { stroke: var(--profit); }
+  .area-real {
+    fill: color-mix(in srgb, var(--loss) 18%, transparent);
+  }
 
   .dot-svg-real {
-    fill: var(--accent);
+    fill: var(--loss);
     stroke: var(--bg);
     stroke-width: 2;
   }
@@ -1151,6 +1170,17 @@ avg/сделка: ${b.avgVal >= 0 ? '+' : ''}${formatNumber(b.avgVal, 2)} ${curr
     stroke: var(--bg);
     stroke-width: 1.5;
   }
+
+  .eq-key {
+    display: inline-block;
+    width: 14px;
+    height: 3px;
+    border-radius: 1px;
+    margin: 0 4px 2px 2px;
+    vertical-align: middle;
+  }
+  .eq-key-real { background: var(--loss); }
+  .eq-key-disc { background: var(--profit); }
 
   /* Total = насыщенный бар, Avg = тот же оттенок но светлее (сплошной) */
   .bar-total.pos { fill: var(--profit); opacity: 0.92; }
@@ -1206,10 +1236,8 @@ avg/сделка: ${b.avgVal >= 0 ? '+' : ''}${formatNumber(b.avgVal, 2)} ${curr
     margin-right: 6px;
     vertical-align: middle;
   }
-  .dot-real { background: var(--accent); }
-  .dot-disc {
-    background: linear-gradient(to right, var(--profit) 0 3px, transparent 3px 5px, var(--profit) 5px 8px);
-  }
+  .dot-real { background: var(--loss); }
+  .dot-disc { background: var(--profit); }
 
   /* ---- Tag table ---- */
   .tag-table-wrap {

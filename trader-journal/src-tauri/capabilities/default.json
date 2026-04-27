@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Дефолтные пермишены: только основной API ядра. Никаких плагинов, никакого fs/shell — всё, что нужно фронту, делает WebView напрямую (fetch/WebSocket).",
+  "windows": ["main"],
+  "permissions": [
+    "core:default"
+  ]
+}

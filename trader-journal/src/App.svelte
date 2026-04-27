@@ -15,7 +15,8 @@
   import { parseMt5ReportHtml } from './lib/mt5Parser';
   import { theme, THEMES } from './lib/theme';
   import { WORLD_CITIES, formatWorldTime } from './lib/worldClock';
-  import { livePrices, pingInfo, tickClock } from './lib/livePrices';
+  import { livePrices, pingInfo, tickClock, formPairs } from './lib/livePrices';
+  import { fxRate, formatMoney, formatAccountMoney } from './lib/fxRate';
   import { normalizeSymbolKey } from './lib/constants';
   import { cooldown } from './lib/cooldown';
   import { checkDailyStop, computeGoalAmount, getDailyPnL } from './lib/risk';
@@ -50,7 +51,13 @@
   $: openTrades = $trades.filter((t) => t.status === 'open');
   $: closedTrades = $trades.filter((t) => t.status === 'closed');
 
-  $: livePrices.setPairs(openTrades.map((t) => t.pair));
+  // К открытым парам добавляем «формовую» пару (TradeForm пишет туда при
+  // включённом «По рынку»), чтобы WS подключился ко всем нужным символам.
+  $: subscribedPairs = Array.from(new Set([
+    ...openTrades.map((t) => t.pair),
+    ...$formPairs
+  ].filter(Boolean)));
+  $: livePrices.setPairs(subscribedPairs);
 
   // Kill-switch: дневной лимит убытка пробит (для блокировки "Новая сделка")
   $: dailyStop = checkDailyStop(closedTrades, $userProfile);
@@ -515,7 +522,7 @@
                   {formatNumber(Number(trade.swap) || 0, 2)}
                 </td>
                 <td class={fp == null ? '' : fp >= 0 ? 'profit' : 'loss'}>
-                  {fp != null ? `${formatNumber(fp, 2)} $` : '-'}
+                  {fp != null ? formatMoney(fp, $fxRate) : '-'}
                 </td>
                 <td>{formatDuration(trade.dateOpen, null)}</td>
                 <td>
@@ -621,7 +628,7 @@
                   {formatNumber(Number(trade.swap) || 0, 2)}
                 </td>
                 <td class={trade.profit >= 0 ? 'profit' : 'loss'}>
-                  {formatNumber(trade.profit, 2)} $
+                  {formatMoney(trade.profit, $fxRate)}
                 </td>
                 <td>
                   <div class="btn-group">
@@ -643,7 +650,7 @@
                 {formatNumber(closedTotals.swap, 2)}
               </td>
               <td class={closedTotals.profit >= 0 ? 'profit' : 'loss'}>
-                <strong>{formatNumber(closedTotals.profit, 2)} $</strong>
+                <strong>{formatMoney(closedTotals.profit, $fxRate)}</strong>
               </td>
               <td></td>
             </tr>

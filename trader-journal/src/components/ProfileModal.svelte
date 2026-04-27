@@ -214,10 +214,22 @@
             on:change={handleCurrencyChange}
             disabled={isConvertingCurrency}
           >
-            <option value="USD">USD</option>
-            <option value="EUR">EUR</option>
-            <option value="RUB">RUB</option>
-            <option value="USDT">USDT</option>
+            <optgroup label="Фиат">
+              <option value="USD">USD — Доллар США</option>
+              <option value="EUR">EUR — Евро</option>
+              <option value="GBP">GBP — Фунт</option>
+              <option value="JPY">JPY — Иена</option>
+              <option value="CHF">CHF — Франк</option>
+              <option value="CAD">CAD — Канадский $</option>
+              <option value="AUD">AUD — Австралийский $</option>
+              <option value="NZD">NZD — Новозеландский $</option>
+            </optgroup>
+            <optgroup label="Стейблкоины">
+              <option value="USDT">USDT</option>
+            </optgroup>
+            <optgroup label="Крипта">
+              <option value="BTC">BTC — Биткоин</option>
+            </optgroup>
           </select>
         </div>
       </div>

@@ -2,7 +2,11 @@
 
 Локальный журнал трейдера на **Svelte 5 + Vite 8** с уклоном в ICT/SMC: ведение сделок, импорт MT5, риск-менеджмент, плейбуки, killzones, HTF bias, live-цены без API-ключей и расширенная статистика.
 
-Собирается в **standalone HTML** (`vite-plugin-singlefile`) — после билда получается один `dist/index.html`, который открывается локально без сервера. Все данные живут в `localStorage` браузера.
+Доступно два варианта запуска:
+1. **Standalone HTML** — `vite-plugin-singlefile` собирает один `dist/index.html` со всем CSS/JS внутри. Открыть из любого статического хостинга / `npm run preview`.
+2. **Десктоп-приложение через Tauri 2** — нативная WebView2-обёртка для Windows (см. [секцию ниже](#tauri-десктоп-сборка)). Решает проблему `file://` + WebSocket: WS к Binance / TradingView в Tauri живут так же, как в `npm run dev`.
+
+Все данные живут в `localStorage` браузера / WebView.
 
 ---
 
@@ -159,7 +163,7 @@ __livePrices.enableLog();  // включить debug-лог WS, перезагр
 
 ---
 
-## Установка и запуск
+## Установка и запуск (веб)
 
 Требуется Node.js 18+.
 
@@ -167,10 +171,93 @@ __livePrices.enableLog();  // включить debug-лог WS, перезагр
 npm install
 npm run dev      # дев-сервер с HMR (порт 5173)
 npm run build    # сборка в dist/index.html (один файл)
-npm run preview  # предпросмотр продакшен-сборки
+npm run preview  # предпросмотр продакшен-сборки на http://localhost:4173
 ```
 
-После `npm run build` в `dist/` лежит один HTML-файл со всем CSS/JS внутри — можно открыть напрямую в браузере или положить на любой статический хостинг. Все данные пользователя — в его `localStorage`, между устройствами не синхронизируются.
+После `npm run build` в `dist/` лежит один HTML-файл со всем CSS/JS внутри. **Открывать его двойным кликом (`file://`) не рекомендуется**: WebSocket к Binance/TradingView в части браузеров режется при `Origin: null`, и live-цены замолкают. Корректные способы запустить веб-вариант:
+
+- `npm run preview` (локальный static-сервер на 4173).
+- `npx serve dist` / nginx / GitHub Pages / Cloudflare Pages.
+- Любой другой `http://` или `https://` URL — Origin будет валидным, WS заработают.
+
+Если нужен запуск без какого-либо сервера у пользователя — собирай **Tauri-десктоп** (см. ниже): он обходит проблему `file://` за счёт встроенного WebView2 со своим origin (`https://tauri.localhost`).
+
+Все данные пользователя — в его `localStorage`/WebView, между устройствами не синхронизируются.
+
+---
+
+## Tauri-десктоп-сборка
+
+Tauri 2 оборачивает фронт в нативное окно с **WebView2** (Edge/Chromium) и отдаёт страницу не как `file://`, а как `https://tauri.localhost/...`. Из-за этого:
+
+- WebSocket к `wss://stream.binance.com:9443` и `wss://data.tradingview.com` рукопожимают **с валидным `Origin`** — провайдеры не режут запросы.
+- HTTPS-запросы (Stooq, Frankfurter, Binance REST) тоже не упираются в CORS, как при `file://`.
+- Получается единый `.exe` (или `.msi`/`.nsis`-инсталлятор), который пользователь запускает двойным кликом.
+
+### Зависимости (Windows 10/11, разовая настройка)
+
+| Что          | Зачем                                  | Как поставить |
+|--------------|----------------------------------------|---------------|
+| Node.js 18+  | фронт                                  | `winget install OpenJS.NodeJS.LTS` |
+| MSVC Build Tools 2022+ | C-линкер для Rust          | `winget install Microsoft.VisualStudio.2022.BuildTools` (компонент **Desktop development with C++**) |
+| WebView2 Runtime | сам WebView                        | в Win 10 21H2+/Win 11 уже есть. Иначе [скачать с Microsoft](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) |
+| Rust (rustup) | компилятор Tauri-обёртки              | `winget install Rustlang.Rustup` либо с [rustup.rs](https://rustup.rs/) |
+
+После установки Rust перезапусти PowerShell, проверь:
+
+```powershell
+rustc --version
+cargo --version
+npx tauri info
+```
+
+`npx tauri info` должен показать `[✔] Environment` без красных пунктов.
+
+### Команды
+
+```powershell
+# дев-режим: Tauri запустит vite dev сам, дождётся 5173 и откроет окно с HMR
+npm run tauri:dev
+
+# одноразово сгенерировать иконки из любой квадратной PNG (1024x1024 рекомендуется)
+npm run tauri:icon ./path/to/source.png
+
+# релизный билд: dist/index.html → exe + msi/nsis-инсталлятор
+npm run tauri:build
+```
+
+Артефакты билда:
+- `src-tauri/target/release/Trader Journal.exe` — голый бинарник.
+- `src-tauri/target/release/bundle/msi/*.msi` — MSI-инсталлятор.
+- `src-tauri/target/release/bundle/nsis/*-setup.exe` — NSIS-инсталлятор.
+
+Размер релиза без иконок: ~6–10 МБ (профиль `release` со `lto = true`, `panic = abort`, `strip = true` в `src-tauri/Cargo.toml`).
+
+### Структура Tauri-обёртки
+
+```
+src-tauri/
+├── Cargo.toml              # Rust-манифест, минимум зависимостей: tauri + serde
+├── build.rs                # build script (вызывает tauri_build::build)
+├── tauri.conf.json         # окно, бандл, identifier, путь к фронту
+├── capabilities/
+│   └── default.json        # пермишены окна — только core (без fs/shell/etc)
+├── icons/                  # 32/128/128@2x PNG, ICO, ICNS — генерируются tauri:icon
+└── src/
+    ├── main.rs             # точка входа бинарника, скрытие консоли в release
+    └── lib.rs              # tauri::Builder без custom commands (фронту хватает WebView)
+```
+
+Сейчас в Rust-стороне **нет ни одного кастомного команда** — фронт работает чисто через нативные `fetch`/`WebSocket` WebView2. Если позже захочешь сделать нативный fetch (например, обходить CORS Stooq через Rust-сторону — `reqwest` без CORS-проверки), добавляй `#[tauri::command]` в `src-tauri/src/lib.rs` и вызывай из фронта через `@tauri-apps/api/core` `invoke()`.
+
+### Замечания по поведению
+
+- **CSP** в `tauri.conf.json` стоит `null` — WebView2 применяет свой дефолтный, нестрогий. Это нужно потому, что `vite-plugin-singlefile` инлайнит весь JS/CSS в `<script>`/`<style>`, и строгий CSP без `'unsafe-inline'`/хешей такое не пропустит. Если захочешь ужать — придётся либо отключить singlefile под Tauri, либо собирать CSP с хешами после билда.
+- **`localStorage`** в WebView2 хранится в профиле приложения (`%APPDATA%\com.traderjournal.app\EBWebView\...`). Сделки между «веб» и «Tauri» вариантами **не синхронизируются** — это разные origins, разные хранилища. Используй экспорт/импорт JSON.
+- **HMR в `tauri:dev`** работает — Tauri ждёт vite на `localhost:5173`, окно перезагружается на изменения.
+- **Identifier** в конфиге — `com.traderjournal.app`. Поменяй, если планируешь публиковать (он попадёт в путь к данным WebView2 и в подпись MSI).
+- **Подпись инсталлятора** не настроена. Для распространения чужим людям подпиши `.msi`/`.exe` своим сертификатом (иначе SmartScreen будет ругаться).
+- **Кросс-платформа**: на macOS/Linux команды те же (`npm run tauri:build`), артефакты — `.dmg`/`.app` и `.AppImage`/`.deb`. Тестировалось пока только на Windows 10.
 
 ---
 

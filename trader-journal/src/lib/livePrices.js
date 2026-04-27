@@ -59,6 +59,16 @@ export const pingInfo = writable({
 /** Часы — обновляется раз в 1 сек, чтобы UI пересчитывал «возраст» без дрожания
  *  (1с, 2с, 3с…). */
 export const tickClock = writable(Date.now());
+
+/**
+ * Доп. пары, на которые временно подписываемся (нужно TradeForm для «📡 По
+ * рынку»: пользователь может открыть форму на пару, по которой нет открытых
+ * сделок). App.svelte мерджит этот стор с openPairs при вызове setPairs().
+ *
+ *   formPairs.set([formData.pair])  // подписаться
+ *   formPairs.set([])               // отписаться
+ */
+export const formPairs = writable(/** @type {string[]} */ ([]));
 const TICK_CLOCK_INTERVAL_MS = 1000;
 // Возраст последнего ТИКА (любое сообщение от провайдера) — для статуса коннекта.
 // Дёргаем UI не чаще раза в 5 сек, чтобы не плясал.

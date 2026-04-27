@@ -1,0 +1,29 @@
+[package]
+name = "trader-journal"
+version = "0.1.0"
+description = "Trader Journal — локальный журнал трейдера (Tauri-обёртка)"
+authors = ["local"]
+edition = "2021"
+rust-version = "1.77"
+
+# Имя библиотеки задано вручную, чтобы избежать коллизии с папкой `trader-journal/`
+# на уровне репо (тире в имени бинарника окей, в имени lib — нет).
+[lib]
+name = "trader_journal_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Жёсткий релизный профиль: меньше бинарь, дольше билд.
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
