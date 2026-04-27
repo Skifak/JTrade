@@ -213,7 +213,7 @@
   }
   .pill-btn:last-child { border-right: 0; }
   .pill-btn:hover { background: var(--bg-2); }
-  .pill-btn.active { background: var(--accent); color: #fff; }
+  .pill-btn.active { background: var(--accent); color: var(--accent-fg); }
 
   .hint-inline {
     margin-top: 4px;

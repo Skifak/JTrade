@@ -1,36 +1,58 @@
 /**
- * ICT Killzones — окна повышенной ликвидности.
- * Все диапазоны заданы в Нью-Йорк локальном времени, DST ловится автоматически
- * через Intl.DateTimeFormat (timeZone: 'America/New_York').
+ * Killzones — окна повышенной ликвидности.
+ * Время считается в TZ из настроек журнала (journalSettings), по умолчанию America/New_York.
  */
-export const KILLZONES = [
-  { id: 'ASIA', label: 'Asia',          from: '20:00', to: '00:00', wrap: true,  hint: 'Asian range — построение премиум/дискаунт' },
-  { id: 'LO',   label: 'London Open',   from: '02:00', to: '05:00', hint: 'London Open Killzone' },
-  { id: 'LDN',  label: 'London',        from: '03:00', to: '04:00', hint: 'Узкое London KZ' },
-  { id: 'NYAM', label: 'NY AM',         from: '08:30', to: '11:00', hint: 'NY AM session' },
-  { id: 'SB',   label: 'Silver Bullet', from: '10:00', to: '11:00', hint: 'Silver Bullet 10–11 NY' },
-  { id: 'LCK',  label: 'London Close',  from: '10:00', to: '12:00', hint: 'London Close KZ' },
-  { id: 'NYPM', label: 'NY PM',         from: '13:30', to: '16:00', hint: 'NY PM session' }
-];
+import { get } from 'svelte/store';
+import { journalSettings } from './journalSettings';
+import { DEFAULT_KILLZONES, DEFAULT_KILLZONE_PRIORITY } from './killzoneData';
 
-const TZ = 'America/New_York';
+/** @deprecated для UI используй $journalSettings.killzones; это статический пресет */
+export const KILLZONES = DEFAULT_KILLZONES;
 
-let _fmt;
-function getFmt() {
-  if (!_fmt) {
-    _fmt = new Intl.DateTimeFormat('en-US', {
-      timeZone: TZ,
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+export { DEFAULT_KILLZONES, DEFAULT_KILLZONE_PRIORITY } from './killzoneData';
+
+const tzFmtCache = new Map();
+
+function getFmt(timeZone) {
+  const tz = timeZone || 'America/New_York';
+  if (!tzFmtCache.has(tz)) {
+    tzFmtCache.set(
+      tz,
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    );
   }
-  return _fmt;
+  return tzFmtCache.get(tz);
 }
 
-function nyTime(date) {
-  const parts = getFmt().formatToParts(date);
-  let hh = 0, mm = 0;
+function resolveCtx() {
+  let s;
+  try {
+    s = get(journalSettings);
+  } catch {
+    s = null;
+  }
+  const zones =
+    s?.killzones && Array.isArray(s.killzones) && s.killzones.length ? s.killzones : DEFAULT_KILLZONES;
+  const priority =
+    s?.killzonePriority && Array.isArray(s.killzonePriority) && s.killzonePriority.length
+      ? s.killzonePriority
+      : DEFAULT_KILLZONE_PRIORITY;
+  const tz =
+    s?.killzoneTimezone && typeof s.killzoneTimezone === 'string'
+      ? s.killzoneTimezone
+      : 'America/New_York';
+  return { zones, priority, tz };
+}
+
+function localHM(date, tz) {
+  const parts = getFmt(tz).formatToParts(date);
+  let hh = 0;
+  let mm = 0;
   for (const p of parts) {
     if (p.type === 'hour') hh = Number(p.value) % 24;
     else if (p.type === 'minute') mm = Number(p.value);
@@ -41,6 +63,7 @@ function nyTime(date) {
 function inRange(h, m, fromStr, toStr, wrap = false) {
   const [fh, fm] = fromStr.split(':').map(Number);
   const [th, tm] = toStr.split(':').map(Number);
+  if ([fh, fm, th, tm].some((x) => Number.isNaN(x))) return false;
   const cur = h * 60 + m;
   const from = fh * 60 + fm;
   const to = th * 60 + tm;
@@ -51,28 +74,28 @@ function inRange(h, m, fromStr, toStr, wrap = false) {
 /** Вернёт массив id всех killzone, попавших на время сделки. */
 export function detectKillzones(date) {
   if (!date) return [];
-  const d = (date instanceof Date) ? date : new Date(date);
+  const d = date instanceof Date ? date : new Date(date);
   if (Number.isNaN(d.getTime())) return [];
-  const [h, m] = nyTime(d);
+  const { zones, tz } = resolveCtx();
+  const [h, m] = localHM(d, tz);
   const out = [];
-  for (const kz of KILLZONES) {
-    if (inRange(h, m, kz.from, kz.to, kz.wrap)) out.push(kz.id);
+  for (const kz of zones) {
+    if (inRange(h, m, kz.from, kz.to, !!kz.wrap)) out.push(kz.id);
   }
   return out;
 }
 
-/** Приоритетный (самый "узкий" / специфичный) KZ для bucket-аналитики. */
-const PRIORITY = ['SB', 'LDN', 'LO', 'LCK', 'NYAM', 'NYPM', 'ASIA'];
-
 export function primaryKillzone(date) {
+  const { priority } = resolveCtx();
   const list = detectKillzones(date);
   if (!list.length) return null;
-  for (const p of PRIORITY) if (list.includes(p)) return p;
+  for (const p of priority) if (list.includes(p)) return p;
   return list[0];
 }
 
 export function getKillzoneById(id) {
-  return KILLZONES.find((k) => k.id === id) || null;
+  const { zones } = resolveCtx();
+  return zones.find((k) => k.id === id) || null;
 }
 
 export function killzoneLabel(id) {
@@ -82,17 +105,28 @@ export function killzoneLabel(id) {
   return kz?.label || id;
 }
 
-/** Текущий KZ "сейчас" для UI-подсказки. */
 export function currentKillzone(now = new Date()) {
   return primaryKillzone(now);
 }
 
-/** Аггрегация PnL по killzone из закрытых сделок. */
 export function getPnLByKillzone(closedTrades) {
-  const buckets = KILLZONES.map((kz) => ({
-    id: kz.id, label: kz.label, hint: kz.hint, sum: 0, count: 0, wins: 0
+  const { zones } = resolveCtx();
+  const buckets = zones.map((kz) => ({
+    id: kz.id,
+    label: kz.label,
+    hint: kz.hint,
+    sum: 0,
+    count: 0,
+    wins: 0
   }));
-  buckets.push({ id: '_OUT', label: 'Вне KZ', hint: 'Сделки вне основных killzones', sum: 0, count: 0, wins: 0 });
+  buckets.push({
+    id: '_OUT',
+    label: 'Вне KZ',
+    hint: 'Сделки вне настроенных killzones',
+    sum: 0,
+    count: 0,
+    wins: 0
+  });
   if (!Array.isArray(closedTrades)) return buckets;
   for (const t of closedTrades) {
     const ref = t?.dateOpen || t?.dateClose;

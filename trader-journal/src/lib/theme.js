@@ -5,7 +5,7 @@ export const THEMES = [
   { id: 'light', label: 'Белая', short: 'Св' },
   { id: 'beige', label: 'Бежевая', short: 'Бж' },
   { id: 'dark', label: 'Тёмная', short: 'Тм' },
-  { id: 'neon', label: 'Неон ICT', short: 'Нм' }
+  { id: 'neon', label: 'Неон', short: 'Нм' }
 ];
 
 const STORAGE_KEY = 'theme';

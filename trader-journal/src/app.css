@@ -21,6 +21,11 @@
   --profit: #047857;
   --loss: #b91c1c;
   --warning: #b45309;
+  --warning-fg: #ffffff;
+  --badge-hero-bg: var(--text-strong);
+  --badge-hero-fg: #ffffff;
+  --profit-fg: #ffffff;
+  --loss-fg: #ffffff;
   --shadow: rgba(15, 17, 21, 0.08) 0 6px 16px -4px,
             rgba(15, 17, 21, 0.04) 0 2px 4px -1px;
 }
@@ -42,6 +47,11 @@
   --profit: #2f7a3a;
   --loss: #9b2d2d;
   --warning: #8a5a18;
+  --warning-fg: #fffef8;
+  --badge-hero-bg: var(--text-strong);
+  --badge-hero-fg: #fffef8;
+  --profit-fg: #ffffff;
+  --loss-fg: #ffffff;
   --shadow: rgba(60, 50, 25, 0.1) 0 6px 16px -4px,
             rgba(60, 50, 25, 0.05) 0 2px 4px -1px;
 }
@@ -63,11 +73,16 @@
   --profit: #34c777;
   --loss: #f06464;
   --warning: #f0b04a;
+  --warning-fg: #1a1206;
+  --badge-hero-bg: #3c4250;
+  --badge-hero-fg: #ffffff;
+  --profit-fg: #ffffff;
+  --loss-fg: #ffffff;
   --shadow: rgba(0, 0, 0, 0.55) 0 8px 18px -4px,
             rgba(0, 0, 0, 0.35) 0 2px 6px -2px;
 }
 
-/* Неон ICT: глубокий чёрный, лайм #B3FF50, контуры как на RB-референсе */
+/* Неон: глубокий чёрный, лайм #B3FF50 */
 [data-theme='neon'] {
   --bg: #0b0b0b;
   --bg-2: #111111;
@@ -85,6 +100,11 @@
   --profit: #b3ff50;
   --loss: #ff5a5a;
   --warning: #f5c84c;
+  --warning-fg: #0b0b0b;
+  --badge-hero-bg: #1a1a1a;
+  --badge-hero-fg: #fafafa;
+  --profit-fg: #0b0b0b;
+  --loss-fg: #ffffff;
   --shadow: rgba(0, 0, 0, 0.75) 0 10px 24px -6px,
             rgba(179, 255, 80, 0.04) 0 0 0 1px;
 }
@@ -256,7 +276,7 @@ body {
 .btn-danger {
   background: var(--loss);
   border-color: var(--loss);
-  color: #fff;
+  color: var(--loss-fg, #fff);
 }
 
 .btn-danger:hover {
@@ -268,7 +288,7 @@ body {
 .btn-success {
   background: var(--profit);
   border-color: var(--profit);
-  color: #fff;
+  color: var(--profit-fg, #fff);
 }
 
 .btn-success:hover {
@@ -650,6 +670,11 @@ body {
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow);
+}
+
+.modal.journal-settings-modal {
+  max-width: min(760px, 96vw);
+  width: 96%;
 }
 
 .modal-header {

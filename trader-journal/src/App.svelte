@@ -20,6 +20,7 @@
   import { cooldown } from './lib/cooldown';
   import { checkDailyStop, computeGoalAmount, getDailyPnL } from './lib/risk';
   import { primaryKillzone, killzoneLabel } from './lib/killzones';
+  import { journalSettings } from './lib/journalSettings';
   import { strategies, findPlay } from './lib/playbooks';
   import TradeForm from './components/TradeForm.svelte';
   import TemplatesPanel from './components/TemplatesPanel.svelte';
@@ -31,10 +32,12 @@
   import GuideView from './components/GuideView.svelte';
   import BiasModal from './components/BiasModal.svelte';
   import PlaybookView from './components/PlaybookView.svelte';
+  import JournalSettingsModal from './components/JournalSettingsModal.svelte';
 
   let showForm = false;
   let showProfile = false;
   let showBias = false;
+  let showJournalSettings = false;
   let currentTrade = null;
   let formMode = 'add';
   let activeTab = 'open';
@@ -100,6 +103,8 @@
   $: stats = calculateStats(closedTrades, {
     initialCapital: Number($userProfile?.initialCapital) || 0
   });
+
+  $: journalSnap = $journalSettings;
 
   $: openSymbols = Array.from(new Set(openTrades.map((t) => t.pair))).sort();
   $: closedSymbols = Array.from(new Set(closedTrades.map((t) => t.pair))).sort();
@@ -180,6 +185,7 @@
   }
 
   function tradeKzLabel(trade) {
+    void journalSnap;
     const id = trade?.killzone || primaryKillzone(trade?.dateOpen);
     return id ? killzoneLabel(id) : '—';
   }
@@ -337,6 +343,11 @@
           title={tradingBlocked ? tradingBlockedReason : 'Новая сделка'}
         >+ Сделка</button>
         <button class="btn" on:click={() => showBias = true} title="HTF Bias">Bias</button>
+        <button
+          class="btn"
+          on:click={() => showJournalSettings = true}
+          title="Killzones, часовой пояс, приоритет KZ"
+        >Параметры</button>
         <button class="btn" on:click={() => showProfile = true} title="Профиль">Профиль</button>
         <button class="btn" on:click={exportData} title="Экспорт JSON">Экспорт</button>
         <label class="btn import-label" title="Импорт JSON или отчёт MT5 (HTML)">
@@ -651,6 +662,7 @@
   <TradeForm bind:open={showForm} trade={currentTrade} mode={formMode} />
   <ProfileModal bind:open={showProfile} {closedTrades} />
   <BiasModal bind:open={showBias} />
+  <JournalSettingsModal bind:open={showJournalSettings} />
   <DailyReviewModal
     open={showDailyReview}
     {dailyPnL}

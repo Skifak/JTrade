@@ -14,7 +14,8 @@
   import { cooldown } from '../lib/cooldown';
   import { tickClock } from '../lib/livePrices';
   import { strategies, findPlay } from '../lib/playbooks';
-  import { primaryKillzone, killzoneLabel, KILLZONES } from '../lib/killzones';
+  import { primaryKillzone, killzoneLabel } from '../lib/killzones';
+  import { journalSettings } from '../lib/journalSettings';
   import { ICT_GROUPS, isIctTag, prettyTag } from '../lib/ictTaxonomy';
   import { htfBias, findActiveBias, isAlignedWithBias, biasLabel } from '../lib/htfBias';
   import Modal from './Modal.svelte';
@@ -100,8 +101,9 @@
   }
 
   // ----- Killzone (auto from dateOpen) -----
-  $: kzId = primaryKillzone(formData.dateOpen);
-  $: kzLabel = killzoneLabel(kzId);
+  $: journalSnap = $journalSettings;
+  $: kzId = (journalSnap, primaryKillzone(formData.dateOpen));
+  $: kzLabel = (journalSnap, killzoneLabel(kzId));
 
   // ----- HTF Bias -----
   $: activeBias = findActiveBias($htfBias, formData.pair);
@@ -1100,7 +1102,7 @@
   .ict-chip:hover { background: var(--bg-3); color: var(--text); }
   .ict-chip.on {
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     border-color: var(--accent);
   }
   .ict-tags-extra {

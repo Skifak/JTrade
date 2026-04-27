@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { strategies } from '../lib/playbooks';
-  import { KILLZONES } from '../lib/killzones';
+  import { journalSettings } from '../lib/journalSettings';
   import { trades } from '../lib/stores';
   import { getStatsByPlay } from '../lib/risk';
   import { formatNumber } from '../lib/utils';
@@ -13,6 +13,7 @@
   let showImport = false;
 
   $: list = $strategies;
+  $: kzCatalog = $journalSettings.killzones;
   // Активная стратегия/play — derived без записи в источники, чтобы не было цикла.
   $: activeStrategy = (list.find((s) => s.id === activeStrategyId) || list[0]) || null;
   $: activePlay = activeStrategy
@@ -277,7 +278,7 @@
           <div class="form-group">
             <label>Активные killzones</label>
             <div class="kz-chips">
-              {#each KILLZONES as kz}
+              {#each kzCatalog as kz}
                 {@const on = (activeStrategy.killzones || []).includes(kz.id)}
                 <button
                   type="button"
@@ -330,7 +331,7 @@
             <div class="form-group">
               <label>Допустимые killzones</label>
               <div class="kz-chips">
-                {#each KILLZONES as kz}
+                {#each kzCatalog as kz}
                   {@const on = (activePlay.killzones || []).includes(kz.id)}
                   <button
                     type="button"
@@ -511,7 +512,7 @@
   .kz-chip:hover { background: var(--bg-2); color: var(--text); }
   .kz-chip.on {
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     border-color: var(--accent);
   }
 

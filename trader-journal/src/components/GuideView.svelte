@@ -785,8 +785,8 @@ Risk:Reward ≥ 1:2
         <div class="info-card">
           <h4>🎨 Темы</h4>
           <ul>
-            <li>Светло-бежевая, тёмно-серая, белая, плюс <strong>Неон ICT</strong> (чёрный фон + лайм).</li>
-            <li>Переключатель в правом верхнем углу шапки.</li>
+            <li>Светло-бежевая, тёмно-серая, белая, плюс <strong>Неон</strong> (чёрный фон + лайм).</li>
+            <li>Переключатель в шапке; отдельно — окно «Параметры журнала» (killzones, TZ).</li>
             <li>Выбор сохраняется автоматически.</li>
           </ul>
         </div>
@@ -940,7 +940,7 @@ Risk:Reward ≥ 1:2
     height: 26px;
     border-radius: 50%;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     font-size: 13px;
     font-weight: 700;
     flex-shrink: 0;
@@ -970,13 +970,14 @@ Risk:Reward ≥ 1:2
     display: inline-block;
     padding: 4px 10px;
     margin-bottom: 14px;
-    background: var(--accent);
-    color: #fff;
+    background: var(--badge-hero-bg);
+    color: var(--badge-hero-fg);
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.6px;
     text-transform: uppercase;
     border-radius: 3px;
+    border: 1px solid var(--border-strong);
   }
   .hero-lead {
     font-size: 16px;
@@ -1033,7 +1034,7 @@ Risk:Reward ≥ 1:2
     justify-content: center;
     border-radius: 50%;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     font-size: 12px;
     font-weight: 700;
   }
@@ -1103,7 +1104,7 @@ Risk:Reward ≥ 1:2
     font-weight: 700;
   }
   .checklist .ok { color: var(--profit); }
-  .checklist .ok .check-icon { background: var(--profit); color: #fff; }
+  .checklist .ok .check-icon { background: var(--profit); color: var(--profit-fg, #fff); }
   .checklist .todo { color: var(--text-muted); }
   .checklist .todo .check-icon {
     border: 1px solid var(--border);
@@ -1260,9 +1261,9 @@ Risk:Reward ≥ 1:2
     font-size: 11px;
     font-weight: 600;
   }
-  .pill-primary { background: var(--accent); color: #fff; }
-  .pill-warn { background: var(--warning); color: #fff; }
-  .pill-danger { background: var(--loss); color: #fff; }
+  .pill-primary { background: var(--accent); color: var(--accent-fg); }
+  .pill-warn { background: var(--warning); color: var(--warning-fg, #fff); }
+  .pill-danger { background: var(--loss); color: var(--loss-fg, #fff); }
 
   /* --------- STATUS LINE --------- */
   .status-line {

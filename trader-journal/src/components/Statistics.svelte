@@ -8,7 +8,8 @@
     getStatsByPlay,
     getStatsByBiasAlignment
   } from '../lib/risk';
-  import { getPnLByKillzone, primaryKillzone, killzoneLabel, KILLZONES } from '../lib/killzones';
+  import { getPnLByKillzone, primaryKillzone, killzoneLabel } from '../lib/killzones';
+  import { journalSettings } from '../lib/journalSettings';
   import { strategies, flattenPlays } from '../lib/playbooks';
   import { htfBias, findActiveBias, isAlignedWithBias } from '../lib/htfBias';
   import { prettyTag, isIctTag } from '../lib/ictTaxonomy';
@@ -19,6 +20,7 @@
   export let currency = 'USD';
 
   $: hasTrades = stats?.totalTrades > 0;
+  $: journalSnap = $journalSettings;
 
   // ============================================================
   // ФИЛЬТРЫ
@@ -68,6 +70,7 @@
   })();
 
   $: filtered = (() => {
+    journalSnap;
     const start = periodStart(Date.now(), periodFilter);
     return closedTrades.filter((t) => {
       if (start && t.dateClose && new Date(t.dateClose) < start) return false;
@@ -121,7 +124,7 @@
     for (const p of playOptions) m[p.strategyId + ':' + p.playId] = { strategyName: p.strategyName, playName: p.playName };
     return m;
   })();
-  $: byKZ = getPnLByKillzone(filtered);
+  $: byKZ = (journalSnap, getPnLByKillzone(filtered));
   $: byPlay = getStatsByPlay(filtered, playMeta);
   $: biasMap = $htfBias;
   $: byBias = getStatsByBiasAlignment(filtered, (t) => {
@@ -526,7 +529,7 @@
       <span class="filter-label">Killzone</span>
       <select class="filter-select" bind:value={kzFilter}>
         <option value="all">Все KZ</option>
-        {#each KILLZONES as kz}
+        {#each $journalSettings.killzones as kz}
           <option value={kz.id}>{kz.label}</option>
         {/each}
         <option value="_OUT">Вне KZ</option>
@@ -1017,7 +1020,7 @@ avg/сделка: ${b.avgVal >= 0 ? '+' : ''}${formatNumber(b.avgVal, 2)} ${curr
   .pill-btn:hover { background: var(--bg-2); }
   .pill-btn.active {
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
   }
   .filter-select {
     padding: 5px 8px;
