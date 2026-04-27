@@ -156,8 +156,10 @@
 
   $: eq = (() => {
     if (!equity.length) return null;
+    /** Одна линия: факт (real) или disciplined — в зависимости от чекбокса «Только без нарушений». */
+    const activeKey = disciplinedOnly ? 'disciplined' : 'real';
     const xs = equity.map((p) => p.ts);
-    const ys = equity.flatMap((p) => [p.real, p.disciplined]);
+    const ys = equity.map((p) => p[activeKey]);
     const xMin = xs[0], xMax = xs[xs.length - 1];
     let yMin = Math.min(...ys), yMax = Math.max(...ys);
     if (yMin === yMax) { yMin -= 1; yMax += 1; }
@@ -179,9 +181,8 @@
     };
 
     const last = equity[equity.length - 1];
-    const realDelta = last.real - initialCapital;
-    const discDelta = last.disciplined - initialCapital;
-    const gap = last.disciplined - last.real;
+    const lastV = last[activeKey];
+    const valueDelta = lastV - initialCapital;
 
     // 4 горизонтальные grid-линии
     const gridLines = [];
@@ -199,16 +200,13 @@
     }
 
     return {
-      realLine: linePath('real'),
-      discLine: linePath('disciplined'),
-      realArea: areaPath('real'),
+      mainLine: linePath(activeKey),
+      mainArea: areaPath(activeKey),
       baseY: yS(initialCapital),
       lastX: xS(last.ts),
-      lastRealY: yS(last.real),
-      lastDiscY: yS(last.disciplined),
-      lastReal: last.real,
-      lastDisc: last.disciplined,
-      realDelta, discDelta, gap,
+      lastY: yS(lastV),
+      lastValue: lastV,
+      valueDelta,
       gridLines, xTicks
     };
   })();
@@ -575,38 +573,40 @@
   {/if}
 
   {#if eq}
-    <h3 class="stats-section-title">Equity Curve · реальная vs disciplined</h3>
+    <h3 class="stats-section-title">
+      Equity Curve · {#if disciplinedOnly}только без нарушений{:else}фактический баланс{/if}
+    </h3>
     <div class="chart-wrap">
       <div class="chart-stat-row">
-        <span class="chart-stat">
-          <i class="dot dot-real"></i>Реальная (фактический баланс):
-          <strong class={eq.realDelta >= 0 ? 'profit' : 'loss'}>
-            {formatNumber(eq.lastReal, 2)} {currency}
-            ({eq.realDelta >= 0 ? '+' : ''}{formatNumber(eq.realDelta, 2)})
-          </strong>
-        </span>
-        <span class="chart-stat">
-          <i class="dot dot-disc"></i>Disciplined (без сделок с нарушениями):
-          <strong class={eq.discDelta >= 0 ? 'profit' : 'loss'}>
-            {formatNumber(eq.lastDisc, 2)} {currency}
-            ({eq.discDelta >= 0 ? '+' : ''}{formatNumber(eq.discDelta, 2)})
-          </strong>
-        </span>
-        <span class="chart-stat gap">
-          Gap (Disciplined − Real):
-          <strong class={eq.gap >= 0 ? 'profit' : 'loss'}>
-            {eq.gap >= 0 ? '+' : ''}{formatNumber(eq.gap, 2)} {currency}
-          </strong>
-        </span>
+        {#if disciplinedOnly}
+          <span class="chart-stat">
+            <i class="dot dot-disc"></i>Disciplined (кривая без сделок с нарушениями):
+            <strong class={eq.valueDelta >= 0 ? 'profit' : 'loss'}>
+              {formatNumber(eq.lastValue, 2)} {currency}
+              ({eq.valueDelta >= 0 ? '+' : ''}{formatNumber(eq.valueDelta, 2)})
+            </strong>
+          </span>
+        {:else}
+          <span class="chart-stat">
+            <i class="dot dot-real"></i>Реальный баланс (все сделки по фильтрам):
+            <strong class={eq.valueDelta >= 0 ? 'profit' : 'loss'}>
+              {formatNumber(eq.lastValue, 2)} {currency}
+              ({eq.valueDelta >= 0 ? '+' : ''}{formatNumber(eq.valueDelta, 2)})
+            </strong>
+          </span>
+        {/if}
       </div>
 
       <div class="axis-legend">
         <span><b>Y</b> — Equity, {currency}</span>
         <span><b>X</b> — дата закрытия сделки</span>
-        <span class="muted-legend equity-legend-colors">
-          <i class="eq-key eq-key-real"></i>реальная ·
-          <i class="eq-key eq-key-disc"></i>disciplined (без сделок с нарушениями)
-          · пунктир оси = стартовый капитал
+        <span class="muted-legend">
+          {#if disciplinedOnly}
+            <i class="eq-key eq-key-disc"></i>только сделки без ruleViolations ·
+          {:else}
+            <i class="eq-key eq-key-real"></i>все сделки по фильтру ·
+          {/if}
+          пунктир оси = стартовый капитал
         </span>
       </div>
 
@@ -634,16 +634,21 @@
           старт {formatNumber(initialCapital, 0)}
         </text>
 
-        <!-- area под real -->
-        <path d={eq.realArea} class="area-real" />
+        <path d={eq.mainArea} class={disciplinedOnly ? 'area-disc' : 'area-real'} />
 
-        <!-- зелёная = disciplined, красная = реальная (часть поверх) -->
-        <path d={eq.discLine} class="line-disc" fill="none" stroke-width="1.1" />
-        <path d={eq.realLine} class="line-real" fill="none" stroke-width="1.1" />
+        <path
+          d={eq.mainLine}
+          class={disciplinedOnly ? 'line-disc' : 'line-real'}
+          fill="none"
+          stroke-width="1.1"
+        />
 
-        <!-- маркер последней точки -->
-        <circle cx={eq.lastX} cy={eq.lastDiscY} r="3" class="dot-svg-disc" />
-        <circle cx={eq.lastX} cy={eq.lastRealY} r="4" class="dot-svg-real" />
+        <circle
+          cx={eq.lastX}
+          cy={eq.lastY}
+          r="4"
+          class={disciplinedOnly ? 'dot-svg-disc' : 'dot-svg-real'}
+        />
 
         <!-- даты по X -->
         {#each eq.xTicks as t}
@@ -1158,6 +1163,9 @@ avg/сделка: ${b.avgVal >= 0 ? '+' : ''}${formatNumber(b.avgVal, 2)} ${curr
   .line-disc { stroke: var(--profit); }
   .area-real {
     fill: color-mix(in srgb, var(--loss) 18%, transparent);
+  }
+  .area-disc {
+    fill: color-mix(in srgb, var(--profit) 18%, transparent);
   }
 
   .dot-svg-real {
