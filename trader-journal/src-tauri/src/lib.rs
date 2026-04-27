@@ -1,5 +1,6 @@
 // Tauri: команды для файлов изображений в AppData/trader-journal-assets (не localStorage).
 
+use base64::Engine;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -29,18 +30,22 @@ fn resolve_under_assets(root: &Path, rel: &str) -> Result<PathBuf, String> {
     Ok(full)
 }
 
+/// JS передаёт base64: в JSON-compact вместо `Vec<u8>` не раздуваем IPC (и не упираемся в лимит).
 #[tauri::command]
 fn tauri_attachments_write(
     app: tauri::AppHandle,
     rel_path: String,
-    data: Vec<u8>,
+    data: String,
 ) -> Result<(), String> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.trim())
+        .map_err(|e| format!("b64: {}", e))?;
     let root = assets_root(&app)?;
     let target = resolve_under_assets(&root, &rel_path)?;
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    fs::write(&target, data).map_err(|e| e.to_string())
+    fs::write(&target, bytes).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

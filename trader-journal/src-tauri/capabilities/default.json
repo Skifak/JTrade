@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Release: минимальная политика — core:default + только команды allow-attachments (AppData/trader-journal-assets). Без tauri fs/shell/clipboard: сеть = обычный WebView (fetch, WS).",
-  "windows": ["main"],
+  "windows": ["*"],
   "permissions": [
     "core:default",
     "allow-attachments"

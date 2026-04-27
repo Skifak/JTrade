@@ -10,6 +10,17 @@
 
   const dispatch = createEventDispatcher();
 
+  /** Windows / релизные WebView часто отдают пустой `type` или octet-stream — не отсекаем по MIME. */
+  const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|bmp)$/i;
+  function isLikelyImageFile(/** @type {File} */ f) {
+    const t = (f.type || '').toLowerCase();
+    if (t.startsWith('image/')) return true;
+    if (t === 'application/octet-stream' || t === '') {
+      return IMAGE_EXT_RE.test(f.name || '');
+    }
+    return false;
+  }
+
   let fileInput;
   let zoneEl;
   let busy = false;
@@ -74,7 +85,7 @@
     if (!list?.length) return;
     for (let i = 0; i < list.length; i++) {
       const f = list[i];
-      if (f.type.startsWith('image/')) {
+      if (isLikelyImageFile(f)) {
         void handleIncoming(f);
       }
     }
@@ -91,7 +102,7 @@
     let any = false;
     for (let i = 0; i < list.length; i++) {
       const f = list[i];
-      if (f.type.startsWith('image/')) {
+      if (isLikelyImageFile(f)) {
         any = true;
         void handleIncoming(f);
       }
@@ -100,8 +111,8 @@
   }
 
   async function handleIncoming(/** @type {File} */ f) {
-    if (!f.type.startsWith('image/')) {
-      err = 'Только изображения';
+    if (!isLikelyImageFile(f)) {
+      err = 'Только изображения (по типу или расширению .jpg/.png/…)';
       return;
     }
     err = '';

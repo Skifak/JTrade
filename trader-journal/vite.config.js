@@ -21,7 +21,28 @@ export default defineConfig({
     }
   },
 
-  plugins: [svelte(), viteSingleFile()],
+  plugins: [
+    svelte(),
+    viteSingleFile(),
+    // Chrome: `file://` + `<script type="module">` → "Unsafe attempt to load URL … file: …" (opaque origins).
+    // singlefile вставляет тот же тег, что был у Vite, хотя бандл — IIFE без top-level import/export.
+    {
+      name: 'singlefile-classic-inline-script',
+      apply: 'build',
+      enforce: 'post',
+      generateBundle(_o, bundle) {
+        for (const chunk of Object.values(bundle)) {
+          if (chunk.type === 'asset' && chunk.fileName === 'index.html' && typeof chunk.source === 'string') {
+            let html = chunk.source
+            // порядок важен: сначала полная форма
+            html = html.replace(/<script type="module" crossorigin>/g, '<script>')
+            html = html.replace(/<script type="module">/g, '<script>')
+            chunk.source = html
+          }
+        }
+      }
+    }
+  ],
 
   // Чтобы Tauri-CLI не затирал свой лог Vite-овскими очистками экрана.
   clearScreen: false,

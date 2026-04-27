@@ -2,7 +2,7 @@
  * Картинки: Tauri — папка AppData/.../trader-journal-assets; в браузере (vite) — IndexedDB.
  * Пути в данных: "glossary/{termId}/name.ext", "trades/{tradeId}/name.ext"
  */
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { v4 as uuidv4 } from 'uuid';
 import { toasts } from './toasts.js';
 
@@ -13,8 +13,17 @@ const IDB_VER = 1;
 /** @type {Map<string, string>} */
 const _blobUrlCache = new Map();
 
+/**
+ * Среда Tauri: официальная `isTauri()` смотрит на `globalThis.isTauri` (не на __TAURI__).
+ * В IIFE `import.meta.env.TAURI_*` часто пусто — на неё не полагаемся. Fallback: IPC-объекты.
+ */
 export function isTauriApp() {
   if (typeof window === 'undefined') return false;
+  try {
+    if (isTauri()) return true;
+  } catch {
+    // ignore
+  }
   if (window.__TAURI_INTERNALS__ || window.__TAURI__) return true;
   try {
     return typeof import.meta !== 'undefined' && !!import.meta.env?.TAURI_ENV_PLATFORM;
@@ -158,6 +167,20 @@ function u8fromInvoke(data) {
   return new Uint8Array(0);
 }
 
+/** Tauri invoke JSON: Vec<u8> как массив чисел раздувает нагрузку; base64 — компактнее и стабильнее в релизе. */
+function u8ToBase64(/** @type {Uint8Array} */ u8) {
+  const CHUNK = 0x8000;
+  let binary = '';
+  for (let i = 0; i < u8.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(
+      null,
+      // eslint-disable-next-line prefer-spread
+      u8.subarray(i, i + CHUNK)
+    );
+  }
+  return btoa(binary);
+}
+
 /**
  * @param {string} rel
  * @param {ArrayBuffer | Uint8Array} data
@@ -165,10 +188,14 @@ function u8fromInvoke(data) {
 export async function writeBytes(rel, data) {
   const b = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
   if (isTauriApp()) {
-    await invoke('tauri_attachments_write', {
-      relPath: rel,
-      data: Array.from(b)
-    });
+    const payload = { relPath: rel, data: u8ToBase64(b) };
+    try {
+      await invoke('tauri_attachments_write', payload);
+    } catch (e) {
+      const msg = e && typeof e === 'object' && 'message' in e ? e.message : String(e);
+      console.error('[attachments] tauri_attachments_write', rel, msg, e);
+      throw e;
+    }
     return;
   }
   await idbPut(rel, b);
@@ -266,8 +293,9 @@ export async function saveImageFromFile(scope, parentId, file, opts) {
   try {
     await writeBytes(rel, buf);
   } catch (e) {
+    const msg = typeof e === 'string' ? e : (e && typeof e === 'object' && 'message' in e ? String(/** @type {{ message: string }} */ (e).message) : String(e));
     console.error(e);
-    toasts.error('Не удалось сохранить изображение', { ttl: 6000 });
+    toasts.error(`Сохранение (Tauri/файл): ${msg.slice(0, 200)}`, { ttl: 8000 });
     return null;
   }
   return rel;
@@ -304,8 +332,9 @@ export async function saveImageBlob(scope, parentId, blob, ext, opts) {
   try {
     await writeBytes(rel, new Uint8Array(buf));
   } catch (e) {
+    const msg = typeof e === 'string' ? e : (e && typeof e === 'object' && 'message' in e ? String(/** @type {{ message: string }} */ (e).message) : String(e));
     console.error(e);
-    toasts.error('Не удалось сохранить изображение', { ttl: 6000 });
+    toasts.error(`Сохранение (Tauri/файл): ${msg.slice(0, 200)}`, { ttl: 8000 });
     return null;
   }
   return rel;
