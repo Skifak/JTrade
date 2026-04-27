@@ -1,0 +1,11 @@
+# Доступ к кастомным #[tauri::command] для файлов в AppData/trader-journal-assets
+[[permission]]
+identifier = "allow-attachments"
+description = "Чтение/запись снимков глоссария и сделок в папке данных приложения"
+commands.allow = [
+  "tauri_attachments_write",
+  "tauri_attachments_read",
+  "tauri_attachments_remove_file",
+  "tauri_attachments_remove_scope_dir",
+  "tauri_attachments_get_root"
+]

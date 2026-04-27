@@ -2,6 +2,7 @@ import { writable } from 'svelte/store';
 import { v4 as uuidv4 } from 'uuid';
 import { DEFAULT_TEMPLATES } from './constants';
 import { toasts } from './toasts';
+import { removeScopeDir } from './attachmentApi';
 
 // Загрузка данных из localStorage с защитой от битого JSON / недоступного хранилища.
 function loadData(key, defaultValue) {
@@ -67,9 +68,13 @@ function saveData(key, data) {
 
 function normalizeTrade(trade) {
   const safeTrade = trade && typeof trade === 'object' ? trade : {};
+  const att = Array.isArray(safeTrade.attachments)
+    ? safeTrade.attachments.map((p) => String(p).trim()).filter(Boolean)
+    : [];
   return {
     ...safeTrade,
-    id: safeTrade.id || uuidv4()
+    id: safeTrade.id || uuidv4(),
+    attachments: att
   };
 }
 
@@ -120,6 +125,9 @@ function createTradesStore() {
       return newTrades;
     }),
     deleteTrade: (targetTrade) => update(trades => {
+      if (targetTrade?.id) {
+        void removeScopeDir('trades', String(targetTrade.id));
+      }
       const newTrades = trades.filter((t) => {
         if (targetTrade?.id && t.id) return t.id !== targetTrade.id;
         return !(
@@ -134,6 +142,11 @@ function createTradesStore() {
       return newTrades;
     }),
     deleteClosedTrades: () => update((trades) => {
+      for (const t of trades) {
+        if (t.status === 'closed' && t.id) {
+          void removeScopeDir('trades', String(t.id));
+        }
+      }
       const newTrades = trades.filter((t) => t.status !== 'closed');
       saveData('trades', newTrades);
       return newTrades;

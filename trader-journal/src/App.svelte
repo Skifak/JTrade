@@ -1,6 +1,10 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
   import { trades, userProfile } from './lib/stores';
+  import { glossary } from './lib/glossary';
+  import { buildJournalZip, importJournalZip } from './lib/journalBundle';
+  import * as att from './lib/attachmentApi';
   import {
     formatDate,
     formatNumber,
@@ -37,6 +41,7 @@
   import DayJournalView from './components/DayJournalView.svelte';
   import GoalsView from './components/GoalsView.svelte';
   import GlossaryView from './components/GlossaryView.svelte';
+  import ImageLightbox from './components/ImageLightbox.svelte';
 
   let showForm = false;
   let showProfile = false;
@@ -243,6 +248,7 @@
       commission: 0,
       swap: 0,
       tags: ['duplicated'],
+      attachments: [],
       comment: trade.comment ? `Дубликат: ${trade.comment}` : 'Дубликат закрытой'
     };
     formMode = 'add';
@@ -260,26 +266,122 @@
     cooldown.cancel();
   }
 
-  function exportData() {
+  async function exportData() {
+    const blob = await buildJournalZip(
+      () => get(trades),
+      () => get(glossary)
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `trader_journal_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportDataJsonTrades() {
     const data = $trades;
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `trades_${new Date().toISOString().slice(0, 19)}.json`;
+    a.download = `trades_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  let fileInputImport;
+  let tradeFileInput;
+  let pendingTradeIdForPhoto = null;
+  let tradeLightboxOpen = false;
+  let tradeLightboxUrls = [];
+  let tradeLightboxStart = 0;
+  let tradeLightboxFor = null;
+
+  async function onTradeImagePick(ev) {
+    const f = ev.target?.files?.[0];
+    if (ev.target) ev.target.value = '';
+    if (!f || !pendingTradeIdForPhoto) return;
+    const id = pendingTradeIdForPhoto;
+    pendingTradeIdForPhoto = null;
+    const rel = await att.saveImageFromFile('trades', id, f);
+    if (!rel) return;
+    const t = $trades.find((x) => x.id === id);
+    trades.updateTrade(id, { attachments: [...(t?.attachments || []), rel] });
+  }
+
+  function requestAddTradePhoto(tradeId) {
+    pendingTradeIdForPhoto = tradeId;
+    tradeFileInput?.click();
+  }
+
+  async function openTradeLightbox(t, start = 0) {
+    const rels = t.attachments || [];
+    if (!rels.length) return;
+    tradeLightboxFor = t;
+    tradeLightboxUrls = await att.getObjectUrlsForPaths(rels);
+    tradeLightboxStart = start;
+    tradeLightboxOpen = true;
+  }
+
+  async function onTradeLightboxRemove(e) {
+    const { index } = e.detail;
+    const t = tradeLightboxFor;
+    if (!t) return;
+    const rels = [...(t.attachments || [])];
+    const rel = rels[index];
+    if (rel == null) return;
+    rels.splice(index, 1);
+    await att.removeFile(rel);
+    trades.updateTrade(t.id, { attachments: rels });
+    if (!rels.length) {
+      tradeLightboxOpen = false;
+      tradeLightboxFor = null;
+      return;
+    }
+    const fresh = $trades.find((x) => x.id === t.id);
+    tradeLightboxFor = fresh || t;
+    tradeLightboxUrls = await att.getObjectUrlsForPaths(fresh?.attachments || rels);
+    tradeLightboxStart = Math.min(index, rels.length - 1);
   }
 
   function importData(event) {
     const file = event.target.files[0];
     if (!file) return;
 
+    const fileName = file.name.toLowerCase();
+    if (fileName.endsWith('.zip')) {
+      if (!confirm('Импорт ZIP полностью заменит сделки и глоссарий (в т.ч. иллюстрации из бандла). Продолжить?')) {
+        event.target.value = '';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const ab = e.target?.result;
+          if (!(ab instanceof ArrayBuffer)) {
+            event.target.value = '';
+            return;
+          }
+          await importJournalZip(ab, {
+            setTrades: (rows) => trades.importTrades(rows),
+            importGlossary: (g) => glossary.importState(g)
+          });
+        } catch (err) {
+          console.error(err);
+          alert('Ошибка импорта ZIP');
+        } finally {
+          event.target.value = '';
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const raw = String(e.target.result || '');
-        const fileName = file.name.toLowerCase();
         const isHtml = fileName.endsWith('.html') || fileName.endsWith('.htm');
 
         if (isHtml) {
@@ -302,7 +404,7 @@
 
         const data = JSON.parse(raw);
         trades.importTrades(data);
-        alert('JSON-данные импортированы');
+        alert('JSON-данные импортированы (без смены глоссария; фото — только в ZIP-бандле)');
       } catch (err) {
         alert('Ошибка импорта файла');
       } finally {
@@ -359,10 +461,11 @@
           title="Killzones, часовой пояс, приоритет KZ"
         >Параметры</button>
         <button class="btn" on:click={() => showProfile = true} title="Профиль">Профиль</button>
-        <button class="btn" on:click={exportData} title="Экспорт JSON">Экспорт</button>
-        <label class="btn import-label" title="Импорт JSON или отчёт MT5 (HTML)">
+        <button class="btn" on:click={exportData} title="ZIP: сделки, глоссарий, папка с картинками">Экспорт ZIP</button>
+        <button class="btn" on:click={exportDataJsonTrades} title="Только JSON сделок, без снимков">JSON сделок</button>
+        <label class="btn import-label" title="Импорт ZIP, JSON, MT5 HTML">
           Импорт
-          <input type="file" accept=".json,.html,.htm" on:change={importData} hidden />
+          <input type="file" accept=".json,.html,.htm,.zip" on:change={importData} hidden />
         </label>
       </div>
     </div>
@@ -603,6 +706,7 @@
               <th class="sortable" on:click={() => (closedSort = toggleSort(closedSort, 'profit'))}>
                 P/L{sortIndicator(closedSort, 'profit')}
               </th>
+              <th>Фото</th>
               <th>Действия</th>
             </tr>
           </thead>
@@ -644,6 +748,26 @@
                 </td>
                 <td>
                   <div class="btn-group">
+                    <button
+                      class="btn btn-sm"
+                      disabled={!trade.attachments?.length}
+                      on:click={() => openTradeLightbox(trade, 0)}
+                      title="Открыть снимок"
+                    >🖼</button>
+                    <button
+                      class="btn btn-sm"
+                      on:click={() => {
+                        requestAddTradePhoto(trade.id);
+                      }}
+                      title="Добавить снимок"
+                    >➕</button>
+                    {#if trade.attachments?.length}
+                      <span class="ph-count" title="Файлов: {trade.attachments.length}">{trade.attachments.length}</span>
+                    {/if}
+                  </div>
+                </td>
+                <td>
+                  <div class="btn-group">
                     <button class="btn btn-sm" on:click={() => editTrade(trade)} title="Изменить">✏️</button>
                     <button class="btn btn-sm" on:click={() => duplicateAsOpen(trade)} title="Дублировать как открытую">📋</button>
                     <button class="btn btn-sm btn-danger" on:click={() => deleteTrade(trade)} title="Удалить">🗑️</button>
@@ -664,6 +788,7 @@
               <td class={closedTotals.profit >= 0 ? 'profit' : 'loss'}>
                 <strong>{formatMoney(closedTotals.profit, $fxRate)}</strong>
               </td>
+              <td></td>
               <td></td>
             </tr>
           </tfoot>
@@ -694,6 +819,23 @@
     {goalDayAmount}
     currency={$userProfile?.accountCurrency || 'USD'}
     on:close={dismissDailyReview}
+  />
+
+  <input
+    type="file"
+    class="tr-hidden-file"
+    accept="image/jpeg,image/png,image/gif,image/webp,image/bmp,.jpg,.jpeg,.png,.gif,.webp,.bmp"
+    bind:this={tradeFileInput}
+    on:change={onTradeImagePick}
+    aria-hidden="true"
+    tabindex="-1"
+  />
+  <ImageLightbox
+    bind:open={tradeLightboxOpen}
+    urls={tradeLightboxUrls}
+    startIndex={tradeLightboxStart}
+    deletable={true}
+    on:remove={onTradeLightboxRemove}
   />
 </div>
 

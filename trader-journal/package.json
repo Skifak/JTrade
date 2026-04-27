@@ -20,7 +20,9 @@
     "vite-plugin-singlefile": "^2.3.3"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.10.1",
     "dayjs": "^1.11.20",
+    "jszip": "^3.10.1",
     "uuid": "^14.0.0"
   }
 }

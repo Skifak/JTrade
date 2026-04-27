@@ -4,6 +4,7 @@
 import { writable } from 'svelte/store';
 import { v4 as uuidv4 } from 'uuid';
 import { toasts } from './toasts';
+import { removeScopeDir } from './attachmentApi';
 
 const KEY = 'traderGlossary_v1';
 
@@ -172,12 +173,16 @@ function normalizeTerm(raw) {
   const id = String(raw.id || '').trim();
   const title = String(raw.title || '').trim();
   if (!id || !title) return null;
+  const att = Array.isArray(raw.attachments)
+    ? raw.attachments.map((x) => String(x).trim()).filter(Boolean)
+    : [];
   return {
     id,
     title,
     definition: String(raw.definition ?? ''),
     categoryId: String(raw.categoryId || UNCATEGORIZED_ID).trim() || UNCATEGORIZED_ID,
-    favorite: !!raw.favorite
+    favorite: !!raw.favorite,
+    attachments: att
   };
 }
 
@@ -197,7 +202,9 @@ function normalizeState(raw) {
     categoryId: catIds.has(t.categoryId) ? t.categoryId : UNCATEGORIZED_ID
   }));
   if (!categories.length) categories = base.categories;
-  if (!Array.isArray(raw.terms)) terms = structuredClone(base.terms);
+  if (!Array.isArray(raw.terms)) {
+    terms = structuredClone(base.terms).map((t) => normalizeTerm(t)).filter(Boolean);
+  }
   return { categories, terms };
 }
 
@@ -235,7 +242,10 @@ function createGlossaryStore() {
         title: partial.title || 'Новое понятие',
         definition: partial.definition ?? '',
         categoryId: partial.categoryId || UNCATEGORIZED_ID,
-        favorite: !!partial.favorite
+        favorite: !!partial.favorite,
+        attachments: Array.isArray(partial.attachments)
+          ? partial.attachments.map(String)
+          : []
       });
       if (!row) return null;
       update((s) => {
@@ -258,6 +268,11 @@ function createGlossaryStore() {
             if (patch.definition != null) u.definition = String(patch.definition);
             if (patch.categoryId != null) u.categoryId = String(patch.categoryId).trim() || UNCATEGORIZED_ID;
             if (patch.favorite != null) u.favorite = !!patch.favorite;
+            if (patch.attachments != null) {
+              u.attachments = Array.isArray(patch.attachments)
+                ? patch.attachments.map((x) => String(x).trim()).filter(Boolean)
+                : [];
+            }
             return normalizeTerm(u);
           })
         };
@@ -268,6 +283,7 @@ function createGlossaryStore() {
     deleteTerm(id) {
       const idStr = String(id || '').trim();
       if (!idStr) return;
+      void removeScopeDir('glossary', idStr);
       update((s) => {
         const next = { ...s, terms: s.terms.filter((t) => t.id !== idStr) };
         persist(next);
@@ -277,6 +293,9 @@ function createGlossaryStore() {
     deleteTerms(ids) {
       const drop = new Set((Array.isArray(ids) ? ids : []).map(String));
       if (!drop.size) return;
+      for (const d of drop) {
+        void removeScopeDir('glossary', d);
+      }
       update((s) => {
         const next = { ...s, terms: s.terms.filter((t) => !drop.has(t.id)) };
         persist(next);
@@ -339,6 +358,11 @@ function createGlossaryStore() {
         persist(next);
         return next;
       });
+    },
+    importState(raw) {
+      const next = normalizeState(raw);
+      set(next);
+      persist(next);
     }
   };
 }

@@ -1,6 +1,8 @@
 <script>
   import Modal from './Modal.svelte';
+  import ImageLightbox from './ImageLightbox.svelte';
   import { glossary, UNCATEGORIZED_ID } from '../lib/glossary';
+  import * as att from '../lib/attachmentApi.js';
 
   let filterCatId = '';
   let selectMode = false;
@@ -12,6 +14,12 @@
 
   let catModalOpen = false;
   let newCatName = '';
+
+  let fileInputGloss;
+  let pendingAddTermId = null;
+  let lbOpen = false;
+  let lbUrls = [];
+  let lbStart = 0;
 
   $: categories = $glossary.categories;
   $: catNameById = Object.fromEntries(categories.map((c) => [c.id, c.name]));
@@ -110,7 +118,53 @@
     const id = glossary.addCategory(newCatName);
     if (id) newCatName = '';
   }
+
+  $: editTerm = termEditId ? $glossary.terms.find((x) => x.id === termEditId) : null;
+
+  async function onGlossaryFile(ev) {
+    const f = ev.target?.files?.[0];
+    if (ev.target) ev.target.value = '';
+    if (!f || !pendingAddTermId) return;
+    const id = pendingAddTermId;
+    pendingAddTermId = null;
+    const rel = await att.saveImageFromFile('glossary', id, f);
+    if (!rel) return;
+    const t = $glossary.terms.find((x) => x.id === id);
+    const next = [...(t?.attachments || []), rel];
+    glossary.updateTerm(id, { attachments: next });
+  }
+
+  function requestAddPhoto(termId) {
+    pendingAddTermId = termId;
+    fileInputGloss?.click();
+  }
+
+  async function openLightboxForTerm(term, start = 0) {
+    const rels = term.attachments || [];
+    if (!rels.length) return;
+    lbUrls = await att.getObjectUrlsForPaths(rels);
+    lbStart = start;
+    lbOpen = true;
+  }
+
+  async function removeGlossaryPhoto(termId, rel) {
+    if (!confirm('Удалить это изображение?')) return;
+    await att.removeFile(rel);
+    const t = $glossary.terms.find((x) => x.id === termId);
+    glossary.updateTerm(termId, { attachments: (t?.attachments || []).filter((p) => p !== rel) });
+  }
 </script>
+
+<input
+  type="file"
+  class="gl-hidden-file"
+  accept="image/jpeg,image/png,image/gif,image/webp,image/bmp,.jpg,.jpeg,.png,.gif,.webp,.bmp"
+  bind:this={fileInputGloss}
+  on:change={onGlossaryFile}
+  aria-hidden="true"
+  tabindex="-1"
+/>
+<ImageLightbox bind:open={lbOpen} urls={lbUrls} startIndex={lbStart} />
 
 <div class="gl-page">
 
@@ -171,10 +225,48 @@
                 {t.favorite ? '★' : '☆'}
               </button>
               {#if !selectMode}
+                <button
+                  type="button"
+                  class="gl-icon-btn"
+                  title="Открыть фото"
+                  disabled={!t.attachments?.length}
+                  on:click|stopPropagation={() => openLightboxForTerm(t, 0)}
+                >🖼</button>
+                <button
+                  type="button"
+                  class="gl-icon-btn"
+                  title="Добавить фото"
+                  on:click|stopPropagation={() => requestAddPhoto(t.id)}
+                >➕</button>
                 <button type="button" class="gl-icon-btn" title="Редактировать" on:click|stopPropagation={() => openEditTerm(t)}>✏️</button>
               {/if}
             </div>
           </div>
+          {#if t.attachments?.length}
+            <div class="gl-thumbs">
+              {#await att.getObjectUrlsForPaths(t.attachments || []) then urls}
+                {#each t.attachments as rel, i (rel)}
+                  <div class="gl-thumb-wrap">
+                    <button
+                      type="button"
+                      class="gl-thumb"
+                      on:click|stopPropagation={() => openLightboxForTerm(t, i)}
+                    >
+                      <img src={urls[i]} alt="" />
+                    </button>
+                    {#if !selectMode}
+                      <button
+                        type="button"
+                        class="gl-thumb-rm"
+                        title="Удалить фото"
+                        on:click|stopPropagation={() => removeGlossaryPhoto(t.id, rel)}
+                      >×</button>
+                    {/if}
+                  </div>
+                {/each}
+              {/await}
+            </div>
+          {/if}
           <p class="gl-card-def">{t.definition}</p>
         </article>
       {/each}
@@ -207,6 +299,37 @@
       <input type="checkbox" bind:checked={termForm.favorite} />
       Сразу в избранное
     </label>
+    {#if termEditId && editTerm}
+      <div class="gl-modal-photos">
+        <div class="gl-modal-ph-head">
+          <span>Иллюстрации</span>
+          <button type="button" class="btn btn-sm btn-primary" on:click={() => requestAddPhoto(termEditId)}>+ Фото</button>
+        </div>
+        {#if editTerm.attachments?.length}
+          <div class="gl-thumbs gl-thumbs--modal">
+            {#await att.getObjectUrlsForPaths(editTerm.attachments) then urls}
+              {#each editTerm.attachments as rel, i (rel)}
+                <div class="gl-thumb-wrap">
+                  <button type="button" class="gl-thumb" on:click={() => openLightboxForTerm(editTerm, i)}>
+                    <img src={urls[i]} alt="" />
+                  </button>
+                  <button
+                    type="button"
+                    class="gl-thumb-rm"
+                    title="Удалить"
+                    on:click={() => removeGlossaryPhoto(termEditId, rel)}
+                  >×</button>
+                </div>
+              {/each}
+            {/await}
+          </div>
+        {:else}
+          <p class="gl-hint">PNG, JPG, GIF, WebP, BMP. Хранятся в папке данных приложения, не в localStorage.</p>
+        {/if}
+      </div>
+    {:else}
+      <p class="gl-hint">После сохранения нового понятия можно будет добавить иллюстрации с карточки.</p>
+    {/if}
   </div>
   <div slot="footer">
     {#if termEditId}
@@ -484,5 +607,79 @@
     border-radius: 6px;
     background: var(--bg);
     color: var(--text);
+  }
+  .gl-hidden-file {
+    position: absolute;
+    width: 0;
+    height: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .gl-thumbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 10px;
+    align-items: flex-start;
+  }
+  .gl-thumbs--modal {
+    margin: 0;
+  }
+  .gl-thumb-wrap {
+    position: relative;
+  }
+  .gl-thumb {
+    display: block;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg);
+    cursor: pointer;
+  }
+  .gl-thumb img {
+    display: block;
+    width: 88px;
+    height: 64px;
+    object-fit: cover;
+  }
+  .gl-thumb-rm {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--bg-2);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+  }
+  .gl-thumb-rm:hover {
+    border-color: var(--loss);
+    color: var(--loss);
+  }
+  .gl-modal-photos {
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+    margin-top: 4px;
+  }
+  .gl-modal-ph-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+  .gl-hint {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.45;
   }
 </style>
