@@ -273,6 +273,44 @@ export async function saveImageFromFile(scope, parentId, file, opts) {
   return rel;
 }
 
+const BLOB_EXT = new Set(['webp', 'jpg', 'jpeg', 'png', 'gif', 'bmp']);
+
+/**
+ * @param {'glossary' | 'trades'} scope
+ * @param {string} parentId
+ * @param {Blob} blob
+ * @param {string} ext без точки, например webp, jpg
+ * @param {{ onError?: (s: string) => void }} [opts]
+ * @returns {Promise<string | null>} rel
+ */
+export async function saveImageBlob(scope, parentId, blob, ext, opts) {
+  const e = String(ext || 'webp')
+    .toLowerCase()
+    .replace(/^\./, '');
+  const norm = e === 'jpeg' ? 'jpg' : e;
+  if (!BLOB_EXT.has(norm)) {
+    (opts?.onError || ((s) => toasts.error(s, { ttl: 5000 })))('Некорректное расширение файла');
+    return null;
+  }
+  const outExt = norm;
+  if (blob.size > 20 * 1024 * 1024) {
+    (opts?.onError || ((s) => toasts.error(s, { ttl: 5000 })))('Больше 20 МБ');
+    return null;
+  }
+  const id = sanitizeNodeId(parentId);
+  const name = `${uuidv4()}.${outExt}`;
+  const rel = `${scope}/${id}/${name}`;
+  const buf = await blob.arrayBuffer();
+  try {
+    await writeBytes(rel, new Uint8Array(buf));
+  } catch (e) {
+    console.error(e);
+    toasts.error('Не удалось сохранить изображение', { ttl: 6000 });
+    return null;
+  }
+  return rel;
+}
+
 /**
  * @param {string[]} rels
  * @returns {Promise<string[]>} object URLs

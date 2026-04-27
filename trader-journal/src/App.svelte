@@ -42,6 +42,7 @@
   import GoalsView from './components/GoalsView.svelte';
   import GlossaryView from './components/GlossaryView.svelte';
   import ImageLightbox from './components/ImageLightbox.svelte';
+  import AddImageModal from './components/AddImageModal.svelte';
 
   let showForm = false;
   let showProfile = false;
@@ -291,28 +292,33 @@
   }
 
   let fileInputImport;
-  let tradeFileInput;
-  let pendingTradeIdForPhoto = null;
+  let tradeAddImgOpen = false;
+  let tradeAddForId = null;
   let tradeLightboxOpen = false;
   let tradeLightboxUrls = [];
   let tradeLightboxStart = 0;
   let tradeLightboxFor = null;
 
-  async function onTradeImagePick(ev) {
-    const f = ev.target?.files?.[0];
-    if (ev.target) ev.target.value = '';
-    if (!f || !pendingTradeIdForPhoto) return;
-    const id = pendingTradeIdForPhoto;
-    pendingTradeIdForPhoto = null;
-    const rel = await att.saveImageFromFile('trades', id, f);
+  function requestAddTradePhoto(tradeId) {
+    tradeAddForId = tradeId;
+    tradeAddImgOpen = true;
+  }
+
+  function closeTradeAddImg() {
+    tradeAddImgOpen = false;
+    tradeAddForId = null;
+  }
+
+  async function onTradeAddImage(/** @type {CustomEvent} */ e) {
+    const { blob, ext } = e.detail || {};
+    if (!blob || !tradeAddForId) return;
+    const id = tradeAddForId;
+    const rel = await att.saveImageBlob('trades', id, blob, ext);
     if (!rel) return;
     const t = $trades.find((x) => x.id === id);
     trades.updateTrade(id, { attachments: [...(t?.attachments || []), rel] });
-  }
-
-  function requestAddTradePhoto(tradeId) {
-    pendingTradeIdForPhoto = tradeId;
-    tradeFileInput?.click();
+    tradeAddImgOpen = false;
+    tradeAddForId = null;
   }
 
   async function openTradeLightbox(t, start = 0) {
@@ -821,15 +827,7 @@
     on:close={dismissDailyReview}
   />
 
-  <input
-    type="file"
-    class="tr-hidden-file"
-    accept="image/jpeg,image/png,image/gif,image/webp,image/bmp,.jpg,.jpeg,.png,.gif,.webp,.bmp"
-    bind:this={tradeFileInput}
-    on:change={onTradeImagePick}
-    aria-hidden="true"
-    tabindex="-1"
-  />
+  <AddImageModal open={tradeAddImgOpen} on:close={closeTradeAddImg} on:add={onTradeAddImage} />
   <ImageLightbox
     bind:open={tradeLightboxOpen}
     urls={tradeLightboxUrls}

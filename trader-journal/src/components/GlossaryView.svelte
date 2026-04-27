@@ -1,6 +1,7 @@
 <script>
   import Modal from './Modal.svelte';
   import ImageLightbox from './ImageLightbox.svelte';
+  import AddImageModal from './AddImageModal.svelte';
   import { glossary, UNCATEGORIZED_ID } from '../lib/glossary';
   import * as att from '../lib/attachmentApi.js';
 
@@ -15,8 +16,8 @@
   let catModalOpen = false;
   let newCatName = '';
 
-  let fileInputGloss;
-  let pendingAddTermId = null;
+  let addImgOpen = false;
+  let addImgTermId = null;
   let lbOpen = false;
   let lbUrls = [];
   let lbStart = 0;
@@ -121,22 +122,27 @@
 
   $: editTerm = termEditId ? $glossary.terms.find((x) => x.id === termEditId) : null;
 
-  async function onGlossaryFile(ev) {
-    const f = ev.target?.files?.[0];
-    if (ev.target) ev.target.value = '';
-    if (!f || !pendingAddTermId) return;
-    const id = pendingAddTermId;
-    pendingAddTermId = null;
-    const rel = await att.saveImageFromFile('glossary', id, f);
+  function requestAddPhoto(termId) {
+    addImgTermId = termId;
+    addImgOpen = true;
+  }
+
+  async function onGlossaryAddImage(/** @type {CustomEvent} */ e) {
+    const { blob, ext } = e.detail || {};
+    if (!blob || !addImgTermId) return;
+    const id = addImgTermId;
+    const rel = await att.saveImageBlob('glossary', id, blob, ext);
     if (!rel) return;
     const t = $glossary.terms.find((x) => x.id === id);
     const next = [...(t?.attachments || []), rel];
     glossary.updateTerm(id, { attachments: next });
+    addImgOpen = false;
+    addImgTermId = null;
   }
 
-  function requestAddPhoto(termId) {
-    pendingAddTermId = termId;
-    fileInputGloss?.click();
+  function closeAddImg() {
+    addImgOpen = false;
+    addImgTermId = null;
   }
 
   async function openLightboxForTerm(term, start = 0) {
@@ -155,15 +161,7 @@
   }
 </script>
 
-<input
-  type="file"
-  class="gl-hidden-file"
-  accept="image/jpeg,image/png,image/gif,image/webp,image/bmp,.jpg,.jpeg,.png,.gif,.webp,.bmp"
-  bind:this={fileInputGloss}
-  on:change={onGlossaryFile}
-  aria-hidden="true"
-  tabindex="-1"
-/>
+<AddImageModal open={addImgOpen} on:close={closeAddImg} on:add={onGlossaryAddImage} />
 <ImageLightbox bind:open={lbOpen} urls={lbUrls} startIndex={lbStart} />
 
 <div class="gl-page">
@@ -324,7 +322,7 @@
             {/await}
           </div>
         {:else}
-          <p class="gl-hint">PNG, JPG, GIF, WebP, BMP. Хранятся в папке данных приложения, не в localStorage.</p>
+          <p class="gl-hint">Любой формат при добавлении конвертируется в WebP. Файлы — в папке данных приложения, не в localStorage.</p>
         {/if}
       </div>
     {:else}
@@ -607,13 +605,6 @@
     border-radius: 6px;
     background: var(--bg);
     color: var(--text);
-  }
-  .gl-hidden-file {
-    position: absolute;
-    width: 0;
-    height: 0;
-    opacity: 0;
-    pointer-events: none;
   }
   .gl-thumbs {
     display: flex;
