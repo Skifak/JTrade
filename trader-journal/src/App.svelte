@@ -310,13 +310,19 @@
   }
 
   async function onTradeAddImage(/** @type {CustomEvent} */ e) {
-    const { blob, ext } = e.detail || {};
-    if (!blob || !tradeAddForId) return;
+    const { items } = e.detail || {};
+    if (!Array.isArray(items) || !items.length || !tradeAddForId) return;
     const id = tradeAddForId;
-    const rel = await att.saveImageBlob('trades', id, blob, ext);
-    if (!rel) return;
     const t = $trades.find((x) => x.id === id);
-    trades.updateTrade(id, { attachments: [...(t?.attachments || []), rel] });
+    const newRels = [];
+    for (const it of items) {
+      if (!it?.blob) continue;
+      const rel = await att.saveImageBlob('trades', id, it.blob, it.ext || 'webp');
+      if (rel) newRels.push(rel);
+    }
+    if (newRels.length) {
+      trades.updateTrade(id, { attachments: [...(t?.attachments || []), ...newRels] });
+    }
     tradeAddImgOpen = false;
     tradeAddForId = null;
   }

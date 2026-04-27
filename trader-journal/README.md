@@ -6,7 +6,7 @@
 1. **Standalone HTML** — `vite-plugin-singlefile` собирает один `dist/index.html` со всем CSS/JS внутри. Открыть из любого статического хостинга / `npm run preview`.
 2. **Десктоп-приложение через Tauri 2** — нативная WebView2-обёртка для Windows (см. [секцию ниже](#tauri-десктоп-сборка)). Решает проблему `file://` + WebSocket: WS к Binance / TradingView в Tauri живут так же, как в `npm run dev`.
 
-Все данные живут в `localStorage` браузера / WebView.
+Метаданные (сделки, профиль, глоссарий, журнал дня и т.д.) живут в **`localStorage`** браузера / WebView. **Файлы изображений** к терминам глоссария и к закрытым сделкам хранятся отдельно: в **Tauri** — в `%AppData%\…\trader-journal-assets`; в чистом браузере — в **IndexedDB**, чтобы не забивать квоту JSON.
 
 ---
 
@@ -140,6 +140,20 @@ __livePrices.enableLog();  // включить debug-лог WS, перезагр
 ### World clock
 В шапке тикают часы 4-х городов (Пекин / Лондон / Нью-Йорк / Москва) — для оперативной ориентации в торговых сессиях.
 
+### Журнал дня (`DayJournalView.svelte`, `src/lib/dayJournal.js`)
+Вкладка **Журнал** — дневник по датам: настроение, план, настраиваемый чек-лист, ревью и уроки. Данные в `localStorage` (`dayJournal_v1`).
+
+### Цели (`GoalsView.svelte`)
+Вкладка **Цели** — прогресс к целям D/W/M/Y и лимитам из профиля (те же поля, что в `ProfileModal`, на отдельной странице).
+
+### Глоссарий (`GlossaryView.svelte`, `src/lib/glossary.js`)
+Энциклопедия терминов по категориям; стартовый набор ICT. К карточке можно прикреплять скриншоты, смотреть их в лайтбоксе, удалять.
+
+### Вложения (фото) к сделкам и терминам (`AddImageModal`, `ImageCropModal`, `ImageLightbox`, `src/lib/attachmentApi.js`)
+- Модалка добавления: зона ввода остаётся «пустой», файлы отображаются **снизу миниатюрами**; вставка Ctrl+V, файлы, drag&drop; у миниатюры — удаление; клик — **обрезка** (cropper) с сохранением в WebP и откатом шага рамки.
+- У **закрытых** сделок в таблице — те же кнопки просмотра / добавления фото.
+- В **Tauri** бинарники пишутся командами `tauri_attachments_*` в подкаталог `trader-journal-assets`; в браузере — IndexedDB.
+
 ### Гайд
 Вкладка **Гайд** — встроенный мануал по всем фичам (`GuideView.svelte`).
 
@@ -147,8 +161,9 @@ __livePrices.enableLog();  // включить debug-лог WS, перезагр
 `toasts.info() / warn() / error()`. Используются при ошибках сохранения localStorage (включая `QuotaExceededError` с автобэкапом битых данных), импорта/экспорта, network errors live-цен.
 
 ### Экспорт/импорт
-- **Экспорт JSON** — все сделки в `trades_<timestamp>.json` (без профиля, без плейбуков).
-- **Импорт** принимает `*.json` (заменяет массив сделок) или `*.html`/`*.htm` (отчёт MT5, см. выше).
+- **Экспорт JSON (кнопка рядом с ZIP)** — только массив **сделок** в один файл (без профиля, без глоссария, без вложений).
+- **Экспорт ZIP** — бандл: сделки, глоссарий, папка с файлами иллюстраций; полный бэкап для переноса.
+- **Импорт** — `*.zip` (полная замена согласно диалогу), `*.json` (сделки без смены глоссария и без фото), `*.html`/`*.htm` (отчёт MT5, см. выше).
 - Плейбуки экспортируются/импортируются отдельно во вкладке **Плейбуки**.
 
 ---
@@ -159,7 +174,9 @@ __livePrices.enableLog();  // включить debug-лог WS, перезагр
 - `vite-plugin-singlefile` — сборка в один HTML-файл
 - `dayjs` — даты
 - `uuid` — id сделок / плейбуков / правил
-- Хранение: `localStorage`, без бэкенда
+- `jszip` — архивы экспорта/импорта
+- `cropperjs` — обрезка скриншотов перед сохранением
+- Хранение: `localStorage` + IndexedDB (вложения в браузере) / AppData (вложения в Tauri), без бэкенда
 
 ---
 
@@ -248,7 +265,7 @@ src-tauri/
     └── lib.rs              # tauri::Builder без custom commands (фронту хватает WebView)
 ```
 
-Сейчас в Rust-стороне **нет ни одного кастомного команда** — фронт работает чисто через нативные `fetch`/`WebSocket` WebView2. Если позже захочешь сделать нативный fetch (например, обходить CORS Stooq через Rust-сторону — `reqwest` без CORS-проверки), добавляй `#[tauri::command]` в `src-tauri/src/lib.rs` и вызывай из фронта через `@tauri-apps/api/core` `invoke()`.
+Кроме стандартного WebView, в Rust зарегистрированы команды **вложений**: запись/чтение/удаление файлов в `%AppData%\…\trader-journal-assets` по относительным путям `glossary/…` и `trades/…` (см. `tauri_attachments_*` в `src-tauri/src/lib.rs`). Фронт вызывает их из `src/lib/attachmentApi.js` через `invoke()`.
 
 ### Замечания по поведению
 
@@ -290,6 +307,12 @@ src/
 │   ├── tradingViewWs.js          # клиент TradingView WS, OANDA-mapping
 │   ├── marketData.js             # REST-фасад: Binance + Stooq (одноразовый снапшот)
 │   ├── mt5Parser.js              # парсер HTML-отчётов MT5 (Trade Report + History)
+│   ├── journalBundle.js         # ZIP экспорт/импорт (сделки + глоссарий + файлы)
+│   ├── attachmentApi.js         # вложения: Tauri AppData vs IndexedDB, пути trades/… glossary/…
+│   ├── glossary.js               # store глоссария
+│   ├── dayJournal.js            # store журнала дня
+│   ├── dayJournalChecklistTemplate.js
+│   ├── imageCompress.js         # сжатие изображений
 │   └── toasts.js                 # store тостов
 └── components/
     ├── Modal.svelte              # базовое модальное окно
@@ -302,6 +325,12 @@ src/
     ├── DailyReviewModal.svelte   # дневной обзор после достижения цели
     ├── PlaybookView.svelte       # вкладка «Плейбуки»: CRUD стратегий/play, статистика
     ├── Statistics.svelte         # дашборд статистики
+    ├── DayJournalView.svelte     # вкладка «Журнал» (дневник по датам)
+    ├── GoalsView.svelte          # вкладка «Цели»
+    ├── GlossaryView.svelte       # вкладка «Глоссарий»
+    ├── AddImageModal.svelte      # миниатюры, вставка/файлы, кроп
+    ├── ImageCropModal.svelte
+    ├── ImageLightbox.svelte
     ├── GuideView.svelte          # вкладка «Гайд»
     └── Toasts.svelte             # рендер тостов
 ```
@@ -338,7 +367,8 @@ src/
   killzone: 'SB' | null,           // override; null = автоопределение по dateOpen
   ruleViolations: [{severity, code, message}, ...],  // зафиксированные при создании
   acknowledgedChecklist: ['...'],
-  acknowledgedPlayRules: ['...']
+  acknowledgedPlayRules: ['...'],
+  attachments: ['trades/<id>/file.webp', ...]  // пути к файлам в хранилище вложений (закрытые сделки)
 }
 ```
 
@@ -373,8 +403,12 @@ profit   = rawPnL − commission − swap
 | `journalSettings_v1`          | TZ для killzones, окна, приоритет                   |
 | `strategies`                  | плейбуки (стратегии → play → правила)               |
 | `htfBiasLog`                  | лог bias по символам/датам                          |
+| `traderGlossary_v1`           | категории и термины глоссария (в т.ч. пути вложений) |
+| `dayJournal_v1`              | записи «журнала дня» по датам                       |
 | `cooldownUntil`               | ms-таймстамп до окончания cooldown (или отсутствует)|
 | `__corrupt_backup_<ts>`       | автобэкапы битого JSON (если парсер упал)           |
+
+Отдельно в **IndexedDB** (`trader-journal-attachments`, только веб) — бинарные файлы скриншотов; в **Tauri** вместо IDB используется папка на диске (см. выше).
 
 При `QuotaExceededError` показывается тост с предложением удалить часть закрытых сделок или экспортнуть их в JSON.
 

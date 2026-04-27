@@ -128,14 +128,19 @@
   }
 
   async function onGlossaryAddImage(/** @type {CustomEvent} */ e) {
-    const { blob, ext } = e.detail || {};
-    if (!blob || !addImgTermId) return;
+    const { items } = e.detail || {};
+    if (!Array.isArray(items) || !items.length || !addImgTermId) return;
     const id = addImgTermId;
-    const rel = await att.saveImageBlob('glossary', id, blob, ext);
-    if (!rel) return;
     const t = $glossary.terms.find((x) => x.id === id);
-    const next = [...(t?.attachments || []), rel];
-    glossary.updateTerm(id, { attachments: next });
+    const newRels = [];
+    for (const it of items) {
+      if (!it?.blob) continue;
+      const rel = await att.saveImageBlob('glossary', id, it.blob, it.ext || 'webp');
+      if (rel) newRels.push(rel);
+    }
+    if (newRels.length) {
+      glossary.updateTerm(id, { attachments: [...(t?.attachments || []), ...newRels] });
+    }
     addImgOpen = false;
     addImgTermId = null;
   }

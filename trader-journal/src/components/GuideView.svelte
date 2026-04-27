@@ -22,6 +22,9 @@
     { id: 'quickstart',    icon: '▶',  title: 'Быстрый старт' },
     { id: 'profile',       icon: '◉',  title: 'Профиль и риск' },
     { id: 'trades',        icon: '⇆',  title: 'Сделки' },
+    { id: 'journal-day',   icon: '📓', title: 'Журнал дня' },
+    { id: 'goals-tab',     icon: '🏁', title: 'Цели' },
+    { id: 'glossary-media', icon: '📚', title: 'Глоссарий и фото' },
     { id: 'playbooks',     icon: '♚',  title: 'Плейбуки и ICT' },
     { id: 'killzones',     icon: '⏰', title: 'Killzones' },
     { id: 'bias',          icon: '⇡',  title: 'HTF Bias' },
@@ -300,6 +303,76 @@
         <div class="formula-sub">
           <strong>side</strong> = +1 для long, −1 для short.&nbsp;
           <strong>contractSize</strong> зависит от инструмента: 100&nbsp;000 (FX-major), 100 (XAU), 1 (BTC/ETH/XRP), 10 (XAG), и т.д.
+        </div>
+      </div>
+    </section>
+
+    <!-- DAY JOURNAL -->
+    <section id="journal-day" class="guide-section">
+      <h2><span class="num">📓</span>Журнал дня</h2>
+      <p class="lead">
+        Вкладка <strong>Журнал</strong> — отдельный дневник по календарным дням: настроение, план на сессию,
+        чек-лист (настраиваемый шаблон), ревью и уроки. Записи хранятся в
+        <code>localStorage</code> (<code>dayJournal_v1</code>), не смешиваются с таблицей сделок.
+      </p>
+      <div class="cols-2">
+        <div class="info-card">
+          <h4>Зачем</h4>
+          <ul>
+            <li>Фиксировать намерение до рынка и разбор после — отдельно от цифр P&amp;L.</li>
+            <li>Свой чек-лист дня (KZ, лимит сделок, правила) — в настройках блока можно добавлять строки.</li>
+          </ul>
+        </div>
+        <div class="info-card">
+          <h4>Как пользоваться</h4>
+          <ul>
+            <li>Выбери дату — редактор справа, слева список дней, где уже что-то заполнено.</li>
+            <li>Быстрые сниппеты плана — кнопки под полем «План на день».</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- GOALS -->
+    <section id="goals-tab" class="guide-section">
+      <h2><span class="num">🏁</span>Цели</h2>
+      <p class="lead">
+        Вкладка <strong>Цели</strong> — прогресс-бары к дневным / недельным / месячным / годовым целям из профиля
+        и лимиты вроде макс. сделок в день. Редактирование тех же полей, что в модалке профиля, без захода в неё.
+      </p>
+    </section>
+
+    <!-- GLOSSARY + PHOTOS -->
+    <section id="glossary-media" class="guide-section">
+      <h2><span class="num">📚</span>Глоссарий и вложения</h2>
+      <p class="lead">
+        Вкладка <strong>Глоссарий</strong> — карточки терминов по категориям (ICT и свои). Текст в
+        <code>localStorage</code> (<code>traderGlossary_v1</code>); к каждому термину и к <strong>закрытым</strong>
+        сделкам можно прикреплять скриншоты.
+      </p>
+      <div class="cols-2">
+        <div class="info-card">
+          <h4>Добавление фото</h4>
+          <ul>
+            <li>Вставка из буфера (Ctrl+V), выбор файла, drag&amp;drop — можно несколько за раз.</li>
+            <li>У каждой миниатюры крестик; клик по миниатюре — <strong>обрезка</strong> (crop), «Сохранить» / «Откатить» шаг рамки.</li>
+            <li>После «Добавить» файлы режутся до WebP и попадают в хранилище вложений.</li>
+          </ul>
+        </div>
+        <div class="info-card">
+          <h4>Где лежат байты</h4>
+          <ul>
+            <li><strong>Tauri (десктоп):</strong> папка <code>…/AppData/.../trader-journal-assets</code> — пути в данных вида <code>glossary/…</code>, <code>trades/…</code>.</li>
+            <li><strong>Браузер / vite dev:</strong> те же пути в <strong>IndexedDB</strong> (не в <code>localStorage</code> — чтобы не раздувать квоту JSON).</li>
+          </ul>
+        </div>
+        <div class="info-card big">
+          <h4>Просмотр и бэкап</h4>
+          <ul>
+            <li>По кнопке с иконкой картинки — полноэкранный просмотр; удаление отдельного файла из карточки.</li>
+            <li><strong>Экспорт ZIP</strong> в шапке — сделки + глоссарий + файлы из бандла; обратный импорт ZIP восстанавливает и метаданные, и картинки.</li>
+            <li>Обычный <strong>экспорт JSON</strong> — только табличные данные; глоссарий в JSON не тащится, вложения — только через ZIP.</li>
+          </ul>
         </div>
       </div>
     </section>
@@ -777,9 +850,9 @@ Risk:Reward ≥ 1:2
         <div class="info-card">
           <h4>↓↑ Экспорт / Импорт</h4>
           <ul>
-            <li>Экспорт: JSON со всеми сделками, шаблонами и профилем.</li>
-            <li>Импорт: либо JSON-бэкап, либо HTML-отчёт MT5.</li>
-            <li>Используй для переезда / бэкапа.</li>
+            <li><strong>ZIP</strong> — полный бэкап: сделки, глоссарий, файлы картинок.</li>
+            <li><strong>JSON</strong> — без бинарных вложений; глоссарий отдельным потоком не тянется.</li>
+            <li><strong>HTML MT5</strong> — импорт позиций/истории, как в разделе про сделки.</li>
           </ul>
         </div>
         <div class="info-card">
@@ -825,6 +898,11 @@ Risk:Reward ≥ 1:2
       <details class="faq-item">
         <summary>Что значит «Disciplined PnL»?</summary>
         <p>Сумма прибыли только тех сделок, у которых нет <code>ruleViolations</code>. Это эталонная линия — куда ты бы пришёл, если бы соблюдал свой план без исключений.</p>
+      </details>
+
+      <details class="faq-item">
+        <summary>Как перенести скриншоты на другой ПК?</summary>
+        <p>Только через <strong>Экспорт ZIP</strong> и импорт ZIP на новом месте. Обычный JSON не содержит файлов и не обновляет глоссарий целиком.</p>
       </details>
 
       <div class="cta-card">
