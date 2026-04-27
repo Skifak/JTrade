@@ -23,7 +23,6 @@
     { id: 'profile',       icon: '◉',  title: 'Профиль и риск' },
     { id: 'trades',        icon: '⇆',  title: 'Сделки' },
     { id: 'journal-day',   icon: '📓', title: 'Журнал дня' },
-    { id: 'goals-tab',     icon: '🏁', title: 'Цели' },
     { id: 'glossary-media', icon: '📚', title: 'Глоссарий и фото' },
     { id: 'playbooks',     icon: '♚',  title: 'Плейбуки и ICT' },
     { id: 'killzones',     icon: '⏰', title: 'Killzones' },
@@ -331,15 +330,6 @@
           </ul>
         </div>
       </div>
-    </section>
-
-    <!-- GOALS -->
-    <section id="goals-tab" class="guide-section">
-      <h2><span class="num">🏁</span>Цели</h2>
-      <p class="lead">
-        Вкладка <strong>Цели</strong> — прогресс-бары к дневным / недельным / месячным / годовым целям из профиля
-        и лимиты вроде макс. сделок в день. Редактирование тех же полей, что в модалке профиля, без захода в неё.
-      </p>
     </section>
 
     <!-- GLOSSARY + PHOTOS -->

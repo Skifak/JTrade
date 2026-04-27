@@ -143,9 +143,6 @@ __livePrices.enableLog();  // включить debug-лог WS, перезагр
 ### Журнал дня (`DayJournalView.svelte`, `src/lib/dayJournal.js`)
 Вкладка **Журнал** — дневник по датам: настроение, план, настраиваемый чек-лист, ревью и уроки. Данные в `localStorage` (`dayJournal_v1`).
 
-### Цели (`GoalsView.svelte`)
-Вкладка **Цели** — прогресс к целям D/W/M/Y и лимитам из профиля (те же поля, что в `ProfileModal`, на отдельной странице).
-
 ### Глоссарий (`GlossaryView.svelte`, `src/lib/glossary.js`)
 Энциклопедия терминов по категориям; стартовый набор ICT. К карточке можно прикреплять скриншоты, смотреть их в лайтбоксе, удалять.
 
@@ -326,7 +323,6 @@ src/
     ├── PlaybookView.svelte       # вкладка «Плейбуки»: CRUD стратегий/play, статистика
     ├── Statistics.svelte         # дашборд статистики
     ├── DayJournalView.svelte     # вкладка «Журнал» (дневник по датам)
-    ├── GoalsView.svelte          # вкладка «Цели»
     ├── GlossaryView.svelte       # вкладка «Глоссарий»
     ├── AddImageModal.svelte      # миниатюры, вставка/файлы, кроп
     ├── ImageCropModal.svelte
