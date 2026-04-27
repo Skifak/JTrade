@@ -129,6 +129,112 @@
   }
 
   // ============================================================
+  // КАЛЕНДАРЬ P&L (по dateClose, локальная дата)
+  // ============================================================
+  let calendarMonth = new Date();
+
+  const weekdayShort = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+
+  function pnlDateKey(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  function metricsForDayTrades(trades) {
+    if (!trades?.length) {
+      return { sum: 0, count: 0, maxP: 0, maxDD: 0, hasTrades: false };
+    }
+    const sorted = [...trades].sort(
+      (a, b) => new Date(a.dateClose).getTime() - new Date(b.dateClose).getTime()
+    );
+    const profits = sorted.map((t) => Number(t.profit) || 0);
+    const sum = profits.reduce((a, b) => a + b, 0);
+    const maxP = Math.max(...profits);
+    let eq = 0;
+    let peak = 0;
+    let maxDD = 0;
+    for (const p of profits) {
+      eq += p;
+      peak = Math.max(peak, eq);
+      maxDD = Math.min(maxDD, eq - peak);
+    }
+    return { sum, count: profits.length, maxP, maxDD, hasTrades: true };
+  }
+
+  $: pnlByDay = (() => {
+    const m = new Map();
+    for (const t of filtered) {
+      if (!t.dateClose) continue;
+      const k = pnlDateKey(new Date(t.dateClose));
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(t);
+    }
+    const out = new Map();
+    for (const [k, arr] of m) {
+      out.set(k, metricsForDayTrades(arr));
+    }
+    return out;
+  })();
+
+  $: pnlCalendar = (() => {
+    const y = calendarMonth.getFullYear();
+    const mm = calendarMonth.getMonth();
+    const first = new Date(y, mm, 1);
+    const startPad = first.getDay();
+    const daysInMonth = new Date(y, mm + 1, 0).getDate();
+    const gridStart = new Date(y, mm, 1 - startPad);
+    const now = new Date();
+    const rows = [];
+    for (let w = 0; w < 6; w++) {
+      const cells = [];
+      let weekSum = 0;
+      for (let c = 0; c < 7; c++) {
+        const d = new Date(gridStart);
+        d.setDate(gridStart.getDate() + w * 7 + c);
+        const inMonth = d.getMonth() === mm && d.getFullYear() === y;
+        const key = pnlDateKey(d);
+        const met = pnlByDay.get(key) || { sum: 0, count: 0, maxP: 0, maxDD: 0, hasTrades: false };
+        if (inMonth) weekSum += met.sum;
+        const isToday =
+          d.getDate() === now.getDate() &&
+          d.getMonth() === now.getMonth() &&
+          d.getFullYear() === now.getFullYear();
+        cells.push({
+          dayNum: d.getDate(),
+          inMonth,
+          key,
+          isToday,
+          ...met
+        });
+      }
+      rows.push({ weekSum, cells });
+    }
+    let monthTotal = 0;
+    for (let day = 1; day <= daysInMonth; day++) {
+      const k = pnlDateKey(new Date(y, mm, day));
+      const met = pnlByDay.get(k);
+      if (met) monthTotal += met.sum;
+    }
+    const monthLabel = new Date(y, mm, 15).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+    return { y, mm, rows, monthTotal, monthLabel, daysInMonth };
+  })();
+
+  function calendarPrev() {
+    calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1);
+  }
+  function calendarNext() {
+    calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1);
+  }
+
+  function tradesWordRu(n) {
+    const a = Math.abs(n) % 100;
+    const b = n % 10;
+    if (a > 10 && a < 20) return 'трейдов';
+    if (b === 1) return 'трейд';
+    if (b >= 2 && b <= 4) return 'трейда';
+    return 'трейдов';
+  }
+
+  // ============================================================
   // PLAY / BIAS / KILLZONE — мета и аналитика
   // ============================================================
   $: playOptions = flattenPlays($strategies);
@@ -565,6 +671,70 @@
       </span>
       <span>WR {formatNumber(filteredAgg.wr, 1)}%</span>
       <span class="muted">{filteredAgg.wins}W / {filteredAgg.losses}L</span>
+    </div>
+  </div>
+
+  <h3 class="stats-section-title">Календарь P&amp;L</h3>
+  <p class="calendar-hint">
+    По дате <strong>закрытия</strong> сделок (учитываются фильтры выше). Max DD — макс. просадка от локального пика внутри дня (порядок закрытий).
+  </p>
+  <div class="pnl-calendar-wrap">
+    <div class="pnl-cal-head">
+      <div class="pnl-cal-title-block">
+        <span class="pnl-cal-month">{pnlCalendar.monthLabel}</span>
+        <span
+          class="pnl-cal-month-sum {pnlCalendar.monthTotal >= 0 ? 'profit' : 'loss'}"
+        >
+          {pnlCalendar.monthTotal >= 0 ? '+' : ''}{formatNumber(pnlCalendar.monthTotal, 0)} {currency}
+        </span>
+      </div>
+      <div class="pnl-cal-nav">
+        <button type="button" class="pnl-cal-nav-btn" on:click={calendarPrev} aria-label="Предыдущий месяц"
+          >‹</button
+        >
+        <button type="button" class="pnl-cal-nav-btn" on:click={calendarNext} aria-label="Следующий месяц"
+          >›</button
+        >
+      </div>
+    </div>
+    <div class="pnl-cal-grid" role="grid" aria-label="Календарь PnL по дням">
+      <div class="pnl-cal-row pnl-cal-row-head" role="row">
+        {#each weekdayShort as wd}
+          <div class="pnl-cal-hcell" role="columnheader">{wd}</div>
+        {/each}
+        <div class="pnl-cal-hcell pnl-cal-hcell-week" role="columnheader">Неделя</div>
+      </div>
+      {#each pnlCalendar.rows as row}
+        <div class="pnl-cal-row" role="row">
+          {#each row.cells as cell}
+            <div
+              class="pnl-cal-cell {cell.inMonth ? '' : 'pnl-cal-cell-muted'} {cell.isToday ? 'pnl-cal-cell-today' : ''}"
+              role="gridcell"
+            >
+              <span class="pnl-cal-daynum">{cell.dayNum}</span>
+              {#if cell.inMonth && cell.hasTrades}
+                <span class="pnl-cal-pnl {cell.sum >= 0 ? 'profit' : 'loss'}">
+                  {cell.sum >= 0 ? '+' : ''}{formatNumber(cell.sum, 0)} {currency}
+                </span>
+                <span class="pnl-cal-meta">{cell.count} {tradesWordRu(cell.count)}</span>
+                <span class="pnl-cal-metric maxp">
+                  Max P: <span class={cell.maxP >= 0 ? 'profit' : 'loss'}>{formatNumber(cell.maxP, 0)} {currency}</span>
+                </span>
+                <span class="pnl-cal-metric maxdd">
+                  Max DD: <span class="loss">{formatNumber(cell.maxDD, 0)} {currency}</span>
+                </span>
+              {:else if cell.inMonth}
+                <span class="pnl-cal-empty">Нет сделок</span>
+              {/if}
+            </div>
+          {/each}
+          <div class="pnl-cal-cell pnl-cal-week-sum" role="gridcell">
+            <span class={row.weekSum >= 0 ? 'profit' : 'loss'}>
+              {row.weekSum >= 0 ? '+' : ''}{formatNumber(row.weekSum, 0)} {currency}
+            </span>
+          </div>
+        </div>
+      {/each}
     </div>
   </div>
 
@@ -1090,6 +1260,165 @@ avg/сделка: ${b.avgVal >= 0 ? '+' : ''}${formatNumber(b.avgVal, 2)} ${curr
     border-radius: 4px;
     text-align: center;
     color: var(--text-muted);
+    font-size: 13px;
+  }
+
+  .calendar-hint {
+    margin: -8px 20px 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.45;
+  }
+  .calendar-hint strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .pnl-calendar-wrap {
+    margin: 0 20px 20px;
+    padding: 14px 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-2);
+  }
+  .pnl-cal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .pnl-cal-title-block {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .pnl-cal-month {
+    font-size: 1.15rem;
+    font-weight: 700;
+    text-transform: capitalize;
+    color: var(--text-strong);
+  }
+  .pnl-cal-month-sum {
+    font-size: 1.35rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+  .pnl-cal-nav {
+    display: flex;
+    gap: 6px;
+  }
+  .pnl-cal-nav-btn {
+    width: 38px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--text-strong);
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 120ms, border-color 120ms;
+  }
+  .pnl-cal-nav-btn:hover {
+    background: var(--accent-bg);
+    border-color: var(--accent-border);
+    color: var(--accent);
+  }
+
+  .pnl-cal-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    overflow-x: auto;
+  }
+  .pnl-cal-row {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(72px, 1fr)) minmax(76px, 92px);
+    gap: 3px;
+    align-items: stretch;
+  }
+  .pnl-cal-row-head {
+    min-height: auto;
+  }
+  .pnl-cal-hcell {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    padding: 6px 4px;
+    text-align: center;
+  }
+  .pnl-cal-hcell-week {
+    text-align: center;
+  }
+
+  .pnl-cal-cell {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 5px 6px 6px;
+    min-height: 112px;
+    background: var(--bg);
+    font-size: 10.5px;
+    line-height: 1.35;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .pnl-cal-cell-muted {
+    opacity: 0.38;
+    background: var(--bg-2);
+    min-height: 72px;
+  }
+  .pnl-cal-cell-muted .pnl-cal-daynum {
+    color: var(--text-muted);
+  }
+  .pnl-cal-cell-today {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+  }
+  .pnl-cal-daynum {
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--text-strong);
+    margin-bottom: 2px;
+  }
+  .pnl-cal-pnl {
+    font-weight: 800;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .pnl-cal-meta {
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+  .pnl-cal-metric {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .pnl-cal-empty {
+    margin-top: auto;
+    font-size: 10px;
+    color: var(--text-muted);
+    opacity: 0.75;
+  }
+  .pnl-cal-week-sum {
+    min-height: 112px;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    font-weight: 800;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    background: var(--bg-2);
+  }
+  .pnl-cal-week-sum .profit,
+  .pnl-cal-week-sum .loss {
     font-size: 13px;
   }
 
