@@ -28,6 +28,7 @@
     goalMonthValue: 5,
     goalYearValue: 20,
     maxOpenTrades: 3,
+    maxTradesPerDay: 0,
     maxConsecutiveLosses: 3,
     commissionPerLot: 0,
     notes: '',
@@ -94,6 +95,7 @@
       goalMonthValue: Number(formData.goalMonthValue) || 0,
       goalYearValue: Number(formData.goalYearValue) || 0,
       maxOpenTrades: Number(formData.maxOpenTrades) || 0,
+      maxTradesPerDay: Math.max(0, Number(formData.maxTradesPerDay) || 0),
       maxConsecutiveLosses: Number(formData.maxConsecutiveLosses) || 0,
       commissionPerLot: Number(formData.commissionPerLot) || 0,
       cooldownAfterLossMin: Number(formData.cooldownAfterLossMin) || 0,
@@ -281,6 +283,13 @@
         <div class="form-group">
           <label for="max-open-trades">Макс. открытых позиций</label>
           <input id="max-open-trades" type="number" min="1" step="1" bind:value={formData.maxOpenTrades} />
+        </div>
+        <div class="form-group">
+          <label for="max-trades-per-day">
+            Макс. сделок за день (закрытых)
+            <span class="hint-inline">0 — без лимита</span>
+          </label>
+          <input id="max-trades-per-day" type="number" min="0" step="1" bind:value={formData.maxTradesPerDay} />
         </div>
         <div class="form-group">
           <label for="max-consecutive-losses">Макс. убыточных подряд</label>

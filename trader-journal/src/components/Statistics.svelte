@@ -15,6 +15,7 @@
   import { prettyTag, isIctTag } from '../lib/ictTaxonomy';
   import { fxRate, convertUsd } from '../lib/fxRate';
   import { calculateStats } from '../lib/utils';
+  import Modal from './Modal.svelte';
 
   export let stats;
   export let closedTrades = [];
@@ -141,7 +142,7 @@
 
   function metricsForDayTrades(trades) {
     if (!trades?.length) {
-      return { sum: 0, count: 0, maxP: 0, maxDD: 0, hasTrades: false };
+      return { sum: 0, count: 0, maxP: 0, maxDD: 0, hasTrades: false, trades: [] };
     }
     const sorted = [...trades].sort(
       (a, b) => new Date(a.dateClose).getTime() - new Date(b.dateClose).getTime()
@@ -157,7 +158,7 @@
       peak = Math.max(peak, eq);
       maxDD = Math.min(maxDD, eq - peak);
     }
-    return { sum, count: profits.length, maxP, maxDD, hasTrades: true };
+    return { sum, count: profits.length, maxP, maxDD, hasTrades: true, trades: sorted };
   }
 
   $: pnlByDay = (() => {
@@ -192,7 +193,7 @@
         d.setDate(gridStart.getDate() + w * 7 + c);
         const inMonth = d.getMonth() === mm && d.getFullYear() === y;
         const key = pnlDateKey(d);
-        const met = pnlByDay.get(key) || { sum: 0, count: 0, maxP: 0, maxDD: 0, hasTrades: false };
+        const met = pnlByDay.get(key) || { sum: 0, count: 0, maxP: 0, maxDD: 0, hasTrades: false, trades: [] };
         if (inMonth) weekSum += met.sum;
         const isToday =
           d.getDate() === now.getDate() &&
@@ -203,7 +204,11 @@
           inMonth,
           key,
           isToday,
-          ...met
+          sum: met.sum,
+          count: met.count,
+          maxP: met.maxP,
+          maxDD: met.maxDD,
+          hasTrades: met.hasTrades
         });
       }
       rows.push({ weekSum, cells });
@@ -233,6 +238,77 @@
     if (b >= 2 && b <= 4) return 'трейда';
     return 'трейдов';
   }
+
+  let dayModalOpen = false;
+  let dayModalKey = null;
+
+  function summarizeDayTrades(trades) {
+    if (!trades?.length) return null;
+    const profits = trades.map((t) => Number(t.profit) || 0);
+    const sum = profits.reduce((a, b) => a + b, 0);
+    const winProfits = profits.filter((p) => p > 0);
+    const lossProfits = profits.filter((p) => p < 0);
+    const w = winProfits.length;
+    const l = lossProfits.length;
+    const grossWin = winProfits.reduce((a, b) => a + b, 0);
+    const grossLoss = -lossProfits.reduce((a, b) => a + b, 0);
+    const pf = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0;
+    const avgWin = w ? grossWin / w : 0;
+    const avgLoss = l ? grossLoss / l : 0;
+    let eq = 0;
+    let peak = 0;
+    let maxDD = 0;
+    for (const p of profits) {
+      eq += p;
+      peak = Math.max(peak, eq);
+      maxDD = Math.min(maxDD, eq - peak);
+    }
+    const long = trades.filter((t) => t.direction === 'long').length;
+    const short = trades.filter((t) => t.direction === 'short').length;
+    const withViol = trades.filter((t) => Array.isArray(t.ruleViolations) && t.ruleViolations.length > 0).length;
+    const best = profits.length ? Math.max(...profits) : 0;
+    const worst = profits.length ? Math.min(...profits) : 0;
+    return {
+      sum,
+      wr: profits.length ? (w / profits.length) * 100 : 0,
+      w,
+      l,
+      avgWin,
+      avgLoss,
+      pf,
+      maxDD,
+      long,
+      short,
+      withViol,
+      best,
+      worst,
+      expectancy: profits.length ? sum / profits.length : 0
+    };
+  }
+
+  function openCalendarDay(key, inMonth, hasTrades) {
+    if (!inMonth || !hasTrades) return;
+    const d = pnlByDay.get(key);
+    if (!d?.hasTrades) return;
+    dayModalKey = key;
+    dayModalOpen = true;
+  }
+
+  function closeCalendarDayModal() {
+    dayModalOpen = false;
+    dayModalKey = null;
+  }
+
+  $: dayModalDetail = dayModalKey ? pnlByDay.get(dayModalKey) : null;
+  $: dayModalSummary = dayModalDetail?.trades ? summarizeDayTrades(dayModalDetail.trades) : null;
+  $: dayModalTitle =
+    dayModalKey &&
+    new Date(dayModalKey + 'T12:00:00').toLocaleDateString('ru-RU', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
 
   // ============================================================
   // PLAY / BIAS / KILLZONE — мета и аналитика
@@ -676,7 +752,8 @@
 
   <h3 class="stats-section-title">Календарь P&amp;L</h3>
   <p class="calendar-hint">
-    По дате <strong>закрытия</strong> сделок (учитываются фильтры выше). Max DD — макс. просадка от локального пика внутри дня (порядок закрытий).
+    По дате <strong>закрытия</strong> (фильтры выше). Max DD — от пика внутри дня по порядку закрытий.
+    <strong>Клик по дню</strong> с сделками — краткая сводка.
   </p>
   <div class="pnl-calendar-wrap">
     <div class="pnl-cal-head">
@@ -708,8 +785,17 @@
         <div class="pnl-cal-row" role="row">
           {#each row.cells as cell}
             <div
-              class="pnl-cal-cell {cell.inMonth ? '' : 'pnl-cal-cell-muted'} {cell.isToday ? 'pnl-cal-cell-today' : ''}"
+              class="pnl-cal-cell {cell.inMonth ? '' : 'pnl-cal-cell-muted'} {cell.isToday ? 'pnl-cal-cell-today' : ''} {cell.inMonth && cell.hasTrades ? 'pnl-cal-cell-clickable' : ''}"
               role="gridcell"
+              tabindex={cell.inMonth && cell.hasTrades ? 0 : undefined}
+              aria-label={cell.inMonth && cell.hasTrades ? `Открыть сделки за ${cell.dayNum} число` : undefined}
+              on:click={() => openCalendarDay(cell.key, cell.inMonth, cell.hasTrades)}
+              on:keydown={(e) => {
+                if (cell.inMonth && cell.hasTrades && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  openCalendarDay(cell.key, cell.inMonth, cell.hasTrades);
+                }
+              }}
             >
               <span class="pnl-cal-daynum">{cell.dayNum}</span>
               {#if cell.inMonth && cell.hasTrades}
@@ -737,6 +823,142 @@
       {/each}
     </div>
   </div>
+
+  <Modal open={dayModalOpen} modalClass="day-trades-modal" on:close={closeCalendarDayModal}>
+    <div slot="header">
+      <h2 class="day-modal-title">{dayModalTitle || 'День'}</h2>
+    </div>
+    <div slot="body">
+      {#if dayModalSummary && dayModalDetail?.trades?.length}
+        <div
+          class="day-modal-net day-modal-tip {dayModalSummary.sum >= 0 ? 'profit' : 'loss'}"
+          title="Суммарный P&amp;L по всем сделкам с датой закрытия в этот день (с учётом фильтров статистики). WR — доля прибыльных сделок; W/L — число выигрышей и убытков."
+        >
+          {dayModalSummary.sum >= 0 ? '+' : ''}{formatNumber(dayModalSummary.sum, 2)} {currency}
+          <span class="day-modal-net-sub"
+            >· WR {formatNumber(dayModalSummary.wr, 1)}% ({dayModalSummary.w}W / {dayModalSummary.l}L)</span
+          >
+        </div>
+        <div class="day-modal-kpis">
+          <div
+            class="day-modal-kpi day-modal-tip"
+            title="Средняя прибыль по сделкам с положительным результатом за этот день. Если прибыльных не было — 0."
+          >
+            <span class="day-modal-kpi-l">Avg win</span>
+            <span class="day-modal-kpi-v profit">+{formatNumber(dayModalSummary.avgWin, 2)}</span>
+          </div>
+          <div
+            class="day-modal-kpi day-modal-tip"
+            title="Средний модуль убытка по сделкам с отрицательным результатом. В ячейке показан со знаком «−»."
+          >
+            <span class="day-modal-kpi-l">Avg loss</span>
+            <span class="day-modal-kpi-v loss"
+              >−{formatNumber(dayModalSummary.avgLoss, 2)}</span
+            >
+          </div>
+          <div
+            class="day-modal-kpi day-modal-tip"
+            title="Profit Factor: сумма прибылей / сумма убытков за день. «∞», если убытков не было; «—», если нечего считать."
+          >
+            <span class="day-modal-kpi-l">PF</span>
+            <span class="day-modal-kpi-v"
+              >{dayModalSummary.pf === 0
+                ? '—'
+                : Number.isFinite(dayModalSummary.pf)
+                  ? formatNumber(Math.min(dayModalSummary.pf, 999), 2)
+                  : '∞'}</span
+            >
+          </div>
+          <div
+            class="day-modal-kpi day-modal-tip"
+            title="Expectancy: средний P&amp;L на одну сделку за день (суммарный результат / число сделок)."
+          >
+            <span class="day-modal-kpi-l">Expectancy</span>
+            <span
+              class="day-modal-kpi-v {dayModalSummary.expectancy >= 0 ? 'profit' : 'loss'}"
+              >{dayModalSummary.expectancy >= 0 ? '+' : ''}{formatNumber(dayModalSummary.expectancy, 2)}</span
+            >
+          </div>
+          <div
+            class="day-modal-kpi day-modal-tip"
+            title="Максимальная просадка от накопленного пика внутри дня: сделки идут в порядке времени закрытия, считается кривая кумулятивного P&amp;L."
+          >
+            <span class="day-modal-kpi-l">Max DD</span>
+            <span class="day-modal-kpi-v loss">{formatNumber(dayModalSummary.maxDD, 2)}</span>
+          </div>
+          <div
+            class="day-modal-kpi day-modal-tip"
+            title="Число сделок long и short среди закрытых в этот день. Формат: long / short."
+          >
+            <span class="day-modal-kpi-l">L / S</span>
+            <span class="day-modal-kpi-v">{dayModalSummary.long} / {dayModalSummary.short}</span>
+          </div>
+          <div
+            class="day-modal-kpi day-modal-tip"
+            title="Максимальный результат одной сделки за день (лучшая сделка по P&amp;L)."
+          >
+            <span class="day-modal-kpi-l">Best</span>
+            <span
+              class="day-modal-kpi-v {dayModalSummary.best >= 0 ? 'profit' : 'loss'}"
+              >{dayModalSummary.best >= 0 ? '+' : ''}{formatNumber(dayModalSummary.best, 2)}</span
+            >
+          </div>
+          <div
+            class="day-modal-kpi day-modal-tip"
+            title="Минимальный результат одной сделки за день (худшая сделка по P&amp;L)."
+          >
+            <span class="day-modal-kpi-l">Worst</span>
+            <span class="day-modal-kpi-v loss">{formatNumber(dayModalSummary.worst, 2)}</span>
+          </div>
+        </div>
+        {#if dayModalSummary.withViol > 0}
+          <p
+            class="day-modal-warn day-modal-tip"
+            title="Сделки, у которых при открытии были зафиксированы нарушения правил (ruleViolations). Строки в таблице ниже подсвечены."
+          >
+            ⚠ {dayModalSummary.withViol} из {dayModalDetail.trades.length} с ruleViolations
+          </p>
+        {/if}
+        <div class="day-modal-table-wrap">
+          <table class="day-modal-table">
+            <thead>
+              <tr>
+                <th class="day-modal-tip" title="Время закрытия сделки (локально)">Время</th>
+                <th class="day-modal-tip" title="Торговый инструмент">Пара</th>
+                <th class="day-modal-tip" title="Направление позиции: L — long, S — short">Направление</th>
+                <th class="num day-modal-tip" title="Результат сделки в валюте счёта">P&amp;L</th>
+                <th class="day-modal-tip" title="Сетап из плейбука (полный путь — в подсказке у ячейки)">Сетап</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each dayModalDetail.trades as t}
+                {@const pk = t.strategyId && t.playId ? `${t.strategyId}:${t.playId}` : ''}
+                {@const pm = pk && playMeta[pk] ? playMeta[pk] : null}
+                <tr class:day-row-warn={Array.isArray(t.ruleViolations) && t.ruleViolations.length > 0}>
+                  <td class="mono">{formatDate(t.dateClose, 'HH:mm')}</td>
+                  <td class="pair">{t.pair || '—'}</td>
+                  <td
+                    class="dir day-modal-tip"
+                    title={t.direction === 'short' ? 'Short' : 'Long'}
+                    >{t.direction === 'short' ? 'S' : 'L'}</td
+                  >
+                  <td class="num pnl {Number(t.profit) >= 0 ? 'profit' : 'loss'}">
+                    {Number(t.profit) >= 0 ? '+' : ''}{formatNumber(Number(t.profit) || 0, 2)}
+                  </td>
+                  <td class="setup" title={pm ? `${pm.strategyName} → ${pm.playName}` : ''}>
+                    {pm ? pm.playName : '—'}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
+    </div>
+    <div slot="footer">
+      <button type="button" class="btn btn-sm" on:click={closeCalendarDayModal}>Закрыть</button>
+    </div>
+  </Modal>
 
   {#if filtered.length === 0}
     <div class="empty-state-mini">Под выбранные фильтры не попало ни одной сделки</div>
@@ -1420,6 +1642,150 @@ avg/сделка: ${b.avgVal >= 0 ? '+' : ''}${formatNumber(b.avgVal, 2)} ${curr
   .pnl-cal-week-sum .profit,
   .pnl-cal-week-sum .loss {
     font-size: 13px;
+  }
+
+  .pnl-cal-cell-clickable {
+    cursor: pointer;
+    transition: background 120ms, border-color 120ms, box-shadow 120ms;
+  }
+  .pnl-cal-cell-clickable:hover {
+    background: var(--accent-bg);
+    border-color: var(--accent-border);
+    box-shadow: 0 0 0 1px var(--accent-border);
+  }
+  .pnl-cal-cell-clickable:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+
+  :global(.modal.day-trades-modal) {
+    max-width: min(460px, 96vw);
+  }
+  :global(.modal.day-trades-modal .modal-body) {
+    padding: 12px 14px 14px;
+  }
+  :global(.modal.day-trades-modal .modal-footer) {
+    padding: 8px 14px;
+  }
+
+  .day-modal-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 650;
+    text-transform: capitalize;
+    color: var(--text-strong);
+  }
+  .day-modal-tip {
+    cursor: help;
+  }
+  .day-modal-net {
+    font-size: 1.25rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    margin-bottom: 10px;
+  }
+  .day-modal-net-sub {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+  .day-modal-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px 10px;
+    margin-bottom: 12px;
+  }
+  @media (max-width: 420px) {
+    .day-modal-kpis {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  .day-modal-kpi {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 8px;
+  }
+  .day-modal-kpi-l {
+    display: block;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+  }
+  .day-modal-kpi-v {
+    font-size: 12px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-strong);
+  }
+  .day-modal-warn {
+    margin: 0 0 10px;
+    font-size: 11.5px;
+    color: var(--loss);
+  }
+  .day-modal-table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    max-height: min(240px, 40vh);
+    overflow-y: auto;
+  }
+  .day-modal-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11.5px;
+  }
+  .day-modal-table th,
+  .day-modal-table td {
+    padding: 6px 8px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .day-modal-table th {
+    position: sticky;
+    top: 0;
+    background: var(--bg-2);
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    z-index: 1;
+  }
+  .day-modal-table td.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .day-modal-table td.mono {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .day-modal-table td.pair {
+    font-weight: 600;
+    max-width: 88px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .day-modal-table td.dir {
+    color: var(--text-muted);
+    width: 1.5rem;
+    text-align: center;
+  }
+  .day-modal-table td.setup {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-muted);
+  }
+  .day-modal-table tr.day-row-warn td {
+    background: color-mix(in srgb, var(--loss) 6%, transparent);
+  }
+  .day-modal-table tbody tr:last-child td {
+    border-bottom: 0;
   }
 
   .section-meta {

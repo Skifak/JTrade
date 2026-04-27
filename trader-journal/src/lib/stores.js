@@ -95,7 +95,11 @@ const DEFAULT_USER_PROFILE = {
   cooldownAfterLossMin: 0,
   streakScalingEnabled: false,
   dailyReviewEnabled: true,
-  lastDailyReviewDate: null
+  lastDailyReviewDate: null,
+  /** 0 — без лимита */
+  maxTradesPerDay: 0,
+  nextWeekFocus: '',
+  nextMonthFocus: ''
 };
 
 // Создаем хранилище для сделок
@@ -208,6 +212,69 @@ function createUserProfileStore() {
   };
 }
 
+function createSetupSnippetsStore() {
+  const raw = loadData('setupSnippets', []);
+  const initialState = Array.isArray(raw)
+    ? raw.map((s) => ({
+        id: s?.id || uuidv4(),
+        title: String(s?.title ?? ''),
+        body: String(s?.body ?? ''),
+        tags: Array.isArray(s?.tags) ? s.tags.map((x) => String(x)) : []
+      }))
+    : [];
+  const { subscribe, set, update } = writable(initialState);
+
+  return {
+    subscribe,
+    addSnippet(partial = {}) {
+      const row = {
+        id: uuidv4(),
+        title: String(partial.title ?? 'Новый сетап'),
+        body: String(partial.body ?? ''),
+        tags: Array.isArray(partial.tags) ? partial.tags.map(String) : []
+      };
+      update((list) => {
+        const next = [...list, row];
+        saveData('setupSnippets', next);
+        return next;
+      });
+      return row.id;
+    },
+    updateSnippet(id, patch) {
+      update((list) => {
+        const next = list.map((s) => {
+          if (s.id !== id) return s;
+          const row = { ...s, ...patch };
+          if (patch.tags != null) row.tags = patch.tags.map(String);
+          return row;
+        });
+        saveData('setupSnippets', next);
+        return next;
+      });
+    },
+    deleteSnippet(id) {
+      update((list) => {
+        const next = list.filter((s) => s.id !== id);
+        saveData('setupSnippets', next);
+        return next;
+      });
+    },
+    importAll(rows) {
+      const next = Array.isArray(rows)
+        ? rows.map((s) => ({
+            id: s?.id || uuidv4(),
+            title: String(s?.title ?? ''),
+            body: String(s?.body ?? ''),
+            tags: Array.isArray(s?.tags) ? s.tags.map(String) : []
+          }))
+        : [];
+      set(next);
+      saveData('setupSnippets', next);
+    }
+  };
+}
+
 export const trades = createTradesStore();
 export const templates = createTemplatesStore();
+export const setupSnippets = createSetupSnippetsStore();
 export const userProfile = createUserProfileStore();

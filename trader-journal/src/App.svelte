@@ -34,6 +34,9 @@
   import BiasModal from './components/BiasModal.svelte';
   import PlaybookView from './components/PlaybookView.svelte';
   import JournalSettingsModal from './components/JournalSettingsModal.svelte';
+  import DayJournalView from './components/DayJournalView.svelte';
+  import GoalsView from './components/GoalsView.svelte';
+  import GlossaryView from './components/GlossaryView.svelte';
 
   let showForm = false;
   let showProfile = false;
@@ -392,6 +395,15 @@
     <button class="tab {activeTab === 'stats' ? 'active' : ''}" on:click={() => activeTab = 'stats'}>
       Статистика
     </button>
+    <button class="tab {activeTab === 'journal' ? 'active' : ''}" on:click={() => activeTab = 'journal'}>
+      Дневник
+    </button>
+    <button class="tab {activeTab === 'goals' ? 'active' : ''}" on:click={() => activeTab = 'goals'}>
+      Цели
+    </button>
+    <button class="tab {activeTab === 'glossary' ? 'active' : ''}" on:click={() => activeTab = 'glossary'}>
+      Глоссарий
+    </button>
     <button class="tab {activeTab === 'playbooks' ? 'active' : ''}" on:click={() => activeTab = 'playbooks'}>
       Плейбуки
     </button>
@@ -660,6 +672,12 @@
     </div>
   {:else if activeTab === 'stats'}
     <Statistics stats={stats} {closedTrades} initialCapital={Number($userProfile?.initialCapital) || 0} currency={$userProfile?.accountCurrency || 'USD'} />
+  {:else if activeTab === 'journal'}
+    <DayJournalView />
+  {:else if activeTab === 'goals'}
+    <GoalsView {closedTrades} on:openProfile={() => (showProfile = true)} />
+  {:else if activeTab === 'glossary'}
+    <GlossaryView />
   {:else if activeTab === 'playbooks'}
     <PlaybookView />
   {:else if activeTab === 'guide'}

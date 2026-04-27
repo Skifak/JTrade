@@ -205,6 +205,16 @@ export function getDailyPnL(closedTrades, now = new Date()) {
   }, 0);
 }
 
+/** Закрытых сделок за календарный день (по dateClose). */
+export function countClosedTradesOnDay(closedTrades, now = new Date()) {
+  if (!Array.isArray(closedTrades)) return 0;
+  const key = dayjs(now).format('YYYY-MM-DD');
+  return closedTrades.filter(
+    (t) =>
+      t?.status === 'closed' && t.dateClose && dayjs(t.dateClose).format('YYYY-MM-DD') === key
+  ).length;
+}
+
 export function getPeriodPnL(closedTrades, period /* 'day'|'week'|'month'|'year' */, now = new Date()) {
   if (!Array.isArray(closedTrades) || !closedTrades.length) return 0;
   const start = dayjs(now).startOf(period);
@@ -324,6 +334,18 @@ export function evaluateTradeRules(trade, profile, ctx = {}) {
       code: 'max-open',
       message: `Уже открыто ${otherOpen.length} позиций (лимит ${maxOpen}).`
     });
+  }
+
+  const maxDayTrades = num(profile.maxTradesPerDay);
+  if (!isEdit && maxDayTrades > 0) {
+    const closedToday = countClosedTradesOnDay(closedTrades);
+    if (closedToday >= maxDayTrades) {
+      violations.push({
+        severity: 'block',
+        code: 'max-trades-day',
+        message: `Уже ${closedToday} закрытых сделок сегодня (лимит ${maxDayTrades}).`
+      });
+    }
   }
 
   if (maxDailyLossAmount > 0 && dailyPnL <= -maxDailyLossAmount) {
