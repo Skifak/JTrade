@@ -10,7 +10,9 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "tauri:icon": "tauri icon"
+    "tauri:icon": "tauri icon",
+    "audit:js": "npm audit",
+    "audit:rust": "cargo audit --manifest-path src-tauri/Cargo.toml"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.0.0",

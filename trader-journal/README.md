@@ -8,6 +8,12 @@
 
 Метаданные (сделки, профиль, глоссарий, журнал дня и т.д.) живут в **`localStorage`** браузера / WebView. **Файлы изображений** к терминам глоссария и к закрытым сделкам хранятся отдельно: в **Tauri** — в `%AppData%\…\trader-journal-assets`; в чистом браузере — в **IndexedDB**, чтобы не забивать квоту JSON.
 
+### Конфиденциальность и данные
+- **Свой сервер** у приложения нет: сделки, профиль и глоссарий **нигде не отсылаются** разработчику.
+- **Локальное хранение не шифруется** — доступ к диску/профилю Windows = теоретический доступ к JSON в `localStorage` и к файлам вложений. Чужие ZIP/JSON-экспорты скачивай и открывай осознанно.
+- **Сеть** используется только по твоему сценарию: публичные **WebSocket/REST** к рыночным фидам (Binance, TradingView, Stooq и т.д.) — это не телеметрия приложения, а котировки/снапшоты по документированным в README URL.
+- **Экспорт/импорт** (в т.ч. ZIP с фото) — твой файл; куда положил бэкап, с тем и делись.
+
 ---
 
 ## Возможности
@@ -423,6 +429,28 @@ profit   = rawPnL − commission − swap
 - **Binance** покрывает только крипту, торгующуюся на бирже. Экзотика (пары без USDT) может не подняться.
 - **Stooq REST CORS** — на части клиентов «По рынку» в форме сделки может падать с `NetworkError`. На live-цены в таблице открытых это не влияет (они идут через WS).
 - **Нет синка между устройствами** — данные в `localStorage` одного браузера. Бэкап = «Экспорт» вручную.
+
+---
+
+## Релиз: проверки и подпись (Windows / Tauri)
+
+**Аудит зависимостей (перед тегом релиза):**
+- JS: `npm run audit:js` (или `npm audit`). На момент последней проверки — 0 known vulnerabilities; повторяй перед каждым релизом.
+- Rust: поставь `cargo-audit` (обычно `cargo install cargo-audit` — если сборка падает на Windows, возьми бинарь с [релизов](https://github.com/rustsec/cargo-audit/releases) в `PATH` или `cargo binstall cargo-audit`), затем `npm run audit:rust` из корня репо (эквивалент: `cd src-tauri` → `cargo audit`). Смотри [RustSec](https://rustsec.org/) / advisory DB.
+
+**Tauri 2 — capabilities (ревью):** `src-tauri/capabilities/default.json` вешается только на окно `main` и выдаёт:
+- `core:default` — стандартный набор Tauri 2 (без лишних плагинов в этом проекте);
+- `allow-attachments` — **только** кастомные команды в `src-tauri/permissions/allow-attachments.toml`: `tauri_attachments_{write,read,remove_file,remove_scope_dir,get_root}` для папки `trader-journal-assets` в AppData. Отдельных `fs:default` / `shell:default` / `http` plugin scope в capability **нет** — веб-часть ходит в сеть как обычный WebView (`fetch` / WS), не через Tauri shell.
+
+`app.security.csp` в `tauri.conf.json` сейчас `null` (сборка `singlefile` + инлайн); ужесточение CSP — отдельный осознанный шаг, если уйдёшь от one-file.
+
+**Подпись EXE / MSI (SmartScreen, доверие):** бинарь и инсталляторы без EV/OV сертификата будут с «неизвестным издателем». В `bundle` Tauri 2 для Windows:
+- вариант cert в хранилище: `certificateThumbprint`, `digestAlgorithm` (например `sha256`), `timestampUrl` (TSA);
+- внешний тул: `signCommand` с плейсхолдером пути к артефакту (в доке Tauri — `%1`).
+
+Полный гайд: [Code signing: Windows (Tauri v2)](https://v2.tauri.app/distribute/sign/windows/). Сборка: `npm run tauri:build` после настройки подписи на машине/CI, где стоят сертификат и/или `signtool` / твой CLI.
+
+**Секреты:** ключи/пароли PFX, thumbprint, пароли к cert — только в CI secrets или локально, **не** в репозиторий.
 
 ---
 
