@@ -2,6 +2,10 @@ import { get } from 'svelte/store';
 import JSZip from 'jszip';
 import { importJournalZip, BUNDLE_NAME } from './journalBundle.js';
 import { sanitizeImportedAccountCurrency } from './stores.js';
+import { fxRate, tradeProfitDisplayUnits } from './fxRate.js';
+import { livePrices } from './livePrices.js';
+import { normalizeSymbolKey } from './constants.js';
+import { getOpenFloatingPnL } from './risk.js';
 import { toasts } from './toasts.js';
 
 function importAccountKindRu(kind) {
@@ -114,20 +118,19 @@ export async function applyJournalImport(pending, api) {
       trades.importTrades(Array.from(existingById.values()));
       if (parsed.reportType === 'history' || parsed.reportType === 'trade') {
         const ccySafe = sanitizeImportedAccountCurrency(parsed.statementCurrency);
-        const importedProfitSum = Array.isArray(parsed.trades)
-          ? parsed.trades.reduce((sum, t) => {
-              const p = Number(t?.profit) || 0;
-              const c = Number(t?.commission) || 0;
-              const s = Number(t?.swap) || 0;
-              if (t?.tags?.includes('mt5-history-report')) return sum + p + c + s;
-              return sum + p;
-            }, 0)
-          : 0;
         const eq = Number(parsed.summary?.equity);
         const patch = {};
         if (ccySafe) patch.accountCurrency = ccySafe;
         if (Number.isFinite(eq)) {
-          const nextInitialCapital = eq - importedProfitSum;
+          const rs = get(fxRate);
+          const merged = get(trades);
+          const closedSum = merged
+            .filter((t) => t.status === 'closed')
+            .reduce((s, t) => s + tradeProfitDisplayUnits(t, rs), 0);
+          const openTrades = merged.filter((t) => t.status === 'open');
+          const floatingSum = getOpenFloatingPnL(openTrades, get(livePrices), (t) =>
+            normalizeSymbolKey(t.pair), rs);
+          const nextInitialCapital = eq - closedSum - floatingSum;
           if (Number.isFinite(nextInitialCapital) && nextInitialCapital >= 0) {
             patch.initialCapital = nextInitialCapital;
           }

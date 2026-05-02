@@ -51,6 +51,16 @@
 
   let deleteBusy = false;
   let wizardImportInput;
+  /** input «Импорт в текущий» */
+  let currentImportInput;
+
+  /** Буфер файла перед подтверждением (отдельно от мастера нового счёта). */
+  /** @type {null | { kind: 'zip'; ab: ArrayBuffer; fileName: string; fileLastModified?: number } | { kind: 'html'; fileName: string; parsed: any; fileLastModified?: number } | { kind: 'json'; fileName: string; text: string; fileLastModified?: number }}} */
+  let importIntoCurrentPending = null;
+  let importIntoCurrentBusy = false;
+  let importIntoCurrentHint = '';
+  /** @type {null | { title: string; lines: string[] }} */
+  let importIntoCurrentPreview = null;
 
   $: current = $activeJournalAccount;
   $: canDeleteAccount = $journalAccounts.length > 0;
@@ -173,13 +183,6 @@
     creationMode = 'import';
   }
 
-  async function showImportInfo() {
-    const { title, lines } = await describeImportPending(importPending);
-    infoTitle = title;
-    infoLines = lines;
-    infoOpen = true;
-  }
-
   /** Мастер создания счёта: читаем файл так же, как «Импорт» в шапке (FileReader), без async Blob.text(). */
   function onWizardFile(e) {
     const input = /** @type {HTMLInputElement | null} */ (e.currentTarget);
@@ -256,57 +259,134 @@
     reader.readAsText(file);
   }
 
-  async function onImportCurrentFile(e) {
+  async function showImportInfoFor(pending) {
+    if (!pending) return;
+    const { title, lines } = await describeImportPending(pending);
+    infoTitle = title;
+    infoLines = lines;
+    infoOpen = true;
+  }
+
+  function cancelImportIntoCurrent() {
+    importIntoCurrentPending = null;
+    importIntoCurrentPreview = null;
+    importIntoCurrentHint = '';
+    importIntoCurrentBusy = false;
+    if (currentImportInput) currentImportInput.value = '';
+  }
+
+  async function applyImportIntoCurrent() {
+    const pending = importIntoCurrentPending;
+    const acc = current;
+    if (!pending || !acc) return;
+    importIntoCurrentBusy = true;
+    importIntoCurrentHint = '';
+    try {
+      const metaSnap = buildImportMetaFromPending(pending);
+      const force =
+        pending.kind === 'html'
+          ? undefined
+          : String($userProfile?.accountCurrency || 'USD').toUpperCase();
+      const ok = await applyJournalImport(pending, {
+        trades,
+        glossary,
+        userProfile,
+        forceCurrency: force
+      });
+      if (!ok) return;
+      if (metaSnap) journalAccounts.setAccountImportMeta(acc.id, metaSnap);
+      cancelImportIntoCurrent();
+    } finally {
+      importIntoCurrentBusy = false;
+    }
+  }
+
+  /** Выбор файла для «Импорт в текущий»: только буфер + метаданные, без немедленного apply. */
+  function onImportIntoCurrentFile(e) {
     const input = /** @type {HTMLInputElement | null} */ (e.currentTarget);
     if (!input) return;
     const file = input.files?.[0];
     if (!file) return;
-    importNameHint = '';
 
-    try {
-      if (file.name.toLowerCase().endsWith('.zip')) {
-        const ab = await file.arrayBuffer();
-        await applyJournalImport(
-          { kind: 'zip', ab, fileName: file.name },
-          {
-            trades,
-            glossary,
-            userProfile,
-            forceCurrency: String($userProfile?.accountCurrency || 'USD').toUpperCase()
+    importIntoCurrentHint = '';
+    importIntoCurrentPending = null;
+    importIntoCurrentPreview = null;
+
+    const fileName = file.name.toLowerCase();
+    importIntoCurrentBusy = true;
+
+    if (fileName.endsWith('.zip')) {
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        try {
+          const ab = ev.target?.result;
+          if (!(ab instanceof ArrayBuffer)) return;
+          importIntoCurrentPending = {
+            kind: 'zip',
+            ab,
+            fileName: file.name,
+            fileLastModified: file.lastModified
+          };
+          importIntoCurrentPreview = await describeImportPending(importIntoCurrentPending);
+        } catch {
+          importIntoCurrentHint = 'Ошибка разбора ZIP';
+        } finally {
+          importIntoCurrentBusy = false;
+          input.value = '';
+        }
+      };
+      reader.onerror = () => {
+        importIntoCurrentHint = 'Не удалось прочитать ZIP';
+        importIntoCurrentBusy = false;
+        input.value = '';
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        const raw = String(ev.target?.result || '');
+        if (fileName.endsWith('.html') || fileName.endsWith('.htm')) {
+          const parsed = parseMt5ReportHtml(raw);
+          if (!parsed.reportType || parsed.trades.length === 0) {
+            importIntoCurrentHint = mt5HtmlRejectHint(parsed);
+            return;
           }
-        );
-        return;
-      }
-
-      const text = await file.text();
-      const fn = file.name.toLowerCase();
-      if (fn.endsWith('.html') || fn.endsWith('.htm')) {
-        const parsed = parseMt5ReportHtml(text);
-        if (!parsed.reportType || parsed.trades.length === 0) {
-          importNameHint = mt5HtmlRejectHint(parsed);
+          importIntoCurrentPending = {
+            kind: 'html',
+            fileName: file.name,
+            parsed,
+            fileLastModified: file.lastModified
+          };
+          importIntoCurrentPreview = await describeImportPending(importIntoCurrentPending);
           return;
         }
-        await applyJournalImport({ kind: 'html', fileName: file.name, parsed }, { trades, glossary, userProfile });
-        return;
-      }
 
-      try {
-        JSON.parse(text);
-        await applyJournalImport(
-          { kind: 'json', text, fileName: file.name },
-          {
-            trades,
-            glossary,
-            userProfile,
-            forceCurrency: String($userProfile?.accountCurrency || 'USD').toUpperCase()
-          }
-        );
-      } catch {
-        importNameHint = 'Некорректный JSON';
+        try {
+          JSON.parse(raw);
+          importIntoCurrentPending = {
+            kind: 'json',
+            text: raw,
+            fileName: file.name,
+            fileLastModified: file.lastModified
+          };
+          importIntoCurrentPreview = await describeImportPending(importIntoCurrentPending);
+        } catch {
+          importIntoCurrentHint = 'Некорректный JSON';
+        }
+      } finally {
+        importIntoCurrentBusy = false;
+        input.value = '';
       }
-    } finally {
+    };
+    reader.onerror = () => {
+      importIntoCurrentHint = 'Не удалось прочитать файл';
+      importIntoCurrentBusy = false;
       input.value = '';
-    }
+    };
+    reader.readAsText(file);
   }
 
   async function exportZip() {
@@ -430,7 +510,6 @@
       if (pendingSnap.kind === 'html' && pendingSnap.parsed?.summary) {
         const s = pendingSnap.parsed.summary;
         if (s.equity != null) lines.push(`Сводка отчёта: средства ${s.equity}`);
-        if (s.netProfit != null) lines.push(`Чистая прибыль (отчёт): ${s.netProfit}`);
       }
       postCreateSummary = { kind: 'import', lines, stats: st, importMeta: metaSnap };
       importPending = null;
@@ -522,18 +601,74 @@
         <label class="btn btn-sm import-label-inline">
           Импорт в текущий
           <input
+            bind:this={currentImportInput}
             type="file"
             accept=".json,.html,.htm,.zip"
             hidden
-            on:change={onImportCurrentFile}
+            on:change={onImportIntoCurrentFile}
           />
         </label>
       {/if}
     </div>
+    {#if allowImportIntoCurrent && importIntoCurrentBusy}
+      <p class="hint-inline-block import-into-current-status">Чтение и разбор файла…</p>
+    {/if}
+    {#if allowImportIntoCurrent && importIntoCurrentHint}
+      <div class="field-warning narrow-warning">{importIntoCurrentHint}</div>
+    {/if}
+    {#if allowImportIntoCurrent && importIntoCurrentPending && !importIntoCurrentBusy}
+      {@const metaIc = buildImportMetaFromPending(importIntoCurrentPending)}
+      <div class="import-meta-box compact import-into-current-preview">
+        <div class="import-meta-heading">Импорт в текущий счёт — проверь данные и примени</div>
+        {#if importIntoCurrentPreview}
+          <p class="mono muted import-file-ref">{importIntoCurrentPreview.title}</p>
+          <ul class="import-info-list import-preview-lines">
+            {#each importIntoCurrentPreview.lines as line}
+              <li>{line}</li>
+            {/each}
+          </ul>
+        {/if}
+        {#if metaIc}
+          <dl class="import-meta-dl import-meta-dl-tight">
+            {#if metaIc.sourceAccountTitle}
+              <dt>Счёт в отчёте</dt>
+              <dd>{metaIc.sourceAccountTitle}</dd>
+            {/if}
+            {#if metaIc.fundsDisplay}
+              <dt>Средства</dt>
+              <dd>{metaIc.fundsDisplay}</dd>
+            {/if}
+            {#if metaIc.reportDateDisplay}
+              <dt>Дата отчёта / файла</dt>
+              <dd>{metaIc.reportDateDisplay}</dd>
+            {/if}
+            {#if metaIc.fileName}
+              <dt>Файл</dt>
+              <dd class="mono">{metaIc.fileName}</dd>
+            {/if}
+          </dl>
+        {/if}
+        <div class="accounts-actions-row wrap">
+          <button
+            type="button"
+            class="btn btn-sm"
+            disabled={importIntoCurrentBusy}
+            on:click={() => showImportInfoFor(importIntoCurrentPending)}>Вся информация</button>
+          <button type="button" class="btn btn-sm" disabled={importIntoCurrentBusy} on:click={cancelImportIntoCurrent}
+            >Отмена</button>
+          <button
+            type="button"
+            class="btn btn-sm btn-primary"
+            disabled={importIntoCurrentBusy}
+            on:click={applyImportIntoCurrent}>Применить импорт</button>
+        </div>
+      </div>
+    {/if}
     {#if allowImportIntoCurrent}
       <p class="hint-inline-block">
-        Импорт HTML (MT5) объединяет сделки и перезаписывает капитал и валюту по сводке отчёта. ZIP заменяет
-        сделки и глоссарий; для ZIP/JSON валюта как в текущем профиле.
+        После выбора файла показываются метаданные и кнопка «Применить импорт». HTML (MT5) объединяет сделки и
+        подставляет капитал и валюту по сводке отчёта. ZIP заменяет сделки и глоссарий (валюта — как в профиле).
+        JSON — только сделки (валюта как в профиле).
       </p>
     {:else if current?.createdFrom === 'clean'}
       <p class="hint-inline-block">
@@ -626,7 +761,10 @@
           />
         </label>
         {#if importPending}
-          <button type="button" class="btn btn-sm" on:click={showImportInfo}>Посмотреть информацию импорта</button>
+          <button
+            type="button"
+            class="btn btn-sm"
+            on:click={() => importPending && showImportInfoFor(importPending)}>Посмотреть информацию импорта</button>
         {/if}
       </div>
       {#if importPending && needsForceCurrency}
@@ -830,6 +968,23 @@
     margin: 0;
     padding-left: 18px;
     line-height: 1.5;
+  }
+  .import-preview-lines {
+    margin: 8px 0 10px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .import-meta-dl-tight {
+    margin-top: 8px;
+  }
+  .narrow-warning {
+    margin-top: 8px;
+  }
+  .import-into-current-preview {
+    margin-top: 12px;
+  }
+  .import-file-ref {
+    margin: 0 0 6px;
   }
   .muted {
     color: var(--text-muted);
