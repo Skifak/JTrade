@@ -9,6 +9,8 @@
 import { writable } from 'svelte/store';
 import { v4 as uuidv4 } from 'uuid';
 import { toasts } from './toasts';
+import { loadAccountData, saveAccountData } from './accountStorage.js';
+import { activeJournalAccountId } from './accounts.js';
 
 const KEY = 'strategies';
 
@@ -74,9 +76,8 @@ const DEFAULT_ICT_STRATEGY = {
 
 function load() {
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return [DEFAULT_ICT_STRATEGY];
-    const parsed = JSON.parse(raw);
+    const parsed = loadAccountData(KEY, null);
+    if (!parsed) return [DEFAULT_ICT_STRATEGY];
     return Array.isArray(parsed) && parsed.length ? parsed : [DEFAULT_ICT_STRATEGY];
   } catch (err) {
     console.warn('[playbooks] load failed, using defaults', err);
@@ -85,14 +86,12 @@ function load() {
 }
 
 function save(list) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(list));
-    return true;
-  } catch (err) {
-    console.error('[playbooks] save failed', err);
+  const ok = saveAccountData(KEY, list);
+  if (!ok) {
+    console.error('[playbooks] save failed');
     toasts.error('Не удалось сохранить плейбуки.');
-    return false;
   }
+  return ok;
 }
 
 function ensurePlay(p = {}) {
@@ -281,11 +280,18 @@ function createStrategiesStore() {
       const list = [DEFAULT_ICT_STRATEGY].map(ensureStrategy);
       set(list);
       save(list);
+    },
+    rehydrate() {
+      set(load().map(ensureStrategy));
     }
   };
 }
 
 export const strategies = createStrategiesStore();
+
+activeJournalAccountId.subscribe(() => {
+  strategies.rehydrate();
+});
 
 export function findStrategy(list, strategyId) {
   if (!strategyId || !Array.isArray(list)) return null;

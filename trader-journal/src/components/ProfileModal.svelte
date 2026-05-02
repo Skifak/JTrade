@@ -3,6 +3,7 @@
   import { convertAmount, formatNumber, getConversionQuote } from '../lib/utils';
   import { getDisciplineScore, getDisciplinedPnL } from '../lib/risk';
   import Modal from './Modal.svelte';
+  import ProfileAccountsTab from './ProfileAccountsTab.svelte';
 
   export let open = false;
   export let closedTrades = [];
@@ -160,6 +161,8 @@
   </div>
 
   <div slot="body">
+    <ProfileAccountsTab variant="full" />
+
     <div class="profile-summary-grid">
       <div class="profile-metric">
         <div class="profile-metric-label">Текущий баланс</div>

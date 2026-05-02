@@ -42,6 +42,7 @@
   import GlossaryView from './components/GlossaryView.svelte';
   import ImageLightbox from './components/ImageLightbox.svelte';
   import AddImageModal from './components/AddImageModal.svelte';
+  import OnboardingJournalModal from './components/OnboardingJournalModal.svelte';
 
   let showForm = false;
   let showProfile = false;
@@ -835,6 +836,7 @@
     deletable={true}
     on:remove={onTradeLightboxRemove}
   />
+  <OnboardingJournalModal suppress={showProfile} />
 </div>
 
 <Toasts />

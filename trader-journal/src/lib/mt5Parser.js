@@ -29,17 +29,34 @@ function getRowValues(row) {
     .map((cell) => cleanText(cell.textContent));
 }
 
-function getSectionRows(doc, sectionName) {
-  const target = cleanText(sectionName).toLowerCase();
+/** Нормализация заголовков секций MT5: регистр, ё→е */
+function normalizeSectionHeader(value) {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/\u0451/g, '\u0435');
+}
+
+/**
+ * Строки секции по любому из синонимов заголовка (RU/EN).
+ * @param {Document} doc
+ * @param {string[]} sectionAliases
+ */
+function getSectionRowsMulti(doc, sectionAliases) {
+  const targets = [...new Set(sectionAliases.map((a) => normalizeSectionHeader(a)).filter(Boolean))];
   const allRows = Array.from(doc.querySelectorAll('tr'));
   const sectionRows = [];
   let inSection = false;
 
   for (const row of allRows) {
-    const headerText = cleanText(row.querySelector('th b')?.textContent).toLowerCase();
-    if (headerText) {
-      if (inSection && headerText !== target) break;
-      if (headerText === target) {
+    const headerNorm = normalizeSectionHeader(row.querySelector('th b')?.textContent || '');
+    if (headerNorm) {
+      const matchesTarget = targets.some(
+        (t) => headerNorm === t || headerNorm.startsWith(`${t} `) || headerNorm.includes(t)
+      );
+      if (inSection && !matchesTarget) {
+        break;
+      }
+      if (matchesTarget) {
         inSection = true;
         continue;
       }
@@ -52,6 +69,10 @@ function getSectionRows(doc, sectionName) {
   }
 
   return sectionRows;
+}
+
+function getSectionRows(doc, sectionName) {
+  return getSectionRowsMulti(doc, [sectionName]);
 }
 
 function buildOpenTrade(values) {
@@ -93,6 +114,116 @@ function buildOpenTrade(values) {
     tags: ['mt5', 'mt5-trade-report'],
     templateUsed: null,
     comment
+  };
+}
+
+/**
+ * Пары ключей из шапки отчёта MT5 (RU/EN) для метаданных импорта.
+ */
+function extractMt5StatementMeta(doc) {
+  const pairs = [];
+  for (const row of doc.querySelectorAll('tr')) {
+    const tds = Array.from(row.querySelectorAll('td'));
+    if (tds.length < 2) continue;
+    const label = cleanText(tds[0].textContent)
+      .replace(/[:：]/g, '')
+      .trim()
+      .toLowerCase();
+    const valueText = cleanText(tds[tds.length - 1].textContent);
+    if (!label || !valueText) continue;
+    pairs.push({ label, valueText });
+  }
+
+  const pick = (aliases) => {
+    for (const p of pairs) {
+      for (const a of aliases) {
+        const al = a.toLowerCase();
+        if (p.label === al || p.label.includes(al)) return p.valueText;
+      }
+    }
+    return null;
+  };
+
+  const name = pick(['имя', 'name']);
+  const login = pick([
+    'счёт',
+    'счет',
+    'номер счета',
+    'номер счёта',
+    'login',
+    'account'
+  ]);
+  const currencyRaw = pick([
+    'валюта депозита',
+    'валюта',
+    'валюта счета',
+    'валюта счёта',
+    'currency'
+  ]);
+  const equityRaw = pick(['средства', 'equity']) || pick(['баланс', 'balance']);
+  const netProfitRaw = pick(['чистая прибыль', 'net profit', 'total net profit']);
+  const genDate = pick([
+    'дата формирования',
+    'from',
+    'generation date',
+    'report generated'
+  ]);
+
+  let accountTitle = null;
+  const parts = [];
+  if (name) parts.push(name);
+  if (login) parts.push(login);
+  if (parts.length) accountTitle = parts.join(' · ');
+  else if (login) accountTitle = login;
+
+  let equityNum = null;
+  if (equityRaw) {
+    const onlyNum = cleanText(equityRaw).replace(/[^\d\s,.-]/g, '').trim();
+    if (onlyNum) {
+      const n = parseNumber(onlyNum);
+      equityNum = Number.isFinite(n) ? n : null;
+    }
+  }
+  let netProfitNum = null;
+  if (netProfitRaw) {
+    const onlyNum = cleanText(netProfitRaw).replace(/[^\d\s,.-]/g, '').trim();
+    if (onlyNum) {
+      const n = parseNumber(onlyNum);
+      netProfitNum = Number.isFinite(n) ? n : null;
+    }
+  }
+
+  let ccy = null;
+  const curPick = currencyRaw || equityRaw || '';
+  const tok = String(curPick)
+    .toUpperCase()
+    .match(/\b(USD|EUR|GBP|JPY|CHF|CAD|AUD|NZD|USDT|BTC)\b/);
+  if (tok) ccy = tok[1];
+
+  const summary =
+    equityNum != null || netProfitNum != null
+      ? {
+          equity: equityNum != null && Number.isFinite(equityNum) ? equityNum : null,
+          netProfit: netProfitNum != null && Number.isFinite(netProfitNum) ? netProfitNum : null,
+          equityDisplay: equityRaw,
+          netProfitDisplay: netProfitRaw
+        }
+      : equityRaw || netProfitRaw
+        ? {
+            equity: null,
+            netProfit: null,
+            equityDisplay: equityRaw,
+            netProfitDisplay: netProfitRaw
+          }
+        : null;
+
+  return {
+    accountTitle,
+    equityRaw,
+    netProfitRaw,
+    statementCurrency: ccy,
+    reportGeneratedAt: genDate,
+    summary
   };
 }
 
@@ -146,36 +277,97 @@ function buildClosedPositionFromHistory(values) {
 }
 
 export function parseMt5ReportHtml(htmlContent) {
+  const raw = String(htmlContent || '');
   const parser = new DOMParser();
-  const doc = parser.parseFromString(htmlContent, 'text/html');
-  const title = cleanText(doc.querySelector('title')?.textContent).toLowerCase();
+  const doc = parser.parseFromString(raw, 'text/html');
+  const titleNorm = normalizeSectionHeader(doc.querySelector('title')?.textContent || '');
 
-  if (!title) {
-    return { reportType: null, trades: [] };
+  const meta = extractMt5StatementMeta(doc);
+
+  const positionSectionAliases = ['Позиции', 'Positions', 'Open Positions', 'Открытые позиции'];
+  const dealsSectionAliases = ['Сделки', 'Deals', 'Orders'];
+
+  const loadPositionRows = () => getSectionRowsMulti(doc, positionSectionAliases);
+  const loadDealRows = () => getSectionRowsMulti(doc, dealsSectionAliases);
+
+  /** @type {null | 'trade' | 'history'} */
+  let reportKind = null;
+  if (
+    titleNorm.includes('торговый отчет') ||
+    titleNorm.includes('trade report') ||
+    titleNorm.includes('trading report')
+  ) {
+    reportKind = 'trade';
+  } else if (
+    titleNorm.includes('отчет торговой истории') ||
+    titleNorm.includes('trade history') ||
+    titleNorm.includes('account history')
+  ) {
+    reportKind = 'history';
   }
 
-  if (title.includes('торговый отчет')) {
-    const rows = getSectionRows(doc, 'Позиции');
+  if (!reportKind && /metaquotes|метакот|metatrader|\bmt5\b/i.test(raw)) {
+    const rows = loadPositionRows();
+    if (rows.length) {
+      const vals = rows.map(getRowValues);
+      const nHist = vals.map(buildClosedPositionFromHistory).filter(Boolean).length;
+      const nTrade = vals.map(buildOpenTrade).filter(Boolean).length;
+      if (nHist > 0 && nHist >= nTrade) reportKind = 'history';
+      else if (nTrade > 0) reportKind = 'trade';
+      else if (nHist > 0) reportKind = 'history';
+    }
+  }
+
+  const looksLikeMt5 =
+    /metaquotes|метакот|metatrader|\bmt5\b/i.test(raw) ||
+    reportKind != null ||
+    titleNorm.includes('торговый отчет') ||
+    titleNorm.includes('отчет торговой истории') ||
+    titleNorm.includes('trade report') ||
+    titleNorm.includes('trade history') ||
+    titleNorm.includes('account history');
+
+  const emptyHints = () => ({
+    looksLikeMt5,
+    parseHint: looksLikeMt5
+      ? 'Строки не извлечены: в «Отчёте торговой истории» нужна секция «Позиции» (закрашенные строки); в «Торговом отчёте» — «Позиции» с открытыми. Комментарии подтягиваются из «Сделки» (out), если блок есть.'
+      : 'Не похоже на HTML-экспорт MT5. Сохраните из терминала: контекстное меню журнала → Отчёт, или отчёт по истории с блоком «Сделки».'
+  });
+
+  const baseMeta = {
+    statementCurrency: meta.statementCurrency || null,
+    reportGeneratedAt: meta.reportGeneratedAt || null,
+    summary: meta.summary,
+    accountTitle: meta.accountTitle || null,
+    looksLikeMt5,
+    parseHint: null
+  };
+
+  if (reportKind === 'trade') {
+    const rows = loadPositionRows();
     const trades = rows
       .map(getRowValues)
       .map(buildOpenTrade)
       .filter(Boolean);
-    return { reportType: 'trade', trades };
+    return {
+      reportType: 'trade',
+      trades,
+      ...baseMeta,
+      parseHint: trades.length ? null : emptyHints().parseHint
+    };
   }
 
-  if (title.includes('отчет торговой истории')) {
-    const positionRows = getSectionRows(doc, 'Позиции');
+  if (reportKind === 'history') {
+    const positionRows = loadPositionRows();
     const trades = positionRows
       .map(getRowValues)
       .map(buildClosedPositionFromHistory)
       .filter(Boolean);
 
-    // Подтянем комментарии из секции "Сделки" по совпадению (dateClose + symbol)
-    const dealRows = getSectionRows(doc, 'Сделки');
+    const dealRows = loadDealRows();
     const dealComments = new Map();
     for (const row of dealRows) {
       const v = getRowValues(row);
-      // [0]Время [1]Сделка [2]Символ [3]Тип [4]Направление ... [14]Комментарий
       if (v.length < 15) continue;
       const entryDirection = cleanText(v[4]).toLowerCase();
       if (entryDirection !== 'out') continue;
@@ -191,8 +383,18 @@ export function parseMt5ReportHtml(htmlContent) {
       if (dealComments.has(key)) t.comment = dealComments.get(key);
     }
 
-    return { reportType: 'history', trades };
+    return {
+      reportType: 'history',
+      trades,
+      ...baseMeta,
+      parseHint: trades.length ? null : emptyHints().parseHint
+    };
   }
 
-  return { reportType: null, trades: [] };
+  return {
+    reportType: null,
+    trades: [],
+    ...baseMeta,
+    ...emptyHints()
+  };
 }

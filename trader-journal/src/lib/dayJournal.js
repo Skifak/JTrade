@@ -3,6 +3,8 @@
  */
 import { writable } from 'svelte/store';
 import { toasts } from './toasts';
+import { loadAccountData, saveAccountData } from './accountStorage.js';
+import { activeJournalAccountId } from './accounts.js';
 
 const KEY = 'dayJournal_v1';
 
@@ -47,9 +49,7 @@ function normalizeEntry(raw) {
 
 function loadAll() {
   try {
-    const saved = localStorage.getItem(KEY);
-    if (!saved) return {};
-    const parsed = JSON.parse(saved);
+    const parsed = loadAccountData(KEY, null);
     if (!parsed || typeof parsed !== 'object') return {};
     const out = {};
     for (const [k, v] of Object.entries(parsed)) {
@@ -63,14 +63,12 @@ function loadAll() {
 }
 
 function saveAll(map) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(map));
-    return true;
-  } catch (err) {
-    console.error('[dayJournal] save failed', err);
+  const ok = saveAccountData(KEY, map);
+  if (!ok) {
+    console.error('[dayJournal] save failed');
     toasts.error('Не удалось сохранить дневной журнал.', { ttl: 8000 });
-    return false;
   }
+  return ok;
 }
 
 function createDayJournalStore() {
@@ -121,9 +119,16 @@ function createDayJournalStore() {
     resetAll() {
       set({});
       saveAll({});
+    },
+    rehydrate() {
+      set(loadAll());
     }
   };
 }
 
 export const dayJournal = createDayJournalStore();
+
+activeJournalAccountId.subscribe(() => {
+  dayJournal.rehydrate();
+});
 export { defaultEntry, normalizeEntry };

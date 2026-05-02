@@ -5,6 +5,8 @@ import { writable } from 'svelte/store';
 import { v4 as uuidv4 } from 'uuid';
 import { toasts } from './toasts';
 import { removeScopeDir } from './attachmentApi';
+import { loadAccountData, saveAccountData } from './accountStorage.js';
+import { activeJournalAccountId } from './accounts.js';
 
 const KEY = 'traderGlossary_v1';
 
@@ -210,9 +212,7 @@ function normalizeState(raw) {
 
 function loadState() {
   try {
-    const saved = localStorage.getItem(KEY);
-    if (!saved) return structuredClone(getDefaultState());
-    return normalizeState(JSON.parse(saved));
+    return normalizeState(loadAccountData(KEY, null));
   } catch (e) {
     console.warn('[glossary] load failed', e);
     return structuredClone(getDefaultState());
@@ -220,14 +220,12 @@ function loadState() {
 }
 
 function persist(state) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(state));
-    return true;
-  } catch (err) {
-    console.error('[glossary] save failed', err);
+  const ok = saveAccountData(KEY, state);
+  if (!ok) {
+    console.error('[glossary] save failed');
     toasts.error('Не удалось сохранить глоссарий.', { ttl: 8000 });
-    return false;
   }
+  return ok;
 }
 
 function createGlossaryStore() {
@@ -363,9 +361,16 @@ function createGlossaryStore() {
       const next = normalizeState(raw);
       set(next);
       persist(next);
+    },
+    rehydrate() {
+      set(loadState());
     }
   };
 }
 
 export const glossary = createGlossaryStore();
+
+activeJournalAccountId.subscribe(() => {
+  glossary.rehydrate();
+});
 export { UNCATEGORIZED_ID, getDefaultState };

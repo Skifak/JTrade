@@ -1,69 +1,16 @@
 import { writable } from 'svelte/store';
 import { v4 as uuidv4 } from 'uuid';
 import { DEFAULT_TEMPLATES } from './constants';
-import { toasts } from './toasts';
 import { removeScopeDir } from './attachmentApi';
+import { loadAccountData, saveAccountData } from './accountStorage.js';
+import { activeJournalAccountId } from './accounts.js';
 
-// Загрузка данных из localStorage с защитой от битого JSON / недоступного хранилища.
 function loadData(key, defaultValue) {
-  let saved = null;
-  try {
-    saved = localStorage.getItem(key);
-  } catch (err) {
-    // localStorage может быть недоступен (приватный режим, отключённые куки и т.п.)
-    console.warn(`[stores] localStorage.getItem(${key}) failed:`, err);
-    return defaultValue;
-  }
-  if (!saved) return defaultValue;
-  try {
-    return JSON.parse(saved);
-  } catch (err) {
-    console.error(`[stores] не удалось распарсить ${key}, использую default:`, err);
-    // Бэкапим битые данные, чтобы пользователь мог их восстановить руками
-    try {
-      const backupKey = `${key}__corrupt_backup_${Date.now()}`;
-      localStorage.setItem(backupKey, saved);
-      toasts.error(
-        `Данные «${key}» повреждены и заменены значением по умолчанию.\n` +
-        `Старая копия сохранена под ключом ${backupKey} в localStorage.`,
-        { ttl: 12000 }
-      );
-    } catch (_) {
-      toasts.error(`Данные «${key}» повреждены и заменены значением по умолчанию.`, { ttl: 10000 });
-    }
-    return defaultValue;
-  }
+  return loadAccountData(key, defaultValue);
 }
 
-// Сохранение в localStorage с обработкой переполнения квоты.
 function saveData(key, data) {
-  let payload;
-  try {
-    payload = JSON.stringify(data);
-  } catch (err) {
-    console.error(`[stores] JSON.stringify(${key}) failed:`, err);
-    toasts.error(`Не удалось сериализовать данные «${key}».`);
-    return false;
-  }
-  try {
-    localStorage.setItem(key, payload);
-    return true;
-  } catch (err) {
-    const isQuota =
-      err instanceof DOMException &&
-      (err.name === 'QuotaExceededError' ||
-        err.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
-        err.code === 22 ||
-        err.code === 1014);
-    console.error(`[stores] localStorage.setItem(${key}) failed:`, err);
-    toasts.error(
-      isQuota
-        ? `Хранилище переполнено: не удалось сохранить «${key}».\nУдалите часть закрытых сделок или экспортируйте их в JSON.`
-        : `Не удалось сохранить «${key}» в localStorage.`,
-      { ttl: 10000 }
-    );
-    return false;
-  }
+  return saveAccountData(key, data);
 }
 
 function normalizeTrade(trade) {
@@ -160,6 +107,9 @@ function createTradesStore() {
       let trades;
       subscribe(t => trades = t)();
       return trades;
+    },
+    rehydrate() {
+      set(loadData('trades', []).map(normalizeTrade));
     }
   };
 }
@@ -185,7 +135,10 @@ function createTemplatesStore() {
       const newTemplates = templates.filter(t => t.id !== id);
       saveData('templates', newTemplates);
       return newTemplates;
-    })
+    }),
+    rehydrate() {
+      set(loadData('templates', DEFAULT_TEMPLATES));
+    }
   };
 }
 
@@ -221,13 +174,15 @@ function createUserProfileStore() {
     resetProfile: () => {
       set(DEFAULT_USER_PROFILE);
       saveData('userProfile', DEFAULT_USER_PROFILE);
+    },
+    rehydrate() {
+      set(migrateProfile(loadData('userProfile', DEFAULT_USER_PROFILE)));
     }
   };
 }
 
-function createSetupSnippetsStore() {
-  const raw = loadData('setupSnippets', []);
-  const initialState = Array.isArray(raw)
+function normalizeSetupSnippetsRows(raw) {
+  return Array.isArray(raw)
     ? raw.map((s) => ({
         id: s?.id || uuidv4(),
         title: String(s?.title ?? ''),
@@ -235,6 +190,10 @@ function createSetupSnippetsStore() {
         tags: Array.isArray(s?.tags) ? s.tags.map((x) => String(x)) : []
       }))
     : [];
+}
+
+function createSetupSnippetsStore() {
+  const initialState = normalizeSetupSnippetsRows(loadData('setupSnippets', []));
   const { subscribe, set, update } = writable(initialState);
 
   return {
@@ -283,6 +242,9 @@ function createSetupSnippetsStore() {
         : [];
       set(next);
       saveData('setupSnippets', next);
+    },
+    rehydrate() {
+      set(normalizeSetupSnippetsRows(loadData('setupSnippets', [])));
     }
   };
 }
@@ -291,3 +253,10 @@ export const trades = createTradesStore();
 export const templates = createTemplatesStore();
 export const setupSnippets = createSetupSnippetsStore();
 export const userProfile = createUserProfileStore();
+
+activeJournalAccountId.subscribe(() => {
+  trades.rehydrate();
+  templates.rehydrate();
+  userProfile.rehydrate();
+  setupSnippets.rehydrate();
+});

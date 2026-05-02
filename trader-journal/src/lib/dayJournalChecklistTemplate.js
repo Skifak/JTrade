@@ -4,6 +4,8 @@
 import { writable } from 'svelte/store';
 import { v4 as uuidv4 } from 'uuid';
 import { toasts } from './toasts';
+import { loadAccountData, saveAccountData } from './accountStorage.js';
+import { activeJournalAccountId } from './accounts.js';
 
 const KEY = 'dayJournalChecklistTemplate_v1';
 
@@ -24,9 +26,7 @@ function normalizeItem(raw) {
 
 function load() {
   try {
-    const saved = localStorage.getItem(KEY);
-    if (!saved) return [...DEFAULT_CHECKLIST_ITEMS];
-    const parsed = JSON.parse(saved);
+    const parsed = loadAccountData(KEY, null);
     if (!Array.isArray(parsed) || !parsed.length) return [...DEFAULT_CHECKLIST_ITEMS];
     const rows = parsed.map(normalizeItem).filter(Boolean);
     return rows.length ? rows : [...DEFAULT_CHECKLIST_ITEMS];
@@ -103,6 +103,9 @@ function createStore() {
       const next = [...DEFAULT_CHECKLIST_ITEMS];
       set(next);
       save(next);
+    },
+    rehydrate() {
+      set(load());
     }
   };
 }
@@ -121,9 +124,7 @@ export const DEFAULT_SECTION_LABELS = {
 
 function loadSections() {
   try {
-    const saved = localStorage.getItem(SEC_KEY);
-    if (!saved) return { ...DEFAULT_SECTION_LABELS };
-    const p = JSON.parse(saved);
+    const p = loadAccountData(SEC_KEY, null);
     if (!p || typeof p !== 'object') return { ...DEFAULT_SECTION_LABELS };
     return {
       plan: String(p.plan || DEFAULT_SECTION_LABELS.plan),
@@ -136,14 +137,12 @@ function loadSections() {
 }
 
 function saveSections(s) {
-  try {
-    localStorage.setItem(SEC_KEY, JSON.stringify(s));
-    return true;
-  } catch (err) {
-    console.error('[dayJournalSectionLabels] save failed', err);
+  const ok = saveAccountData(SEC_KEY, s);
+  if (!ok) {
+    console.error('[dayJournalSectionLabels] save failed');
     toasts.error('Не удалось сохранить подписи блоков.', { ttl: 5000 });
-    return false;
   }
+  return ok;
 }
 
 function createSectionLabelsStore() {
@@ -167,8 +166,16 @@ function createSectionLabelsStore() {
       const next = { ...DEFAULT_SECTION_LABELS };
       set(next);
       saveSections(next);
+    },
+    rehydrate() {
+      set(loadSections());
     }
   };
 }
 
 export const dayJournalSectionLabels = createSectionLabelsStore();
+
+activeJournalAccountId.subscribe(() => {
+  dayJournalChecklistTemplate.rehydrate();
+  dayJournalSectionLabels.rehydrate();
+});

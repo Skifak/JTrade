@@ -7,14 +7,15 @@ import { writable } from 'svelte/store';
 import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
 import { toasts } from './toasts';
+import { loadAccountData, saveAccountData } from './accountStorage.js';
+import { activeJournalAccountId } from './accounts.js';
 
 const KEY = 'htfBiasLog';
 
 function load() {
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
+    const parsed = loadAccountData(KEY, null);
+    if (!parsed) return [];
     return Array.isArray(parsed) ? parsed : [];
   } catch (err) {
     console.warn('[htfBias] load failed', err);
@@ -23,14 +24,12 @@ function load() {
 }
 
 function save(list) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(list));
-    return true;
-  } catch (err) {
-    console.error('[htfBias] save failed', err);
+  const ok = saveAccountData(KEY, list);
+  if (!ok) {
+    console.error('[htfBias] save failed');
     toasts.error('Не удалось сохранить bias-лог.');
-    return false;
   }
+  return ok;
 }
 
 function todayKey() {
@@ -88,11 +87,18 @@ function createBiasStore() {
     clearAll() {
       set([]);
       save([]);
+    },
+    rehydrate() {
+      set(load());
     }
   };
 }
 
 export const htfBias = createBiasStore();
+
+activeJournalAccountId.subscribe(() => {
+  htfBias.rehydrate();
+});
 
 /**
  * Найти актуальный bias на сегодня для символа (или последний за 7 дней).

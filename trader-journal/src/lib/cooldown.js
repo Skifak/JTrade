@@ -11,16 +11,18 @@
  * Реактивный «возраст» — через tickClock (livePrices.js), он уже тикает.
  */
 import { writable } from 'svelte/store';
+import { loadAccountString, saveAccountString } from './accountStorage.js';
+import { activeJournalAccountId } from './accounts.js';
 
 const STORAGE_KEY = 'cooldownUntil';
 
 function readInitial() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = loadAccountString(STORAGE_KEY);
     if (!raw) return null;
     const v = Number(raw);
     if (!Number.isFinite(v) || v <= Date.now()) {
-      localStorage.removeItem(STORAGE_KEY);
+      saveAccountString(STORAGE_KEY, null);
       return null;
     }
     return v;
@@ -31,8 +33,8 @@ function readInitial() {
 
 function persist(until) {
   try {
-    if (until == null) localStorage.removeItem(STORAGE_KEY);
-    else localStorage.setItem(STORAGE_KEY, String(until));
+    if (until == null) saveAccountString(STORAGE_KEY, null);
+    else saveAccountString(STORAGE_KEY, String(until));
   } catch (_) {}
 }
 
@@ -64,3 +66,7 @@ export const cooldown = {
     return left;
   }
 };
+
+activeJournalAccountId.subscribe(() => {
+  _store.set({ until: readInitial() });
+});

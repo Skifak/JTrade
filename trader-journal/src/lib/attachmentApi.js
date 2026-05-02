@@ -4,7 +4,10 @@
  */
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { v4 as uuidv4 } from 'uuid';
+import { keyForAccount } from './accounts.js';
 import { toasts } from './toasts.js';
+
+const LEGACY_DEFAULT_ACCOUNT_ID = 'acc-default';
 
 const IDB_NAME = 'trader-journal-attachments';
 const IDB_STORE = 'files';
@@ -271,6 +274,81 @@ export async function removeScopeDir(scope, id) {
     scope,
     id: sanitizeNodeId(id)
   });
+}
+
+function _localStorageGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+/** Сырые JSON сделок/глоссария счёта до purge (в т.ч. легаси плоские ключи для acc-default). */
+function _tradesRawForJournalAccount(accountId) {
+  const id = String(accountId || '').trim();
+  if (!id) return null;
+  const scoped = _localStorageGet(keyForAccount('trades', id));
+  if (scoped) return scoped;
+  if (id === LEGACY_DEFAULT_ACCOUNT_ID) return _localStorageGet('trades');
+  return null;
+}
+
+function _glossaryRawForJournalAccount(accountId) {
+  const id = String(accountId || '').trim();
+  if (!id) return null;
+  const scoped = _localStorageGet(keyForAccount('traderGlossary_v1', id));
+  if (scoped) return scoped;
+  if (id === LEGACY_DEFAULT_ACCOUNT_ID) return _localStorageGet('traderGlossary_v1');
+  return null;
+}
+
+/**
+ * Удалить деревья вложений (префиксы trades/…/ и glossary/…/) для сделок и терминов счёта.
+ * Вызывать до purgeAccountLocalStorage, пока в LS есть списки сделок и терминов.
+ * @param {string} journalAccountId
+ */
+export async function removeAttachmentTreesForJournalAccount(journalAccountId) {
+  const id = String(journalAccountId || '').trim();
+  if (!id) return;
+
+  const tradeIds = new Set();
+  const tradesRaw = _tradesRawForJournalAccount(id);
+  if (tradesRaw) {
+    try {
+      const arr = JSON.parse(tradesRaw);
+      if (Array.isArray(arr)) {
+        for (const t of arr) {
+          if (t?.id != null) tradeIds.add(String(t.id));
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const termIds = new Set();
+  const glossaryRaw = _glossaryRawForJournalAccount(id);
+  if (glossaryRaw) {
+    try {
+      const g = JSON.parse(glossaryRaw);
+      const terms = g?.terms;
+      if (Array.isArray(terms)) {
+        for (const term of terms) {
+          if (term?.id != null) termIds.add(String(term.id));
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  for (const tid of tradeIds) {
+    await removeScopeDir('trades', tid);
+  }
+  for (const gid of termIds) {
+    await removeScopeDir('glossary', gid);
+  }
 }
 
 /**

@@ -5,6 +5,8 @@
 import { writable } from 'svelte/store';
 import { toasts } from './toasts';
 import { DEFAULT_KILLZONES, DEFAULT_KILLZONE_PRIORITY } from './killzoneData';
+import { loadAccountData, saveAccountData } from './accountStorage.js';
+import { activeJournalAccountId } from './accounts.js';
 
 const KEY = 'journalSettings_v1';
 
@@ -61,9 +63,9 @@ function normalizeState(raw) {
 
 function load() {
   try {
-    const saved = localStorage.getItem(KEY);
-    if (!saved) return normalizeState(null);
-    return normalizeState(JSON.parse(saved));
+    const raw = loadAccountData(KEY, null);
+    if (raw == null) return normalizeState(null);
+    return normalizeState(raw);
   } catch (err) {
     console.warn('[journalSettings] load failed', err);
     return normalizeState(null);
@@ -71,14 +73,12 @@ function load() {
 }
 
 function save(state) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(state));
-    return true;
-  } catch (err) {
-    console.error('[journalSettings] save failed', err);
+  const ok = saveAccountData(KEY, state);
+  if (!ok) {
+    console.error('[journalSettings] save failed');
     toasts.error('Не удалось сохранить настройки журнала.', { ttl: 8000 });
-    return false;
   }
+  return ok;
 }
 
 function createJournalSettingsStore() {
@@ -155,8 +155,15 @@ function createJournalSettingsStore() {
         save(next);
         return next;
       });
+    },
+    rehydrate() {
+      set(load());
     }
   };
 }
 
 export const journalSettings = createJournalSettingsStore();
+
+activeJournalAccountId.subscribe(() => {
+  journalSettings.rehydrate();
+});
