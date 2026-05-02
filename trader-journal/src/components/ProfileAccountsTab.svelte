@@ -7,10 +7,15 @@
   import { buildJournalZip } from '../lib/journalBundle';
   import { buildJournalExportBasename } from '../lib/journalExportName';
   import { validateLatinAccountName } from '../lib/accountValidation';
-  import { applyJournalImport, describeImportPending } from '../lib/journalImportApply';
+  import {
+    applyJournalImport,
+    describeImportPending,
+    countTradesInImportPending
+  } from '../lib/journalImportApply';
   import { parseMt5ReportHtml } from '../lib/mt5Parser';
   import { calculateStats, formatNumber } from '../lib/utils';
   import { fxRate, tradeProfitDisplayUnits } from '../lib/fxRate';
+  import { v4 as uuidv4 } from 'uuid';
   import Modal from './Modal.svelte';
 
   const dispatch = createEventDispatcher();
@@ -130,6 +135,17 @@
     }
   }
 
+  /** @param {string} entryId */
+  function removeHistoryRow(entryId) {
+    if (!current) return;
+    const ok = confirm(
+      'Удалить этот импорт из истории и все сделки, занесённые им (по метке пакета)?\n\nСделки без метки или со старыми импортами не затрагиваются.'
+    );
+    if (!ok) return;
+    trades.removeTradesByJournalImportBatch(entryId);
+    journalAccounts.removeImportHistoryEntry(current.id, entryId);
+  }
+
   /** @param {any} parsed */
   function fundsLineFromParsed(parsed) {
     if (!parsed) return null;
@@ -169,6 +185,19 @@
       fundsDisplay: null,
       reportDateDisplay: fileInstant
     };
+  }
+
+  /** Метаданные импорта + число сделок в файле (для ZIP — async чтение бандла). */
+  async function buildImportMetaSnapshot(pending) {
+    const base = buildImportMetaFromPending(pending);
+    if (!base || !pending) return null;
+    const tc = await countTradesInImportPending(pending);
+    return { ...base, tradeCount: tc };
+  }
+
+  async function importMetaSnapshotOrNull(pending) {
+    if (!pending) return null;
+    return buildImportMetaSnapshot(pending);
   }
 
   function startClean() {
@@ -282,7 +311,8 @@
     importIntoCurrentBusy = true;
     importIntoCurrentHint = '';
     try {
-      const metaSnap = buildImportMetaFromPending(pending);
+      const metaSnap = await buildImportMetaSnapshot(pending);
+      const historyEntryId = `imp-${uuidv4()}`;
       const force =
         pending.kind === 'html'
           ? undefined
@@ -291,10 +321,11 @@
         trades,
         glossary,
         userProfile,
-        forceCurrency: force
+        forceCurrency: force,
+        importBatchId: historyEntryId
       });
       if (!ok) return;
-      if (metaSnap) journalAccounts.setAccountImportMeta(acc.id, metaSnap);
+      if (metaSnap) journalAccounts.setAccountImportMeta(acc.id, { ...metaSnap, historyEntryId });
       cancelImportIntoCurrent();
     } finally {
       importIntoCurrentBusy = false;
@@ -481,7 +512,8 @@
       if (!id) return;
       await tick();
       const pendingSnap = importPending;
-      const metaSnap = buildImportMetaFromPending(pendingSnap);
+      const metaSnap = await buildImportMetaSnapshot(pendingSnap);
+      const historyEntryId = `imp-${uuidv4()}`;
       const force =
         pendingSnap.kind === 'html'
           ? undefined
@@ -490,11 +522,12 @@
         trades,
         glossary,
         userProfile,
-        forceCurrency: force
+        forceCurrency: force,
+        importBatchId: historyEntryId
       });
       if (!ok) return;
 
-      if (metaSnap) journalAccounts.setAccountImportMeta(id, metaSnap);
+      if (metaSnap) journalAccounts.setAccountImportMeta(id, { ...metaSnap, historyEntryId });
 
       const prof = get(userProfile);
       const closed = get(trades).filter((t) => t.status === 'closed');
@@ -570,29 +603,6 @@
       <p class="accounts-meta-line">
         <span class="mono">id</span>: {current.id}
       </p>
-      {#if current.importMeta}
-        <div class="import-meta-box compact">
-          <div class="import-meta-heading">Последний импорт в этот счёт</div>
-          <dl class="import-meta-dl">
-            {#if current.importMeta.sourceAccountTitle}
-              <dt>Счёт в файле</dt>
-              <dd>{current.importMeta.sourceAccountTitle}</dd>
-            {/if}
-            {#if current.importMeta.fundsDisplay}
-              <dt>Средства</dt>
-              <dd>{current.importMeta.fundsDisplay}</dd>
-            {/if}
-            {#if current.importMeta.reportDateDisplay}
-              <dt>Дата отчёта / файла</dt>
-              <dd>{current.importMeta.reportDateDisplay}</dd>
-            {/if}
-            {#if current.importMeta.fileName}
-              <dt>Файл</dt>
-              <dd class="mono">{current.importMeta.fileName}</dd>
-            {/if}
-          </dl>
-        </div>
-      {/if}
     {/if}
     <div class="accounts-actions-row accounts-actions-row--stretch">
       <button type="button" class="btn btn-sm" disabled={!current} on:click={exportZip}>Экспорт ZIP</button>
@@ -617,52 +627,54 @@
       <div class="field-warning narrow-warning">{importIntoCurrentHint}</div>
     {/if}
     {#if allowImportIntoCurrent && importIntoCurrentPending && !importIntoCurrentBusy}
-      {@const metaIc = buildImportMetaFromPending(importIntoCurrentPending)}
-      <div class="import-meta-box compact import-into-current-preview">
-        <div class="import-meta-heading">Импорт в текущий счёт — проверь данные и примени</div>
-        {#if importIntoCurrentPreview}
-          <p class="mono muted import-file-ref">{importIntoCurrentPreview.title}</p>
-          <ul class="import-info-list import-preview-lines">
-            {#each importIntoCurrentPreview.lines as line}
-              <li>{line}</li>
-            {/each}
-          </ul>
-        {/if}
-        {#if metaIc}
-          <dl class="import-meta-dl import-meta-dl-tight">
-            {#if metaIc.sourceAccountTitle}
-              <dt>Счёт в отчёте</dt>
-              <dd>{metaIc.sourceAccountTitle}</dd>
-            {/if}
-            {#if metaIc.fundsDisplay}
-              <dt>Средства</dt>
-              <dd>{metaIc.fundsDisplay}</dd>
-            {/if}
-            {#if metaIc.reportDateDisplay}
-              <dt>Дата отчёта / файла</dt>
-              <dd>{metaIc.reportDateDisplay}</dd>
-            {/if}
-            {#if metaIc.fileName}
-              <dt>Файл</dt>
-              <dd class="mono">{metaIc.fileName}</dd>
-            {/if}
-          </dl>
-        {/if}
-        <div class="accounts-actions-row wrap">
-          <button
-            type="button"
-            class="btn btn-sm"
-            disabled={importIntoCurrentBusy}
-            on:click={() => showImportInfoFor(importIntoCurrentPending)}>Вся информация</button>
-          <button type="button" class="btn btn-sm" disabled={importIntoCurrentBusy} on:click={cancelImportIntoCurrent}
-            >Отмена</button>
-          <button
-            type="button"
-            class="btn btn-sm btn-primary"
-            disabled={importIntoCurrentBusy}
-            on:click={applyImportIntoCurrent}>Применить импорт</button>
+      {#await importMetaSnapshotOrNull(importIntoCurrentPending)}
+        <div class="import-meta-box compact import-into-current-preview">
+          <div class="import-meta-heading">Импорт в текущий счёт — проверь данные и примени</div>
+          <p class="hint-inline-block muted">Метаданные и число сделок в файле…</p>
         </div>
-      </div>
+      {:then metaIc}
+        <div class="import-meta-box compact import-into-current-preview">
+          <div class="import-meta-heading">Импорт в текущий счёт — проверь данные и примени</div>
+          {#if metaIc}
+            <dl class="import-meta-dl import-meta-dl-tight">
+              {#if metaIc.tradeCount != null}
+                <dt>Сделок в импорте</dt>
+                <dd>{metaIc.tradeCount}</dd>
+              {/if}
+              {#if metaIc.sourceAccountTitle}
+                <dt>Счёт в отчёте</dt>
+                <dd>{metaIc.sourceAccountTitle}</dd>
+              {/if}
+              {#if metaIc.fundsDisplay}
+                <dt>Средства</dt>
+                <dd>{metaIc.fundsDisplay}</dd>
+              {/if}
+              {#if metaIc.reportDateDisplay}
+                <dt>Дата отчёта / файла</dt>
+                <dd>{metaIc.reportDateDisplay}</dd>
+              {/if}
+              {#if metaIc.fileName}
+                <dt>Файл</dt>
+                <dd class="mono">{metaIc.fileName}</dd>
+              {/if}
+            </dl>
+          {/if}
+          <div class="accounts-actions-row wrap">
+            <button
+              type="button"
+              class="btn btn-sm"
+              disabled={importIntoCurrentBusy}
+              on:click={() => showImportInfoFor(importIntoCurrentPending)}>Вся информация</button>
+            <button type="button" class="btn btn-sm" disabled={importIntoCurrentBusy} on:click={cancelImportIntoCurrent}
+              >Отмена</button>
+            <button
+              type="button"
+              class="btn btn-sm btn-primary"
+              disabled={importIntoCurrentBusy}
+              on:click={applyImportIntoCurrent}>Применить импорт</button>
+          </div>
+        </div>
+      {/await}
     {/if}
     {#if allowImportIntoCurrent}
       <p class="hint-inline-block">
@@ -675,6 +687,63 @@
         Счёт с чистой историей: импорт сделок в текущий отключён — пополняй баланс в настройках профиля и веди журнал
         вручную.
       </p>
+    {/if}
+    {#if current?.importHistory?.length}
+      <div class="import-history-block">
+        <div class="import-history-head">
+          <span class="import-history-title">История импортов</span>
+          <span class="import-history-count" title="Записей в списке">{current.importHistory.length}</span>
+        </div>
+        <p class="import-history-lede muted">
+          Новые сверху. Удаление строки убирает сделки с меткой этого импорта. Записи до метки пакета затрагивают только
+          список; «Сделок в импорте» — число строк в файле той операции.
+        </p>
+        <ul class="import-history-list">
+          {#each current.importHistory as entry, i (entry.id)}
+            {@const fileModStr = formatFileInstant(entry.fileModifiedMs)}
+            <li class="import-history-card" class:import-history-card--latest={i === 0}>
+              <div class="import-history-card-row">
+                <div class="import-history-labels">
+                  {#if i === 0}
+                    <span class="import-history-pill">Последний</span>
+                  {/if}
+                  <span class="import-history-stamp">{formatFileInstant(entry.importedAtMs) ?? '—'}</span>
+                </div>
+                <button
+                  type="button"
+                  class="import-history-remove"
+                  title="Удалить импорт и связанные сделки"
+                  aria-label="Удалить импорт и связанные сделки"
+                  on:click={() => removeHistoryRow(entry.id)}>×</button>
+              </div>
+              {#if entry.fileName || fileModStr}
+                <p class="import-history-file mono muted">
+                  {#if entry.fileName}<span>{entry.fileName}</span>{/if}{#if entry.fileName && fileModStr}<span>
+                      · </span>{/if}{#if fileModStr}<span>изм. {fileModStr}</span>{/if}
+                </p>
+              {/if}
+              <dl class="import-meta-dl import-meta-dl-tight import-history-dl">
+                {#if entry.sourceAccountTitle}
+                  <dt>Счёт в файле</dt>
+                  <dd>{entry.sourceAccountTitle}</dd>
+                {/if}
+                {#if entry.fundsDisplay}
+                  <dt>Средства</dt>
+                  <dd>{entry.fundsDisplay}</dd>
+                {/if}
+                {#if entry.reportDateDisplay}
+                  <dt>Дата отчёта</dt>
+                  <dd>{entry.reportDateDisplay}</dd>
+                {/if}
+                {#if entry.tradeCount != null}
+                  <dt>Сделок в импорте</dt>
+                  <dd>{entry.tradeCount}</dd>
+                {/if}
+              </dl>
+            </li>
+          {/each}
+        </ul>
+      </div>
     {/if}
   </div>
 
@@ -823,6 +892,10 @@
               <dt>Дата отчёта / файла</dt>
               <dd>{postCreateSummary.importMeta.reportDateDisplay}</dd>
             {/if}
+            {#if postCreateSummary.importMeta.tradeCount != null}
+              <dt>Сделок в импорте</dt>
+              <dd>{postCreateSummary.importMeta.tradeCount}</dd>
+            {/if}
             {#if postCreateSummary.importMeta.fileName}
               <dt>Файл</dt>
               <dd class="mono">{postCreateSummary.importMeta.fileName}</dd>
@@ -969,11 +1042,6 @@
     padding-left: 18px;
     line-height: 1.5;
   }
-  .import-preview-lines {
-    margin: 8px 0 10px;
-    font-size: 12px;
-    line-height: 1.45;
-  }
   .import-meta-dl-tight {
     margin-top: 8px;
   }
@@ -982,9 +1050,6 @@
   }
   .import-into-current-preview {
     margin-top: 12px;
-  }
-  .import-file-ref {
-    margin: 0 0 6px;
   }
   .muted {
     color: var(--text-muted);
@@ -1022,5 +1087,141 @@
   .import-meta-dl dd {
     margin: 0;
     color: var(--text);
+  }
+  .import-history-block {
+    margin-top: 14px;
+    padding: 10px 11px 8px;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--border) 92%, var(--accent) 8%);
+    background: linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--accent) 5%, var(--bg)) 0%,
+      color-mix(in srgb, var(--bg) 97%, var(--border)) 100%
+    );
+  }
+  .import-history-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .import-history-title {
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: 0.02em;
+    color: var(--text-strong);
+  }
+  .import-history-count {
+    font-size: 10px;
+    font-weight: 600;
+    min-width: 1.35rem;
+    text-align: center;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 18%, var(--bg));
+    color: var(--text-strong);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  }
+  .import-history-lede {
+    margin: 0 0 7px;
+    font-size: 10px;
+    line-height: 1.35;
+  }
+  .import-history-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .import-history-card {
+    position: relative;
+    padding: 6px 8px 6px 11px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg) 94%, var(--border));
+    box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 40%, transparent);
+  }
+  .import-history-card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 3px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--border) 70%, var(--accent));
+    opacity: 0.85;
+  }
+  .import-history-card--latest {
+    border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+    background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .import-history-card--latest::before {
+    background: var(--accent);
+    opacity: 1;
+  }
+  .import-history-card-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 3px;
+  }
+  .import-history-labels {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+  .import-history-pill {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--accent) 22%, var(--bg));
+    color: var(--text-strong);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  }
+  .import-history-stamp {
+    font-size: 10.5px;
+    color: var(--text-muted);
+  }
+  .import-history-file {
+    margin: 0 0 3px;
+    font-size: 10px;
+    line-height: 1.25;
+    word-break: break-all;
+  }
+  .import-history-dl {
+    font-size: 10.5px;
+    line-height: 1.25;
+    gap: 1px 10px;
+  }
+  .import-history-remove {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    line-height: 1;
+    font-size: 15px;
+    border-radius: 4px;
+    border: 1px solid color-mix(in srgb, var(--loss, #c44) 35%, var(--border));
+    background: transparent;
+    color: var(--loss, #c44);
+    cursor: pointer;
+    transition:
+      background 0.12s ease,
+      border-color 0.12s ease;
+  }
+  .import-history-remove:hover {
+    background: color-mix(in srgb, var(--loss, #c44) 12%, var(--bg));
+    border-color: color-mix(in srgb, var(--loss, #c44) 55%, var(--border));
   }
 </style>

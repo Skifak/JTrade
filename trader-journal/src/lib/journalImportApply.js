@@ -87,8 +87,40 @@ export async function describeImportPending(pending) {
 }
 
 /**
+ * Число сделок в источнике импорта (строки в файле / бандле до применения в журнал).
+ * @param {null | { kind: 'zip'; ab: ArrayBuffer } | { kind: 'html'; parsed?: any } | { kind: 'json'; text: string }} pending
+ */
+export async function countTradesInImportPending(pending) {
+  if (!pending) return 0;
+  if (pending.kind === 'html') {
+    return Array.isArray(pending.parsed?.trades) ? pending.parsed.trades.length : 0;
+  }
+  if (pending.kind === 'json') {
+    try {
+      const arr = JSON.parse(pending.text);
+      return Array.isArray(arr) ? arr.length : 0;
+    } catch {
+      return 0;
+    }
+  }
+  if (pending.kind === 'zip') {
+    try {
+      const zip = await JSZip.loadAsync(pending.ab);
+      const f = zip.file(BUNDLE_NAME);
+      if (!f) return 0;
+      const text = await f.async('string');
+      const data = JSON.parse(text);
+      return Array.isArray(data?.trades) ? data.trades.length : 0;
+    } catch {
+      return 0;
+    }
+  }
+  return 0;
+}
+
+/**
  * @param {null | { kind: 'zip'; ab: ArrayBuffer; fileName: string } | { kind: 'html'; fileName: string; parsed: any } | { kind: 'json'; fileName: string; text: string }} pending
- * @param {{ trades: any; glossary: any; userProfile: any; forceCurrency?: string }} api
+ * @param {{ trades: any; glossary: any; userProfile: any; forceCurrency?: string; importBatchId?: string }} api
  */
 export async function applyJournalImport(pending, api) {
   const p = pending;
@@ -98,11 +130,17 @@ export async function applyJournalImport(pending, api) {
   }
   const { trades, glossary, userProfile } = api;
   const forceCurrency = api.forceCurrency ? String(api.forceCurrency).toUpperCase().trim() : '';
+  const batchId = api.importBatchId ? String(api.importBatchId).trim() : '';
 
   try {
     if (p.kind === 'zip') {
       await importJournalZip(p.ab, {
-        setTrades: (rows) => trades.importTrades(rows),
+        setTrades: (rows) => {
+          const tagged = batchId
+            ? rows.map((t) => ({ ...t, journalImportBatchId: batchId }))
+            : rows;
+          trades.importTrades(tagged);
+        },
         importGlossary: (g) => glossary.importState(g)
       });
       if (forceCurrency) userProfile.updateProfile({ accountCurrency: forceCurrency });
@@ -113,7 +151,14 @@ export async function applyJournalImport(pending, api) {
       const parsed = p.parsed;
       const existingById = new Map(get(trades).map((trade) => [trade.id, trade]));
       for (const importedTrade of parsed.trades) {
-        existingById.set(importedTrade.id, importedTrade);
+        const prev = existingById.get(importedTrade.id);
+        const merged = {
+          ...(prev && typeof prev === 'object' ? prev : {}),
+          ...importedTrade,
+          id: importedTrade.id
+        };
+        if (batchId) merged.journalImportBatchId = batchId;
+        existingById.set(importedTrade.id, merged);
       }
       trades.importTrades(Array.from(existingById.values()));
       if (parsed.reportType === 'history' || parsed.reportType === 'trade') {
@@ -142,7 +187,12 @@ export async function applyJournalImport(pending, api) {
     }
 
     if (p.kind === 'json') {
-      trades.importTrades(JSON.parse(p.text));
+      const arr = JSON.parse(p.text);
+      const rows = Array.isArray(arr) ? arr : [];
+      const tagged = batchId
+        ? rows.map((t) => ({ ...t, journalImportBatchId: batchId }))
+        : rows;
+      trades.importTrades(tagged);
       if (forceCurrency) userProfile.updateProfile({ accountCurrency: forceCurrency });
       toasts.info('JSON сделок импортирован (глоссарий не менялся)', { ttl: 5000 });
       return true;

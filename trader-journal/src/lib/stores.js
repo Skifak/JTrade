@@ -18,11 +18,16 @@ function normalizeTrade(trade) {
   const att = Array.isArray(safeTrade.attachments)
     ? safeTrade.attachments.map((p) => String(p).trim()).filter(Boolean)
     : [];
-  return {
+  const batchRaw =
+    safeTrade.journalImportBatchId != null ? String(safeTrade.journalImportBatchId).trim() : '';
+  const base = {
     ...safeTrade,
     id: safeTrade.id || uuidv4(),
     attachments: att
   };
+  if (batchRaw) base.journalImportBatchId = batchRaw;
+  else delete base.journalImportBatchId;
+  return base;
 }
 
 const DEFAULT_USER_PROFILE = {
@@ -102,6 +107,24 @@ function createTradesStore() {
       const normalizedTrades = Array.isArray(trades) ? trades.map(normalizeTrade) : [];
       set(normalizedTrades);
       saveData('trades', normalizedTrades);
+    },
+    /** Удалить сделки с меткой пакета импорта (= id строки в истории импортов счёта). */
+    removeTradesByJournalImportBatch(batchId) {
+      const bid = String(batchId || '').trim();
+      if (!bid) return;
+      update((rows) => {
+        const next = [];
+        for (const t of rows) {
+          const tb = t?.journalImportBatchId != null ? String(t.journalImportBatchId).trim() : '';
+          if (tb === bid) {
+            if (t?.id) void removeScopeDir('trades', String(t.id));
+          } else {
+            next.push(t);
+          }
+        }
+        saveData('trades', next);
+        return next;
+      });
     },
     exportTrades: () => {
       let trades;
