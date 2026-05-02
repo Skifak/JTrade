@@ -1,9 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { get } from 'svelte/store';
   import { trades, userProfile } from './lib/stores';
   import { glossary } from './lib/glossary';
-  import { buildJournalZip, importJournalZip } from './lib/journalBundle';
   import * as att from './lib/attachmentApi';
   import {
     formatDate,
@@ -18,7 +16,6 @@
     isMt5DepositCurrencyProfit,
     isMt5HistoryImportedTrade
   } from './lib/utils';
-  import { parseMt5ReportHtml } from './lib/mt5Parser';
   import { theme, THEMES } from './lib/theme';
   import { WORLD_CITIES, formatWorldTime } from './lib/worldClock';
   import { livePrices, pingInfo, tickClock, formPairs } from './lib/livePrices';
@@ -272,31 +269,6 @@
     cooldown.cancel();
   }
 
-  async function exportData() {
-    const blob = await buildJournalZip(
-      () => get(trades),
-      () => get(glossary)
-    );
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `trader_journal_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.zip`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function exportDataJsonTrades() {
-    const data = $trades;
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `trades_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  let fileInputImport;
   let tradeAddImgOpen = false;
   let tradeAddForId = null;
   let tradeLightboxOpen = false;
@@ -362,75 +334,6 @@
     tradeLightboxStart = Math.min(index, rels.length - 1);
   }
 
-  function importData(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const fileName = file.name.toLowerCase();
-    if (fileName.endsWith('.zip')) {
-      if (!confirm('Импорт ZIP полностью заменит сделки и глоссарий (в т.ч. иллюстрации из бандла). Продолжить?')) {
-        event.target.value = '';
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        try {
-          const ab = e.target?.result;
-          if (!(ab instanceof ArrayBuffer)) {
-            event.target.value = '';
-            return;
-          }
-          await importJournalZip(ab, {
-            setTrades: (rows) => trades.importTrades(rows),
-            importGlossary: (g) => glossary.importState(g)
-          });
-        } catch (err) {
-          console.error(err);
-          alert('Ошибка импорта ZIP');
-        } finally {
-          event.target.value = '';
-        }
-      };
-      reader.readAsArrayBuffer(file);
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const raw = String(e.target.result || '');
-        const isHtml = fileName.endsWith('.html') || fileName.endsWith('.htm');
-
-        if (isHtml) {
-          const parsed = parseMt5ReportHtml(raw);
-          if (!parsed.reportType || parsed.trades.length === 0) {
-            alert('Файл не распознан как отчет MT5 или не содержит сделок');
-            return;
-          }
-
-          const existingById = new Map($trades.map((trade) => [trade.id, trade]));
-          for (const importedTrade of parsed.trades) {
-            existingById.set(importedTrade.id, importedTrade);
-          }
-
-          trades.importTrades(Array.from(existingById.values()));
-          alert(`Импортировано из MT5 (${parsed.reportType}): ${parsed.trades.length} сделок`);
-          event.target.value = '';
-          return;
-        }
-
-        const data = JSON.parse(raw);
-        trades.importTrades(data);
-        alert('JSON-данные импортированы (без смены глоссария; фото — только в ZIP-бандле)');
-      } catch (err) {
-        alert('Ошибка импорта файла');
-      } finally {
-        event.target.value = '';
-      }
-    };
-    reader.readAsText(file);
-  }
-
   function applyTemplate() {
     currentTrade = null;
     formMode = 'add';
@@ -478,12 +381,6 @@
           title="Killzones, часовой пояс, приоритет KZ"
         >Параметры</button>
         <button class="btn" on:click={() => showProfile = true} title="Профиль">Профиль</button>
-        <button class="btn" on:click={exportData} title="ZIP: сделки, глоссарий, папка с картинками">Экспорт ZIP</button>
-        <button class="btn" on:click={exportDataJsonTrades} title="Только JSON сделок, без снимков">JSON сделок</button>
-        <label class="btn import-label" title="Импорт ZIP, JSON, MT5 HTML">
-          Импорт
-          <input type="file" accept=".json,.html,.htm,.zip" on:change={importData} hidden />
-        </label>
       </div>
     </div>
   </div>
