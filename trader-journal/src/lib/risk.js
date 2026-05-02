@@ -14,7 +14,9 @@
  * Функции чистые, без сторов — стор тянет их сверху.
  */
 import dayjs from 'dayjs';
-import { getContractSize, calculateProfit } from './utils';
+import { get } from 'svelte/store';
+import { getContractSize, calculateProfit, isMt5DepositCurrencyProfit } from './utils';
+import { fxRate, convertUsd, tradeProfitDisplayUnits } from './fxRate';
 
 /* -------------------- helpers -------------------- */
 
@@ -54,11 +56,12 @@ export function getDisciplineScore(trades) {
  */
 export function getDisciplinedPnL(closedTrades) {
   if (!Array.isArray(closedTrades)) return 0;
+  const rs = get(fxRate);
   let sum = 0;
   for (const t of closedTrades) {
     if (t?.status !== 'closed') continue;
     if (hasRuleViolations(t)) continue;
-    sum += num(t.profit);
+    sum += tradeProfitDisplayUnits(t, rs);
   }
   return sum;
 }
@@ -197,11 +200,12 @@ export function computeGoalAmount(profile, period /* 'Day'|'Week'|'Month'|'Year'
 export function getDailyPnL(closedTrades, now = new Date()) {
   if (!Array.isArray(closedTrades) || !closedTrades.length) return 0;
   const today = dayjs(now).format('YYYY-MM-DD');
+  const rs = get(fxRate);
   return closedTrades.reduce((sum, t) => {
     if (!t?.dateClose) return sum;
     const day = dayjs(t.dateClose).format('YYYY-MM-DD');
     if (day !== today) return sum;
-    return sum + num(t.profit);
+    return sum + tradeProfitDisplayUnits(t, rs);
   }, 0);
 }
 
@@ -219,11 +223,12 @@ export function getPeriodPnL(closedTrades, period /* 'day'|'week'|'month'|'year'
   if (!Array.isArray(closedTrades) || !closedTrades.length) return 0;
   const start = dayjs(now).startOf(period);
   const end = dayjs(now).endOf(period);
+  const rs = get(fxRate);
   return closedTrades.reduce((sum, t) => {
     if (!t?.dateClose) return sum;
     const d = dayjs(t.dateClose);
     if (d.isBefore(start) || d.isAfter(end)) return sum;
-    return sum + num(t.profit);
+    return sum + tradeProfitDisplayUnits(t, rs);
   }, 0);
 }
 
@@ -236,6 +241,7 @@ export function getCurrentStreak(closedTrades) {
   if (!Array.isArray(closedTrades) || !closedTrades.length) {
     return { kind: 'none', length: 0, sum: 0 };
   }
+  const rs = get(fxRate);
   const sorted = [...closedTrades]
     .filter((t) => t?.dateClose)
     .sort((a, b) => new Date(b.dateClose).getTime() - new Date(a.dateClose).getTime());
@@ -244,7 +250,7 @@ export function getCurrentStreak(closedTrades) {
   let length = 0;
   let sum = 0;
   for (const t of sorted) {
-    const p = num(t.profit);
+    const p = tradeProfitDisplayUnits(t, rs);
     if (p === 0) continue;
     const cur = p > 0 ? 'win' : 'loss';
     if (kind === 'none') kind = cur;
@@ -693,18 +699,23 @@ export function getStatsByPlay(closedTrades, playMeta = {}) {
  *   livePricesMap: { [normalizedKey]: { price } }
  *   keyOf: (trade) => key
  */
-export function getOpenFloatingPnL(openTrades, livePricesMap, keyOf) {
+export function getOpenFloatingPnL(openTrades, livePricesMap, keyOf, rateState) {
   if (!Array.isArray(openTrades) || !openTrades.length) return 0;
+  const rs = rateState || get(fxRate);
   let sum = 0;
   for (const t of openTrades) {
     const key = keyOf(t);
     const lp = livePricesMap?.[key];
     const price = lp?.price != null ? Number(lp.price) : null;
     if (price && Number.isFinite(price)) {
-      const p = calculateProfit({ ...t, status: 'closed', priceClose: price });
-      if (Number.isFinite(p)) sum += p;
-    } else if (t.profit != null) {
-      sum += num(t.profit);
+      if (isMt5DepositCurrencyProfit(t)) {
+        sum += num(t.profit);
+      } else {
+        const p = calculateProfit({ ...t, status: 'closed', priceClose: price });
+        sum += Number.isFinite(p) ? convertUsd(p, rs) : 0;
+      }
+    } else {
+      sum += tradeProfitDisplayUnits(t, rs);
     }
   }
   return sum;

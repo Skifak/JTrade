@@ -14,13 +14,14 @@
     calculatePips,
     calculatePricePercent,
     calculateFloatingProfit,
-    getTradeSource
+    getTradeSource,
+    isMt5DepositCurrencyProfit
   } from './lib/utils';
   import { parseMt5ReportHtml } from './lib/mt5Parser';
   import { theme, THEMES } from './lib/theme';
   import { WORLD_CITIES, formatWorldTime } from './lib/worldClock';
   import { livePrices, pingInfo, tickClock, formPairs } from './lib/livePrices';
-  import { fxRate, formatMoney, formatAccountMoney } from './lib/fxRate';
+  import { fxRate, formatAccountMoney, tradeProfitDisplayUnits, convertUsd } from './lib/fxRate';
   import { normalizeSymbolKey } from './lib/constants';
   import { cooldown } from './lib/cooldown';
   import { checkDailyStop, computeGoalAmount, getDailyPnL } from './lib/risk';
@@ -117,7 +118,8 @@
     return trade?.profit != null ? Number(trade.profit) : null;
   }
   $: stats = calculateStats(closedTrades, {
-    initialCapital: Number($userProfile?.initialCapital) || 0
+    initialCapital: Number($userProfile?.initialCapital) || 0,
+    profitOf: (t) => tradeProfitDisplayUnits(t, $fxRate)
   });
 
   $: journalSnap = $journalSettings;
@@ -138,7 +140,7 @@
 
   $: closedTotals = filteredClosedTrades.reduce(
     (acc, t) => {
-      acc.profit += Number(t.profit) || 0;
+      acc.profit += tradeProfitDisplayUnits(t, $fxRate);
       acc.commission += Number(t.commission) || 0;
       acc.swap += Number(t.swap) || 0;
       return acc;
@@ -646,7 +648,12 @@
                   {formatNumber(Number(trade.swap) || 0, 2)}
                 </td>
                 <td class={fp == null ? '' : fp >= 0 ? 'profit' : 'loss'}>
-                  {fp != null ? formatMoney(fp, $fxRate) : '-'}
+                  {#if fp != null}
+                    {@const fd = isMt5DepositCurrencyProfit(trade) ? Number(fp) : convertUsd(Number(fp), $fxRate)}
+                    {formatAccountMoney(Number.isFinite(fd) ? fd : 0, $fxRate)}
+                  {:else}
+                    -
+                  {/if}
                 </td>
                 <td>{formatDuration(trade.dateOpen, null)}</td>
                 <td>
@@ -724,6 +731,7 @@
               {@const src = sourceIcon(trade)}
               {@const pips = calculatePips(trade)}
               {@const pct = calculatePricePercent(trade)}
+              {@const pd = tradeProfitDisplayUnits(trade, $fxRate)}
               <tr title={trade.comment || ''}>
                 <td title={src.title}>{src.icon}</td>
                 <td>{formatDate(trade.dateOpen)}</td>
@@ -752,8 +760,8 @@
                 <td class={Number(trade.swap) >= 0 ? 'profit' : 'loss'}>
                   {formatNumber(Number(trade.swap) || 0, 2)}
                 </td>
-                <td class={trade.profit >= 0 ? 'profit' : 'loss'}>
-                  {formatMoney(trade.profit, $fxRate)}
+                <td class={pd >= 0 ? 'profit' : 'loss'}>
+                  {formatAccountMoney(pd, $fxRate)}
                 </td>
                 <td>
                   <div class="btn-group">
@@ -795,7 +803,7 @@
                 {formatNumber(closedTotals.swap, 2)}
               </td>
               <td class={closedTotals.profit >= 0 ? 'profit' : 'loss'}>
-                <strong>{formatMoney(closedTotals.profit, $fxRate)}</strong>
+                <strong>{formatAccountMoney(closedTotals.profit, $fxRate)}</strong>
               </td>
               <td></td>
               <td></td>

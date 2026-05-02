@@ -19,7 +19,7 @@
  */
 import { writable, get } from 'svelte/store';
 import { userProfile } from './stores';
-import { getConversionQuote } from './utils';
+import { getConversionQuote, isMt5DepositCurrencyProfit } from './utils';
 
 const FX_REFRESH_MS = 5 * 60 * 1000;
 
@@ -97,6 +97,17 @@ export function convertUsd(usdAmount, rateState) {
   if (!Number.isFinite(a)) return 0;
   const r = Number(rateState?.rate);
   return a * (Number.isFinite(r) && r > 0 ? r : 1);
+}
+
+/**
+ * Сумма из trade.profit для отображения в валюте счёта:
+ * MT5 (колонка «Прибыль») — уже в депозите; остальное считаем как USD из calculateProfit → × курс.
+ */
+export function tradeProfitDisplayUnits(trade, rateState) {
+  const p = Number(trade?.profit);
+  if (!Number.isFinite(p)) return 0;
+  if (isMt5DepositCurrencyProfit(trade)) return p;
+  return convertUsd(p, rateState);
 }
 
 const SYMBOLS = {

@@ -1,7 +1,7 @@
 <script>
   import { trades, userProfile } from '../lib/stores';
   import { livePrices, tickClock } from '../lib/livePrices';
-  import { fxRate, formatAccountMoney, convertUsd } from '../lib/fxRate';
+  import { fxRate, formatAccountMoney, convertUsd, tradeProfitDisplayUnits } from '../lib/fxRate';
   import { normalizeSymbolKey } from '../lib/constants';
   import { formatNumber } from '../lib/utils';
   import {
@@ -20,21 +20,20 @@
   $: openTrades = $trades.filter((t) => t.status === 'open');
   $: closedTrades = $trades.filter((t) => t.status === 'closed');
 
-  // ВАЖНО про валюту: profile-значения (initialCapital, maxRisk, лимиты, цели)
-  // хранятся в валюте счёта. PnL по сделкам считается в USD (`calculateProfit`
-  // → USD-flavor для FX-USD пар). Чтобы equity/daily/streak были в одной
-  // системе с лимитами — конвертим USD-агрегаты через $fxRate в валюту счёта.
+  // Профиль в валюте счёта. MT5 «Прибыль» — тоже в депозите; ручные сделки — USD из calculateProfit → tradeProfitDisplayUnits.
   $: maxRiskAmount = computeMaxRiskAmount($userProfile);
   $: maxDailyLossAmount = computeMaxDailyLossAmount($userProfile);
   $: goalDayAmount = computeGoalAmount($userProfile, 'Day');
   $: goalWeekAmount = computeGoalAmount($userProfile, 'Week');
   $: goalMonthAmount = computeGoalAmount($userProfile, 'Month');
 
-  // USD-агрегаты:
-  $: floatingPnLUsd = ($tickClock, getOpenFloatingPnL(openTrades, $livePrices, (t) => normalizeSymbolKey(t.pair)));
-  $: closedPnLTotalUsd = closedTrades.reduce((s, t) => s + (Number(t.profit) || 0), 0);
-  $: dailyPnLUsd = getDailyPnL(closedTrades);
-  $: weeklyPnLUsd = closedTrades.reduce((s, t) => {
+  $: floatingPnL = ($tickClock,
+    getOpenFloatingPnL(openTrades, $livePrices, (t) => normalizeSymbolKey(t.pair), $fxRate));
+  $: closedPnLTotal = closedTrades
+    .filter((t) => t.status === 'closed')
+    .reduce((s, t) => s + tradeProfitDisplayUnits(t, $fxRate), 0);
+  $: dailyPnL = getDailyPnL(closedTrades);
+  $: weeklyPnL = closedTrades.reduce((s, t) => {
     if (!t?.dateClose) return s;
     const d = new Date(t.dateClose);
     const now = new Date();
@@ -42,26 +41,20 @@
     const dow = (now.getDay() + 6) % 7;
     startWeek.setDate(now.getDate() - dow);
     startWeek.setHours(0, 0, 0, 0);
-    return d >= startWeek ? s + (Number(t.profit) || 0) : s;
+    return d >= startWeek ? s + tradeProfitDisplayUnits(t, $fxRate) : s;
   }, 0);
-  $: monthlyPnLUsd = closedTrades.reduce((s, t) => {
+  $: monthlyPnL = closedTrades.reduce((s, t) => {
     if (!t?.dateClose) return s;
     const d = new Date(t.dateClose);
     const now = new Date();
     return (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth())
-      ? s + (Number(t.profit) || 0) : s;
+      ? s + tradeProfitDisplayUnits(t, $fxRate)
+      : s;
   }, 0);
-  $: streakUsd = getCurrentStreak(closedTrades);
+  $: streak = getCurrentStreak(closedTrades);
   $: openRiskUsd = getOpenRisk(openTrades, $userProfile);
 
-  // Конвертация в валюту счёта:
-  $: floatingPnL = convertUsd(floatingPnLUsd, $fxRate);
-  $: closedPnLTotal = convertUsd(closedPnLTotalUsd, $fxRate);
-  $: dailyPnL = convertUsd(dailyPnLUsd, $fxRate);
-  $: weeklyPnL = convertUsd(weeklyPnLUsd, $fxRate);
-  $: monthlyPnL = convertUsd(monthlyPnLUsd, $fxRate);
   $: openRiskTotal = convertUsd(openRiskUsd.totalRisk, $fxRate);
-  $: streak = { ...streakUsd, sum: convertUsd(streakUsd.sum, $fxRate) };
 
   $: equity = Number($userProfile?.initialCapital || 0) + closedPnLTotal + floatingPnL;
   $: equityDelta = equity - Number($userProfile?.initialCapital || 0);

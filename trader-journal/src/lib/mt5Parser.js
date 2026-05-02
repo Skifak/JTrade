@@ -5,12 +5,55 @@ function cleanText(value) {
     .trim();
 }
 
+/**
+ * Число из ячейки MT5: локали с «1.234,56» / «1,234.56», валютные символы, скобки.
+ * Раньше одна замена «,»→«.» давала NaN на EU-формате → прибыль 0.
+ */
 function parseNumber(value) {
-  const normalized = cleanText(value)
-    .replace(/\s/g, '')
-    .replace(',', '.');
-  const number = Number(normalized);
-  return Number.isFinite(number) ? number : 0;
+  let s = cleanText(value);
+  if (!s) return 0;
+
+  let neg = false;
+  const compact = s.replace(/\s/g, '');
+  if (/^\(.*\)$/.test(compact)) {
+    neg = true;
+    s = s.replace(/^\s*\(\s*|\s*\)\s*$/g, '').trim();
+  }
+
+  s = s.replace(/\u2212/g, '-').trim();
+  if (s.startsWith('-')) {
+    neg = true;
+    s = s.slice(1).trim();
+  }
+
+  s = cleanText(s)
+    .replace(/\u00a0/g, '')
+    .replace(/\s/g, '');
+  // Типичные суффиксы в отчётах (в т.ч. нестандартная «валюта депозита» в строке)
+  s = s.replace(/USD|EUR|GBP|JPY|CHF|CAD|AUD|NZD|USDT|BTC|\$|€|£|¥/gi, '');
+  s = s.replace(/[^\d.,]/g, '');
+  if (!s) return 0;
+
+  const lastComma = s.lastIndexOf(',');
+  const lastDot = s.lastIndexOf('.');
+  let normalized;
+  if (lastComma === -1 && lastDot === -1) {
+    normalized = s;
+  } else if (lastComma > lastDot) {
+    normalized = s.replace(/\./g, '').replace(',', '.');
+  } else {
+    // Запятая последняя как десятичная уже попала в ветку выше.
+    if (lastComma === -1 && /^\d{1,3}(\.\d{3})+$/.test(s)) {
+      normalized = s.replace(/\./g, '');
+    } else {
+      normalized = s.replace(/,/g, '');
+    }
+  }
+
+  let number = Number(normalized);
+  if (!Number.isFinite(number)) return 0;
+  if (neg) number = -Math.abs(number);
+  return number;
 }
 
 function normalizeDirection(typeValue) {

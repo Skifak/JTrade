@@ -73,6 +73,14 @@ export function isBrokerImportedTrade(trade) {
   return Array.isArray(trade?.tags) && trade.tags.includes('mt5-history-report');
 }
 
+/** Колонка прибыли MT5 в валюте депозита (не USD-flavor из calculateProfit). */
+export function isMt5DepositCurrencyProfit(trade) {
+  return (
+    Array.isArray(trade?.tags) &&
+    (trade.tags.includes('mt5-history-report') || trade.tags.includes('mt5-trade-report'))
+  );
+}
+
 // Расчет прибыли
 export function calculateProfit(trade) {
   if (trade.status !== 'closed' || !trade.priceClose) return null;
@@ -141,6 +149,8 @@ export function closeTrade(trade, closePrice) {
 // Расчет статистики (расширенный, как в отчете MT5)
 export function calculateStats(closedTrades, options = {}) {
   const initialCapital = Number(options.initialCapital) || 0;
+  const profitOf =
+    typeof options.profitOf === 'function' ? options.profitOf : (t) => Number(t?.profit) || 0;
 
   const emptyStats = {
     totalTrades: 0,
@@ -187,20 +197,20 @@ export function calculateStats(closedTrades, options = {}) {
     return da - db;
   });
 
-  const profits = sorted.map((t) => Number(t.profit) || 0);
-  const profitable = sorted.filter((t) => (Number(t.profit) || 0) > 0);
-  const losses = sorted.filter((t) => (Number(t.profit) || 0) < 0);
+  const profits = sorted.map((t) => profitOf(t));
+  const profitable = sorted.filter((t) => profitOf(t) > 0);
+  const losses = sorted.filter((t) => profitOf(t) < 0);
 
   const totalProfit = profits.reduce((s, p) => s + p, 0);
-  const grossProfit = profitable.reduce((s, t) => s + (Number(t.profit) || 0), 0);
-  const grossLoss = Math.abs(losses.reduce((s, t) => s + (Number(t.profit) || 0), 0));
+  const grossProfit = profitable.reduce((s, t) => s + profitOf(t), 0);
+  const grossLoss = Math.abs(losses.reduce((s, t) => s + profitOf(t), 0));
   const sumCommission = sorted.reduce((s, t) => s + (Number(t.commission) || 0), 0);
   const sumSwap = sorted.reduce((s, t) => s + (Number(t.swap) || 0), 0);
 
   const longs = sorted.filter((t) => t.direction === 'long');
   const shorts = sorted.filter((t) => t.direction === 'short');
-  const longWins = longs.filter((t) => (Number(t.profit) || 0) > 0).length;
-  const shortWins = shorts.filter((t) => (Number(t.profit) || 0) > 0).length;
+  const longWins = longs.filter((t) => profitOf(t) > 0).length;
+  const shortWins = shorts.filter((t) => profitOf(t) > 0).length;
 
   // Серии (по знаку profit). 0-сделки игнорируем как нейтральные.
   const winSeries = [];

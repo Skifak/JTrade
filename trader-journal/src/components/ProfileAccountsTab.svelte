@@ -10,6 +10,7 @@
   import { applyJournalImport, describeImportPending } from '../lib/journalImportApply';
   import { parseMt5ReportHtml } from '../lib/mt5Parser';
   import { calculateStats, formatNumber } from '../lib/utils';
+  import { fxRate, tradeProfitDisplayUnits } from '../lib/fxRate';
   import Modal from './Modal.svelte';
 
   const dispatch = createEventDispatcher();
@@ -349,7 +350,10 @@
         initialCapital: Number(cleanCapital) || 0
       });
       const closed = get(trades).filter((t) => t.status === 'closed');
-      const st = calculateStats(closed, { initialCapital: Number(cleanCapital) || 0 });
+      const st = calculateStats(closed, {
+        initialCapital: Number(cleanCapital) || 0,
+        profitOf: (t) => tradeProfitDisplayUnits(t, get(fxRate))
+      });
       postCreateSummary = {
         kind: 'clean',
         lines: [
@@ -407,7 +411,10 @@
 
       const prof = get(userProfile);
       const closed = get(trades).filter((t) => t.status === 'closed');
-      const st = calculateStats(closed, { initialCapital: Number(prof?.initialCapital) || 0 });
+      const st = calculateStats(closed, {
+        initialCapital: Number(prof?.initialCapital) || 0,
+        profitOf: (t) => tradeProfitDisplayUnits(t, get(fxRate))
+      });
       const lines = [
         `Счёт «${v.name}» создан, импорт выполнен.`,
         `Сделок в журнале: ${get(trades).length} (закрытых: ${closed.length}).`,

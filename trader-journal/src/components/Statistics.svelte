@@ -13,7 +13,7 @@
   import { strategies, flattenPlays } from '../lib/playbooks';
   import { htfBias, findActiveBias, isAlignedWithBias } from '../lib/htfBias';
   import { prettyTag, isIctTag } from '../lib/ictTaxonomy';
-  import { fxRate, convertUsd } from '../lib/fxRate';
+  import { fxRate, tradeProfitDisplayUnits } from '../lib/fxRate';
   import { calculateStats } from '../lib/utils';
   import Modal from './Modal.svelte';
 
@@ -72,9 +72,8 @@
     return [...set].sort();
   })();
 
-  // Сделки сначала фильтруем как есть (USD-profit), затем применяем
-  // конвертацию USD→валюта счёта во ВСЕХ агрегаторах ниже. initialCapital
-  // приходит уже в валюте счёта, поэтому equity curve складывается корректно.
+  // MT5 «Прибыль» уже в депозите; ручные — USD из calculateProfit → tradeProfitDisplayUnits.
+  // initialCapital в валюте счёта.
   $: filteredRaw = (() => {
     journalSnap;
     const start = periodStart(Date.now(), periodFilter);
@@ -96,11 +95,9 @@
   })();
   $: filtered = filteredRaw.map((t) => ({
     ...t,
-    profit: convertUsd(t.profit, $fxRate)
+    profit: tradeProfitDisplayUnits(t, $fxRate)
   }));
 
-  // Перерасчитываем агрегированные статы в валюте счёта (входной prop `stats`
-  // приходил в USD, что давало "€" над числами, но цифры были долларовые).
   $: stats = calculateStats(filtered, { initialCapital });
 
   $: hasFilter =
