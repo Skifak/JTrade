@@ -79,6 +79,51 @@ function normalizeSectionHeader(value) {
     .replace(/\u0451/g, '\u0435');
 }
 
+/** Лейбл строки отчёта (Имя / Средства / …): для точного матчинга, без ложных includes. */
+function normalizeReportLabel(value) {
+  return normalizeSectionHeader(value).replace(/[:：]/g, '').trim();
+}
+
+/**
+ * Пары label→value из таблицы шапки MT5. Учитываем `<th>…</th><td>…</td>`,
+ * иначе строки «Торговый счёт», «Средства» не попадают в выборку.
+ */
+function collectStatementPairs(doc) {
+  const pairs = [];
+  for (const row of doc.querySelectorAll('tr')) {
+    const cells = Array.from(row.querySelectorAll('th, td'));
+    if (cells.length < 2) continue;
+    const label = normalizeReportLabel(cells[0].textContent);
+    const valueText = cleanText(cells[cells.length - 1].textContent);
+    if (!label || !valueText) continue;
+    pairs.push({ label, valueText });
+  }
+  return pairs;
+}
+
+/** Совпадение лейбла: точное или «лейбл начинается с alias + пробел/скобка» (не substring внутри другого слова). */
+function labelMatchesAlias(normLabel, aliasNorm) {
+  if (!normLabel || !aliasNorm) return false;
+  if (normLabel === aliasNorm) return true;
+  if (normLabel.startsWith(`${aliasNorm} (`)) return true;
+  if (normLabel.startsWith(`${aliasNorm}(`)) return true;
+  if (normLabel.startsWith(`${aliasNorm}:`)) return true;
+  return normLabel.startsWith(`${aliasNorm} `);
+}
+
+function pickByAliases(pairs, aliases, opts = {}) {
+  const rejectRe = opts.rejectLabelRe;
+  const aliasNorms = aliases.map((a) => normalizeReportLabel(a));
+  for (const p of pairs) {
+    const ln = normalizeReportLabel(p.label);
+    if (rejectRe && rejectRe.test(ln)) continue;
+    for (const al of aliasNorms) {
+      if (labelMatchesAlias(ln, al)) return p.valueText;
+    }
+  }
+  return null;
+}
+
 /**
  * Строки секции по любому из синонимов заголовка (RU/EN).
  * @param {Document} doc
@@ -161,55 +206,77 @@ function buildOpenTrade(values) {
 }
 
 /**
+ * Ячейка «Торговый счёт»: `112079 (USD, FundedTradingPlus-Live, real, Hedge)` → валюта, тип счёта и т.д.
+ * @param {string} valueText
+ */
+function parseTradingAccountCell(valueText) {
+  const s = cleanText(valueText);
+  const m = s.match(
+    /^([A-Za-z0-9]+)\s*\(\s*([^,]+?)\s*,\s*([^,]+?)\s*,\s*([^,)]+?)\s*(?:,\s*([^)]+?))?\s*\)\s*$/i
+  );
+  if (!m) return null;
+  const login = m[1];
+  const curChunk = cleanText(m[2]).toUpperCase();
+  const cm = curChunk.match(/\b(USDT|BTC|[A-Z]{3})\b/);
+  const server = cleanText(m[3]);
+  const accountKind = cleanText(m[4]).toLowerCase();
+  const hedgeMode = m[5] ? cleanText(m[5]).toLowerCase() : null;
+  const ccy = cm ? cm[1] : null;
+  return { login, currency: ccy, server, accountKind, hedgeMode };
+}
+
+/**
  * Пары ключей из шапки отчёта MT5 (RU/EN) для метаданных импорта.
  */
 function extractMt5StatementMeta(doc) {
-  const pairs = [];
-  for (const row of doc.querySelectorAll('tr')) {
-    const tds = Array.from(row.querySelectorAll('td'));
-    if (tds.length < 2) continue;
-    const label = cleanText(tds[0].textContent)
-      .replace(/[:：]/g, '')
-      .trim()
-      .toLowerCase();
-    const valueText = cleanText(tds[tds.length - 1].textContent);
-    if (!label || !valueText) continue;
-    pairs.push({ label, valueText });
+  const pairs = collectStatementPairs(doc);
+
+  /** Строка «Торговый счёт» — точные алиасы (includes('счет') ломал бы матч «Торговый счёт» как login). */
+  let tradingAccountParsed = null;
+  const tradingAccountAliases = [
+    'торговый счёт',
+    'торговый счет',
+    'trading account',
+    'account'
+  ];
+  for (const p of pairs) {
+    const ln = normalizeReportLabel(p.label);
+    if (
+      tradingAccountAliases.some((a) => labelMatchesAlias(ln, normalizeReportLabel(a)))
+    ) {
+      tradingAccountParsed = parseTradingAccountCell(p.valueText);
+      break;
+    }
   }
 
-  const pick = (aliases) => {
-    for (const p of pairs) {
-      for (const a of aliases) {
-        const al = a.toLowerCase();
-        if (p.label === al || p.label.includes(al)) return p.valueText;
-      }
-    }
-    return null;
-  };
+  const name = pickByAliases(pairs, ['имя', 'name']);
 
-  const name = pick(['имя', 'name']);
-  const login = pick([
-    'счёт',
-    'счет',
-    'номер счета',
-    'номер счёта',
-    'login',
-    'account'
-  ]);
-  const currencyRaw = pick([
-    'валюта депозита',
-    'валюта',
-    'валюта счета',
-    'валюта счёта',
-    'currency'
-  ]);
-  const equityRaw = pick(['средства', 'equity']) || pick(['баланс', 'balance']);
-  const netProfitRaw = pick(['чистая прибыль', 'net profit', 'total net profit']);
-  const genDate = pick([
+  const login =
+    (tradingAccountParsed && tradingAccountParsed.login) ||
+    pickByAliases(pairs, ['номер счёта', 'номер счета', 'login', 'логин']);
+
+  const currencyRaw =
+    pickByAliases(pairs, [
+      'валюта депозита',
+      'валюта счёта',
+      'валюта счета',
+      'deposit currency',
+      'currency'
+    ]) ||
+    pickByAliases(pairs, ['валюта'], {
+      rejectLabelRe: /\b(пара|pair|курс|rate)\b/i
+    });
+
+  const equityRaw =
+    pickByAliases(pairs, ['средства', 'equity', 'total equity'], {
+      rejectLabelRe: /\b(маржа|margin|залогов|гарантийн|уровень\s+марж|free\s+margin|свободн)\b/i
+    }) || pickByAliases(pairs, ['баланс', 'balance']);
+
+  const genDate = pickByAliases(pairs, [
     'дата формирования',
-    'from',
     'generation date',
-    'report generated'
+    'report generated',
+    'report date'
   ]);
 
   let accountTitle = null;
@@ -227,46 +294,38 @@ function extractMt5StatementMeta(doc) {
       equityNum = Number.isFinite(n) ? n : null;
     }
   }
-  let netProfitNum = null;
-  if (netProfitRaw) {
-    const onlyNum = cleanText(netProfitRaw).replace(/[^\d\s,.-]/g, '').trim();
-    if (onlyNum) {
-      const n = parseNumber(onlyNum);
-      netProfitNum = Number.isFinite(n) ? n : null;
-    }
+
+  let ccy = (tradingAccountParsed && tradingAccountParsed.currency) || null;
+  if (!ccy) {
+    const curPick = currencyRaw || equityRaw || '';
+    const tok = String(curPick)
+      .toUpperCase()
+      .match(/\b(USDT|BTC|[A-Z]{3})\b/);
+    if (tok) ccy = tok[1];
   }
 
-  let ccy = null;
-  const curPick = currencyRaw || equityRaw || '';
-  const tok = String(curPick)
-    .toUpperCase()
-    .match(/\b(USD|EUR|GBP|JPY|CHF|CAD|AUD|NZD|USDT|BTC)\b/);
-  if (tok) ccy = tok[1];
-
   const summary =
-    equityNum != null || netProfitNum != null
+    equityNum != null
       ? {
           equity: equityNum != null && Number.isFinite(equityNum) ? equityNum : null,
-          netProfit: netProfitNum != null && Number.isFinite(netProfitNum) ? netProfitNum : null,
-          equityDisplay: equityRaw,
-          netProfitDisplay: netProfitRaw
+          equityDisplay: equityRaw
         }
-      : equityRaw || netProfitRaw
+      : equityRaw
         ? {
             equity: null,
-            netProfit: null,
-            equityDisplay: equityRaw,
-            netProfitDisplay: netProfitRaw
+            equityDisplay: equityRaw
           }
         : null;
 
   return {
     accountTitle,
     equityRaw,
-    netProfitRaw,
     statementCurrency: ccy,
     reportGeneratedAt: genDate,
-    summary
+    summary,
+    importAccountKind: tradingAccountParsed?.accountKind || null,
+    importAccountServer: tradingAccountParsed?.server || null,
+    importAccountHedgeMode: tradingAccountParsed?.hedgeMode || null
   };
 }
 
@@ -382,6 +441,9 @@ export function parseMt5ReportHtml(htmlContent) {
     reportGeneratedAt: meta.reportGeneratedAt || null,
     summary: meta.summary,
     accountTitle: meta.accountTitle || null,
+    importAccountKind: meta.importAccountKind || null,
+    importAccountServer: meta.importAccountServer || null,
+    importAccountHedgeMode: meta.importAccountHedgeMode || null,
     looksLikeMt5,
     parseHint: null
   };

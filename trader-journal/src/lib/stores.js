@@ -160,6 +160,13 @@ function migrateProfile(raw) {
   return next;
 }
 
+/** Валюта депозита из импорта MT5 — только поддерживаемые коды, иначе null. */
+export function sanitizeImportedAccountCurrency(raw) {
+  const c = String(raw || '').toUpperCase().trim();
+  if (!c) return null;
+  return SUPPORTED_ACCOUNT_CURRENCIES.has(c) ? c : null;
+}
+
 function createUserProfileStore() {
   const initialState = migrateProfile(loadData('userProfile', DEFAULT_USER_PROFILE));
   const { subscribe, set, update } = writable(initialState);

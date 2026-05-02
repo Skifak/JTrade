@@ -18,6 +18,9 @@
   /** `onboarding` — только мастер создания (для модалки первого счёта) */
   export let variant = 'full';
 
+  /** В профиле: `account` — только текущий счёт / экспорт; `create` — только мастер создания. */
+  export let profileSplit = undefined;
+
   /** В onboarding режим выбран родителем (шаг «чистый» / «импорт»). */
   export let forcedWizardMode = null;
 
@@ -53,6 +56,10 @@
   $: canDeleteAccount = $journalAccounts.length > 0;
   $: needsForceCurrency =
     importPending && (importPending.kind === 'zip' || importPending.kind === 'json');
+
+  /** Счёт с чистой историей — импорт в текущий запрещён (баланс задаётся вручную). */
+  $: allowImportIntoCurrent =
+    !!current && current.createdFrom !== 'clean';
 
   /** Сообщение при отказе импорта HTML MT5 (конкретнее общей фразы). */
   function mt5HtmlRejectHint(parsed) {
@@ -453,15 +460,19 @@
   }
 </script>
 
-<div class="accounts-tab" class:onboarding-variant={variant === 'onboarding'}>
-  {#if variant === 'full'}
-  <div class="profile-section">
+<div
+  class="accounts-tab"
+  class:onboarding-variant={variant === 'onboarding'}
+  class:accounts-tab--stretch={variant === 'full'}
+>
+  {#if variant === 'full' && profileSplit !== 'create'}
+  <div class="profile-section profile-section--full-width">
     <div class="profile-section-title">Текущий счёт</div>
     <div class="form-row">
       <div class="form-group grow">
         <label for="acc-active-sel">Активный счёт журнала</label>
         {#if $journalAccounts.length === 0}
-          <p class="hint-inline-block">Нет счетов — создай первый в блоке «Новый счёт» ниже.</p>
+          <p class="hint-inline-block">Нет счетов — создай первый во вкладке «Создание счёта».</p>
         {:else}
           <select
             id="acc-active-sel"
@@ -504,27 +515,35 @@
         </div>
       {/if}
     {/if}
-    <div class="accounts-actions-row">
+    <div class="accounts-actions-row accounts-actions-row--stretch">
       <button type="button" class="btn btn-sm" disabled={!current} on:click={exportZip}>Экспорт ZIP</button>
       <button type="button" class="btn btn-sm" disabled={!current} on:click={exportJson}>Экспорт JSON</button>
-      <label class="btn btn-sm import-label-inline" class:disabled={!current}>
-        Импорт в текущий
-        <input
-          type="file"
-          accept=".json,.html,.htm,.zip"
-          hidden
-          disabled={!current}
-          on:change={onImportCurrentFile}
-        />
-      </label>
+      {#if allowImportIntoCurrent}
+        <label class="btn btn-sm import-label-inline">
+          Импорт в текущий
+          <input
+            type="file"
+            accept=".json,.html,.htm,.zip"
+            hidden
+            on:change={onImportCurrentFile}
+          />
+        </label>
+      {/if}
     </div>
-    <p class="hint-inline-block">
-      Импорт HTML (MT5) объединяет сделки и перезаписывает капитал и валюту по сводке отчёта. ZIP заменяет
-      сделки и глоссарий; валюта остаётся как в текущем профиле.
-    </p>
+    {#if allowImportIntoCurrent}
+      <p class="hint-inline-block">
+        Импорт HTML (MT5) объединяет сделки и перезаписывает капитал и валюту по сводке отчёта. ZIP заменяет
+        сделки и глоссарий; для ZIP/JSON валюта как в текущем профиле.
+      </p>
+    {:else if current?.createdFrom === 'clean'}
+      <p class="hint-inline-block">
+        Счёт с чистой историей: импорт сделок в текущий отключён — пополняй баланс в настройках профиля и веди журнал
+        вручную.
+      </p>
+    {/if}
   </div>
 
-  <div class="profile-section">
+  <div class="profile-section profile-section--full-width">
     <div class="profile-section-title">Удаление</div>
     <button
       type="button"
@@ -540,15 +559,16 @@
   </div>
   {/if}
 
-  <div class="profile-section">
+  {#if variant === 'onboarding' || (variant === 'full' && profileSplit !== 'account')}
+  <div class="profile-section profile-section--full-width">
     <div class="profile-section-title">
       {variant === 'onboarding' ? 'Первый счёт журнала' : 'Новый счёт'}
     </div>
     {#if !creationMode && !(variant === 'onboarding' && forcedWizardMode)}
-      <div class="accounts-actions-row wrap">
-        <button type="button" class="btn" on:click={startClean}>Создать счёт с чистой историей</button>
-        <button type="button" class="btn btn-primary" on:click={startImport}
-        >Создать счёт с импортом сделок</button>
+      <div class="wizard-type-buttons">
+        <button type="button" class="btn wizard-type-btn" on:click={startClean}>Создать счёт с чистой историей</button>
+        <button type="button" class="btn btn-primary wizard-type-btn" on:click={startImport}
+          >Создать счёт с импортом сделок</button>
       </div>
     {:else if creationMode === 'clean'}
       <p class="wizard-hint">Задай параметры нового счёта.</p>
@@ -630,9 +650,10 @@
       </div>
     {/if}
   </div>
+  {/if}
 
-  {#if postCreateSummary}
-    <div class="profile-section post-create-card">
+  {#if postCreateSummary && (variant === 'onboarding' || profileSplit === 'create')}
+    <div class="profile-section post-create-card profile-section--full-width">
       <div class="profile-section-title">Результат</div>
       <ul class="post-create-list">
         {#each postCreateSummary.lines as line}
@@ -697,16 +718,46 @@
   .accounts-tab {
     max-width: 720px;
   }
+  .accounts-tab--stretch {
+    max-width: none;
+    width: 100%;
+  }
   .accounts-tab.onboarding-variant {
     max-width: none;
+  }
+  .profile-section--full-width {
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .wizard-type-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    width: 100%;
+  }
+  @media (max-width: 640px) {
+    .wizard-type-buttons {
+      grid-template-columns: 1fr;
+    }
+  }
+  .wizard-type-btn {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+    min-height: 40px;
   }
   .grow {
     flex: 1;
     min-width: 0;
   }
+  .accounts-actions-row--stretch {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
   .account-select-full {
     width: 100%;
-    max-width: 420px;
+    max-width: none;
     padding: 6px 10px;
     font-size: 13px;
     border: 1px solid var(--border);
@@ -728,10 +779,6 @@
   }
   .accounts-actions-row.wrap {
     margin-top: 8px;
-  }
-  .import-label-inline.disabled {
-    opacity: 0.45;
-    pointer-events: none;
   }
   .wizard-hint {
     margin: 0 0 12px;

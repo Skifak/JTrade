@@ -44,14 +44,14 @@ function loadAccounts() {
     const raw = localStorage.getItem(ACCOUNTS_KEY);
     if (!raw) {
       if (hasLegacyFlatKeys()) {
-        return [{ id: DEFAULT_ACCOUNT_ID, name: 'Legacy', createdFrom: 'clean' }];
+        return [{ id: DEFAULT_ACCOUNT_ID, name: 'Legacy', createdFrom: 'legacy' }];
       }
       return [];
     }
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) {
       if (hasLegacyFlatKeys()) {
-        return [{ id: DEFAULT_ACCOUNT_ID, name: 'Legacy', createdFrom: 'clean' }];
+        return [{ id: DEFAULT_ACCOUNT_ID, name: 'Legacy', createdFrom: 'legacy' }];
       }
       return [];
     }
@@ -59,20 +59,25 @@ function loadAccounts() {
       .map((a) => ({
         id: String(a?.id || '').trim(),
         name: String(a?.name || '').trim(),
-        createdFrom: a?.createdFrom === 'import' ? 'import' : 'clean',
+        createdFrom:
+          a?.createdFrom === 'import'
+            ? 'import'
+            : a?.createdFrom === 'legacy'
+              ? 'legacy'
+              : 'clean',
         importMeta: sanitizeImportMeta(a?.importMeta)
       }))
       .filter((a) => a.id && a.name);
     if (!rows.length) {
       if (hasLegacyFlatKeys()) {
-        return [{ id: DEFAULT_ACCOUNT_ID, name: 'Legacy', createdFrom: 'clean' }];
+        return [{ id: DEFAULT_ACCOUNT_ID, name: 'Legacy', createdFrom: 'legacy' }];
       }
       return [];
     }
     return rows;
   } catch (_) {
     if (hasLegacyFlatKeys()) {
-      return [{ id: DEFAULT_ACCOUNT_ID, name: 'Legacy' }];
+      return [{ id: DEFAULT_ACCOUNT_ID, name: 'Legacy', createdFrom: 'legacy' }];
     }
     return [];
   }

@@ -1,5 +1,6 @@
 <script>
   import { trades, userProfile } from '../lib/stores';
+  import { activeJournalAccount } from '../lib/accounts';
   import { convertAmount, formatNumber, getConversionQuote } from '../lib/utils';
   import { getDisciplineScore, getDisciplinedPnL } from '../lib/risk';
   import Modal from './Modal.svelte';
@@ -7,6 +8,11 @@
 
   export let open = false;
   export let closedTrades = [];
+
+  /** Счёт из импорта — блок «Основное» не показываем. */
+  $: hideBasicsSection = $activeJournalAccount?.createdFrom === 'import';
+  /** Только старый single-storage Legacy может менять валюту здесь; clean — только при создании счёта. */
+  $: currencySelectableInProfile = $activeJournalAccount?.createdFrom === 'legacy';
 
   $: discipline = getDisciplineScore($trades);
   $: disciplinedPnL = getDisciplinedPnL(closedTrades);
@@ -38,6 +44,8 @@
     dailyReviewEnabled: true
   };
   let wasOpen = false;
+  /** setup — форма профиля текущего счёта; create — мастер нового счёта */
+  let profileTab = 'setup';
   let previousCurrency = 'USD';
   let pnlConversionRate = 1;
   let conversionSource = 'identity';
@@ -45,6 +53,7 @@
   let fxMessage = '';
 
   $: if (open && !wasOpen) {
+    profileTab = 'setup';
     formData = { ...$userProfile };
     previousCurrency = formData.accountCurrency || 'USD';
     wasOpen = true;
@@ -161,9 +170,34 @@
   </div>
 
   <div slot="body">
-    <ProfileAccountsTab variant="full" />
+    <div class="profile-modal-body">
+      <div class="profile-modal-tabs" role="tablist" aria-label="Разделы профиля">
+        <button
+          type="button"
+          role="tab"
+          class="profile-modal-tab"
+          class:active={profileTab === 'setup'}
+          aria-selected={profileTab === 'setup'}
+          on:click={() => (profileTab = 'setup')}
+        >
+          Настройка счёта
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="profile-modal-tab"
+          class:active={profileTab === 'create'}
+          aria-selected={profileTab === 'create'}
+          on:click={() => (profileTab = 'create')}
+        >
+          Создание счёта
+        </button>
+      </div>
 
-    <div class="profile-summary-grid">
+      {#if profileTab === 'setup'}
+        <ProfileAccountsTab variant="full" profileSplit="account" />
+
+        <div class="profile-summary-grid profile-summary-grid--stretch">
       <div class="profile-metric">
         <div class="profile-metric-label">Текущий баланс</div>
         <div class="profile-metric-value {currentBalance >= Number(formData.initialCapital || 0) ? 'profit' : 'loss'}">
@@ -204,51 +238,60 @@
       </div>
     </div>
 
-    <div class="profile-section">
-      <div class="profile-section-title">Основное</div>
-      <div class="form-row">
-        <div class="form-group">
-          <label for="trader-name">Имя</label>
-          <input id="trader-name" type="text" bind:value={formData.traderName} placeholder="Например, Alex" />
+    {#if !hideBasicsSection}
+      <div class="profile-section profile-section--basics">
+        <div class="profile-section-title">Основное</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="trader-name">Имя</label>
+            <input id="trader-name" type="text" bind:value={formData.traderName} placeholder="Например, Alex" />
+          </div>
+          <div class="form-group">
+            <label for="account-currency">Валюта счёта</label>
+            {#if currencySelectableInProfile}
+              <select
+                id="account-currency"
+                bind:value={formData.accountCurrency}
+                on:change={handleCurrencyChange}
+                disabled={isConvertingCurrency}
+              >
+                <optgroup label="Фиат">
+                  <option value="USD">USD — Доллар США</option>
+                  <option value="EUR">EUR — Евро</option>
+                  <option value="GBP">GBP — Фунт</option>
+                  <option value="JPY">JPY — Иена</option>
+                  <option value="CHF">CHF — Франк</option>
+                  <option value="CAD">CAD — Канадский $</option>
+                  <option value="AUD">AUD — Австралийский $</option>
+                  <option value="NZD">NZD — Новозеландский $</option>
+                </optgroup>
+                <optgroup label="Стейблкоины">
+                  <option value="USDT">USDT</option>
+                </optgroup>
+                <optgroup label="Крипта">
+                  <option value="BTC">BTC — Биткоин</option>
+                </optgroup>
+              </select>
+            {:else}
+              <div id="account-currency" class="currency-readonly" title="Задаётся при создании счёта">
+                {formData.accountCurrency || 'USD'}
+              </div>
+              <span class="field-note">Фиксируется в мастере создания счёта</span>
+            {/if}
+          </div>
         </div>
-        <div class="form-group">
-          <label for="account-currency">Валюта счета</label>
-          <select
-            id="account-currency"
-            bind:value={formData.accountCurrency}
-            on:change={handleCurrencyChange}
-            disabled={isConvertingCurrency}
-          >
-            <optgroup label="Фиат">
-              <option value="USD">USD — Доллар США</option>
-              <option value="EUR">EUR — Евро</option>
-              <option value="GBP">GBP — Фунт</option>
-              <option value="JPY">JPY — Иена</option>
-              <option value="CHF">CHF — Франк</option>
-              <option value="CAD">CAD — Канадский $</option>
-              <option value="AUD">AUD — Австралийский $</option>
-              <option value="NZD">NZD — Новозеландский $</option>
-            </optgroup>
-            <optgroup label="Стейблкоины">
-              <option value="USDT">USDT</option>
-            </optgroup>
-            <optgroup label="Крипта">
-              <option value="BTC">BTC — Биткоин</option>
-            </optgroup>
-          </select>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="initial-capital">Размер капитала</label>
+            <input id="initial-capital" type="number" min="0" step="10" bind:value={formData.initialCapital} />
+          </div>
+          <div class="form-group">
+            <label for="commission-per-lot">Комиссия за 1 лот</label>
+            <input id="commission-per-lot" type="number" min="0" step="0.01" bind:value={formData.commissionPerLot} />
+          </div>
         </div>
       </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label for="initial-capital">Размер капитала</label>
-          <input id="initial-capital" type="number" min="0" step="10" bind:value={formData.initialCapital} />
-        </div>
-        <div class="form-group">
-          <label for="commission-per-lot">Комиссия за 1 лот</label>
-          <input id="commission-per-lot" type="number" min="0" step="0.01" bind:value={formData.commissionPerLot} />
-        </div>
-      </div>
-    </div>
+    {/if}
 
     <div class="profile-section">
       <div class="profile-section-title">Риск и ограничения</div>
@@ -353,32 +396,41 @@
       </div>
     </div>
 
-    <div class="profile-hint">
-      PnL в сделках считается в USD и конвертируется в валюту счета.
-      {#if conversionSource === 'live'}
-        Использован актуальный курс.
+    <div class="profile-hint profile-hint--compact">
+      {#if hideBasicsSection}
+        Импорт-счёт: имя, валюта и стартовый капитал задаются данными импорта и мастером счёта — блок «Основное» скрыт.
+      {:else if !currencySelectableInProfile}
+        Валюта счёта зафиксирована при создании и здесь не меняется.
+      {:else if conversionSource === 'live'}
+        Пересчёт сумм при смене валюты — по актуальному курсу.
       {:else if conversionSource === 'live-proxy-usdt'}
-        Использован актуальный курс через USD-прокси для USDT.
+        Курс через USD-прокси для USDT.
       {:else if conversionSource === 'identity'}
-        Конвертация не требуется.
+        Конвертация при смене валюты не требуется (USD).
       {:else}
-        Live-курс сейчас недоступен.
+        Live-курс для пересчёта может быть недоступен.
       {/if}
-      Активные лимиты: риск {formatNumber(maxRiskAmount, 2)} {formData.accountCurrency}, дневной стоп {formatNumber(maxDailyLossAmount, 2)} {formData.accountCurrency}, цели D/W/M/Y: {formatNumber(goalDayAmount, 2)} / {formatNumber(goalWeekAmount, 2)} / {formatNumber(goalMonthAmount, 2)} / {formatNumber(goalYearAmount, 2)} {formData.accountCurrency}.
+      Лимиты и цели в {formData.accountCurrency}: риск {formatNumber(maxRiskAmount, 2)}, дневной стоп {formatNumber(maxDailyLossAmount, 2)}, D/W/M/Y {formatNumber(goalDayAmount, 2)} / {formatNumber(goalWeekAmount, 2)} / {formatNumber(goalMonthAmount, 2)} / {formatNumber(goalYearAmount, 2)}.
     </div>
 
     {#if fxMessage}
       <div class="profile-fx-message">{fxMessage}</div>
     {/if}
 
-    <div class="form-group">
+    <div class="form-group profile-notes-wrap">
       <label for="profile-notes">Заметки к профилю</label>
       <textarea id="profile-notes" rows="3" bind:value={formData.notes} placeholder="Правила, ограничения, checklist перед входом"></textarea>
+    </div>
+      {:else}
+        <ProfileAccountsTab variant="full" profileSplit="create" />
+      {/if}
     </div>
   </div>
 
   <div slot="footer">
-    <button type="button" on:click={closeModal}>Отмена</button>
-    <button type="button" class="btn btn-primary" on:click={saveProfile}>Сохранить профиль</button>
+    <button type="button" on:click={closeModal}>{profileTab === 'setup' ? 'Отмена' : 'Закрыть'}</button>
+    {#if profileTab === 'setup'}
+      <button type="button" class="btn btn-primary" on:click={saveProfile}>Сохранить профиль</button>
+    {/if}
   </div>
 </Modal>

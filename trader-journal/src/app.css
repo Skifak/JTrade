@@ -733,9 +733,9 @@ body {
 /* ---------- Профиль ---------- */
 .profile-summary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 8px;
-  margin-bottom: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
 }
 
 .profile-metric {
@@ -773,6 +773,30 @@ body {
   margin-bottom: 8px;
 }
 
+.profile-hint--compact {
+  font-size: 11px;
+  line-height: 1.45;
+  margin-bottom: 10px;
+}
+
+.currency-readonly {
+  font-family: var(--mono);
+  font-weight: 600;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  font-size: 14px;
+  color: var(--text-strong);
+}
+
+.field-note {
+  display: block;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
 .profile-fx-message {
   margin-bottom: 10px;
   padding: 8px 10px;
@@ -791,16 +815,83 @@ body {
 
 .profile-modal {
   width: 96%;
-  max-width: 1040px;
-  min-height: 70vh;
+  max-width: min(1100px, 96vw);
+  min-height: auto;
+  max-height: min(92vh, 900px);
+}
+
+.profile-modal-body {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.profile-modal-tabs {
+  display: flex;
+  gap: 0;
+  margin: 0 0 12px;
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.profile-modal-tab {
+  flex: 1;
+  padding: 10px 14px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.profile-modal-tab:hover {
+  color: var(--text-strong);
+  background: var(--bg-3);
+}
+
+.profile-modal-tab.active {
+  color: var(--text-strong);
+  border-bottom-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-2));
+}
+
+.profile-summary-grid--stretch {
+  width: 100%;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+}
+
+.profile-modal-body .profile-section {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.profile-modal-body .form-row {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.profile-modal-body .value-mode-row {
+  grid-template-columns: minmax(120px, 0.42fr) 1fr;
+}
+
+.profile-modal-body .goal-grid {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.profile-notes-wrap textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 72px;
 }
 
 .profile-section {
   border: 1px solid var(--border);
   background: var(--bg-2);
   border-radius: 4px;
-  padding: 12px;
-  margin-bottom: 12px;
+  padding: 10px;
+  margin-bottom: 10px;
 }
 
 .profile-section-title {

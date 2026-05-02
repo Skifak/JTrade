@@ -1,7 +1,17 @@
 import { get } from 'svelte/store';
 import JSZip from 'jszip';
 import { importJournalZip, BUNDLE_NAME } from './journalBundle.js';
+import { sanitizeImportedAccountCurrency } from './stores.js';
 import { toasts } from './toasts.js';
+
+function importAccountKindRu(kind) {
+  if (!kind) return '—';
+  const x = String(kind).toLowerCase();
+  if (x === 'real') return 'Реальный';
+  if (x === 'demo') return 'Демо';
+  if (x === 'contest') return 'Конкурсный';
+  return String(kind);
+}
 
 /**
  * @param {null | { kind: 'zip'; ab: ArrayBuffer; fileName: string } | { kind: 'html'; fileName: string; parsed: any } | { kind: 'json'; fileName: string; text: string }} pending
@@ -14,16 +24,21 @@ export async function describeImportPending(pending) {
   if (pending.kind === 'html') {
     const p = pending.parsed;
     const lines = [
-      `Тип отчёта: ${p.reportType || '—'}`,
+      `Тип счёта: ${importAccountKindRu(p.importAccountKind)}`,
       `Сделок: ${p.trades?.length ?? 0}`,
-      `Валюта отчёта: ${p.statementCurrency || '—'}`
+      `Валюта счёта: ${p.statementCurrency || '—'}`
     ];
     if (p.accountTitle) lines.push(`Счёт в отчёте: ${p.accountTitle}`);
     if (p.reportGeneratedAt) lines.push(`Дата в отчёте: ${p.reportGeneratedAt}`);
     if (p.summary && typeof p.summary === 'object') {
       const s = p.summary;
-      if (s.equity != null) lines.push(`Средства (сводка): ${s.equity}`);
-      if (s.netProfit != null) lines.push(`Чистая прибыль: ${s.netProfit}`);
+      const funds =
+        s.equityDisplay != null && String(s.equityDisplay).trim()
+          ? String(s.equityDisplay).trim()
+          : s.equity != null && Number.isFinite(Number(s.equity))
+            ? String(s.equity)
+            : null;
+      if (funds != null) lines.push(`Средства (сводка): ${funds}`);
     }
     if (p.parseHint) lines.push(`Подсказка: ${p.parseHint}`);
     return { title: pending.fileName || 'MT5 HTML', lines };
@@ -97,20 +112,21 @@ export async function applyJournalImport(pending, api) {
         existingById.set(importedTrade.id, importedTrade);
       }
       trades.importTrades(Array.from(existingById.values()));
-      if (parsed.reportType === 'history') {
+      if (parsed.reportType === 'history' || parsed.reportType === 'trade') {
+        const ccySafe = sanitizeImportedAccountCurrency(parsed.statementCurrency);
+        const importedProfitSum = Array.isArray(parsed.trades)
+          ? parsed.trades.reduce((sum, t) => sum + (Number(t?.profit) || 0), 0)
+          : 0;
         const eq = Number(parsed.summary?.equity);
-        const np = Number(parsed.summary?.netProfit);
-        const ccy = String(parsed.statementCurrency || '').toUpperCase();
-        const hasSummary = Number.isFinite(eq) && Number.isFinite(np);
-        if (hasSummary) {
-          const nextInitialCapital = eq - np;
-          const patch = {};
+        const patch = {};
+        if (ccySafe) patch.accountCurrency = ccySafe;
+        if (Number.isFinite(eq)) {
+          const nextInitialCapital = eq - importedProfitSum;
           if (Number.isFinite(nextInitialCapital) && nextInitialCapital >= 0) {
             patch.initialCapital = nextInitialCapital;
           }
-          if (ccy) patch.accountCurrency = ccy;
-          if (Object.keys(patch).length > 0) userProfile.updateProfile(patch);
         }
+        if (Object.keys(patch).length > 0) userProfile.updateProfile(patch);
       }
       toasts.info(`Импорт MT5 (${parsed.reportType}): ${parsed.trades.length} сделок`, { ttl: 6000 });
       return true;
