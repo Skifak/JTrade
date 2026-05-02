@@ -2,6 +2,8 @@
   import { createEventDispatcher } from 'svelte';
   export let open = false;
   export let modalClass = '';
+  /** Левая колонка (например шаблоны) — рендерится слева от `.modal`, на всю высоту */
+  export let showAside = false;
   /** Закрытие по клику на подложку */
   export let closeOnBackdrop = true;
   /** Кнопка × в шапке */
@@ -18,18 +20,23 @@
 
 {#if open}
   <div class="modal-overlay" on:click={handleBackdropClick}>
-    <div class={`modal ${modalClass}`}>
-      <div class="modal-header">
-        <slot name="header" />
-        {#if showCloseButton}
-          <button type="button" class="modal-close" on:click={() => dispatch('close')}>×</button>
-        {/if}
-      </div>
-      <div class="modal-body">
-        <slot name="body" />
-      </div>
-      <div class="modal-footer">
-        <slot name="footer" />
+    <div class="modal-cluster" class:modal-cluster--with-aside={showAside}>
+      {#if showAside}
+        <slot name="aside" />
+      {/if}
+      <div class={`modal ${modalClass}`}>
+        <div class="modal-header">
+          <slot name="header" />
+          {#if showCloseButton}
+            <button type="button" class="modal-close" on:click={() => dispatch('close')}>×</button>
+          {/if}
+        </div>
+        <div class="modal-body">
+          <slot name="body" />
+        </div>
+        <div class="modal-footer">
+          <slot name="footer" />
+        </div>
       </div>
     </div>
   </div>

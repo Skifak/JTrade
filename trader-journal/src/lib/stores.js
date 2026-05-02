@@ -4,6 +4,7 @@ import { DEFAULT_TEMPLATES } from './constants';
 import { removeScopeDir } from './attachmentApi';
 import { loadAccountData, saveAccountData } from './accountStorage.js';
 import { activeJournalAccountId } from './accounts.js';
+import { migrateTemplatesList } from './utils.js';
 
 function loadData(key, defaultValue) {
   return loadAccountData(key, defaultValue);
@@ -139,7 +140,7 @@ function createTradesStore() {
 
 // Хранилище для шаблонов
 function createTemplatesStore() {
-  const initialState = loadData('templates', DEFAULT_TEMPLATES);
+  const initialState = migrateTemplatesList(loadData('templates', DEFAULT_TEMPLATES));
   const { subscribe, set, update } = writable(initialState);
   
   return {
@@ -160,7 +161,7 @@ function createTemplatesStore() {
       return newTemplates;
     }),
     rehydrate() {
-      set(loadData('templates', DEFAULT_TEMPLATES));
+      set(migrateTemplatesList(loadData('templates', DEFAULT_TEMPLATES)));
     }
   };
 }

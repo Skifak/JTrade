@@ -99,30 +99,42 @@ export const STATUS = {
   CLOSED: 'closed'
 };
 
-// Примеры шаблонов
+// Стартовые шаблоны сделок (без цены входа / SL / TP — подставляешь вручную при входе)
 export const DEFAULT_TEMPLATES = [
   {
     id: 'template_1',
     name: 'Scalp 1:2',
-    riskPercent: 1,
     pair: 'EURUSD',
-    riskReward: 2,
-    comment: 'Скальпинг на новостях'
+    direction: 'long',
+    volume: 0.01,
+    comment: 'Скальпинг на новостях',
+    tags: [],
+    strategyId: null,
+    playId: null,
+    contractSize: null
   },
   {
     id: 'template_2',
     name: 'Swing 1:3',
-    riskPercent: 2,
     pair: 'GBPUSD',
-    riskReward: 3,
-    comment: 'Свинг по тренду'
+    direction: 'long',
+    volume: 0.02,
+    comment: 'Свинг по тренду',
+    tags: [],
+    strategyId: null,
+    playId: null,
+    contractSize: null
   },
   {
     id: 'template_3',
     name: 'Breakout',
-    riskPercent: 1.5,
     pair: 'BTCUSD',
-    riskReward: 2.5,
-    comment: 'Пробой уровня'
+    direction: 'long',
+    volume: 0.01,
+    comment: 'Пробой уровня',
+    tags: [],
+    strategyId: null,
+    playId: null,
+    contractSize: null
   }
 ];

@@ -1372,7 +1372,11 @@ Risk:Reward ≥ 1:2
     font-weight: 600;
   }
   .pill-primary { background: var(--accent); color: var(--accent-fg); }
-  .pill-warn { background: var(--warning); color: var(--warning-fg, #fff); }
+  .pill-warn {
+    background: color-mix(in srgb, var(--warning) 38%, var(--bg-2));
+    color: var(--text-strong);
+    border: 1px solid color-mix(in srgb, var(--warning) 55%, var(--border));
+  }
   .pill-danger { background: var(--loss); color: var(--loss-fg, #fff); }
 
   /* --------- STATUS LINE --------- */

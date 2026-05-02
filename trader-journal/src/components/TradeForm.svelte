@@ -1,6 +1,21 @@
 <script>
-  import { createNewTrade, closeTrade, calculateProfit, isBrokerImportedTrade, formatNumber } from '../lib/utils';
-  import { trades, userProfile } from '../lib/stores';
+  import { tick, onDestroy } from 'svelte';
+  import dayjs from 'dayjs';
+  import { createNewTrade, closeTrade, calculateProfit, isBrokerImportedTrade, formatNumber, snapshotTradeTemplateFields, normalizeStoredTradeTemplate } from '../lib/utils';
+  import { trades, userProfile, templates } from '../lib/stores';
+  import {
+    draftStorageKeyAdd,
+    draftStorageKeyEdit,
+    loadDraftRaw,
+    saveDraftRaw,
+    clearDraftRaw,
+    meaningfulDraftAdd,
+    meaningfulDraftEdit,
+    buildDraftPayload,
+    validateDraftForApply,
+    tradeFormDraftFingerprint
+  } from '../lib/tradeFormDraft.js';
+  import { v4 as uuidv4 } from 'uuid';
   import { PAIRS, normalizeSymbolKey } from '../lib/constants';
   import {
     calculateTradeRisk,
@@ -8,7 +23,8 @@
     evaluateTradeRules,
     computeMaxRiskAmount,
     getCurrentRiskScale,
-    parseNotesChecklist
+    parseNotesChecklist,
+    countClosedTradesOnDay
   } from '../lib/risk';
   import { cooldown } from '../lib/cooldown';
   import { tickClock, livePrices, formPairs } from '../lib/livePrices';
@@ -22,6 +38,7 @@
   import PairPicker from './PairPicker.svelte';
   import RiskConfirmModal from './RiskConfirmModal.svelte';
   import BiasModal from './BiasModal.svelte';
+  import { toasts } from '../lib/toasts';
 
   export let open = false;
   export let trade = null;
@@ -49,6 +66,13 @@
   let acknowledgedPlayRules = [];
   // Bias modal
   let showBiasModal = false;
+
+  /** Черновик формы */
+  let draftBannerVisible = false;
+  /** @type {Record<string, unknown> | null} */
+  let pendingDraft = null;
+  let prevOpenKey = '';
+  let persistTimer = null;
 
   $: notesChecklist = parseNotesChecklist($userProfile?.notes);
   $: if (open) {
@@ -227,6 +251,154 @@
     : null;
   $: riskOverLimit = !!(tradeRisk?.riskAmount != null && maxRiskAmount > 0 && tradeRisk.riskAmount > maxRiskAmount + 0.005);
 
+  // ----- Мини-контекст по паре (add / edit) -----
+  $: pairCtxKey =
+    mode === 'add' || mode === 'edit' ? normalizeSymbolKey(formData?.pair || '') : '';
+  $: openSamePairExcludingEdit =
+    pairCtxKey && (mode === 'add' || mode === 'edit')
+      ? openTradesAll.filter(
+          (t) =>
+            normalizeSymbolKey(t.pair) === pairCtxKey &&
+            !(mode === 'edit' && trade && t.id === trade.id)
+        ).length
+      : 0;
+  $: closedTodayPair =
+    pairCtxKey && (mode === 'add' || mode === 'edit')
+      ? closedTradesAll.filter((t) => {
+          if (!t?.dateClose) return false;
+          return (
+            normalizeSymbolKey(t.pair) === pairCtxKey && dayjs(t.dateClose).isSame(dayjs(), 'day')
+          );
+        }).length
+      : 0;
+  $: closedTodayAll = countClosedTradesOnDay(closedTradesAll);
+  $: maxDayTrades = Number($userProfile?.maxTradesPerDay) || 0;
+  /** Направление vs HTF bias (для мини-контекста внизу формы) */
+  $: biasVsDirectionLabel =
+    pairCtxKey && activeBias && formData?.direction
+      ? biasAligned === true
+        ? 'по bias'
+        : biasAligned === false
+          ? 'против bias'
+          : '—'
+      : '';
+
+  /** Одно открытие модалки → попытка показать черновик */
+  $: openKey = open ? `${mode}:${trade?.id ?? 'null'}` : '';
+  $: if (open && openKey !== prevOpenKey) {
+    prevOpenKey = openKey;
+    if (mode === 'add' || mode === 'edit') queueMicrotask(() => tryLoadDraftBanner());
+  }
+  $: if (!open) prevOpenKey = '';
+
+  /** Автосохранение черновика */
+  $: draftAutosaveDeps =
+    open && (mode === 'add' || mode === 'edit')
+      ? `${tradeFormDraftFingerprint(formData)}|${useCurrentTime}|${useMarketPrice}|${JSON.stringify(acknowledgedChecklist)}|${JSON.stringify(acknowledgedPlayRules)}`
+      : '';
+  $: if (draftAutosaveDeps) schedulePersistDraft();
+
+  function draftKeyCurrent() {
+    if (mode === 'add') return draftStorageKeyAdd();
+    if (mode === 'edit' && trade?.id) return draftStorageKeyEdit(trade.id);
+    return null;
+  }
+
+  function tryLoadDraftBanner() {
+    draftBannerVisible = false;
+    pendingDraft = null;
+    if (!(mode === 'add' || mode === 'edit')) return;
+    const key = draftKeyCurrent();
+    if (!key) return;
+    const raw = loadDraftRaw(key);
+    if (!validateDraftForApply(raw, mode, trade)) return;
+    const meaningful =
+      mode === 'add'
+        ? meaningfulDraftAdd(raw.formData)
+        : meaningfulDraftEdit(raw.formData, trade);
+    if (!meaningful) return;
+    pendingDraft = raw;
+    draftBannerVisible = true;
+  }
+
+  function schedulePersistDraft() {
+    if (!(open && (mode === 'add' || mode === 'edit'))) return;
+    if (draftBannerVisible) return;
+    clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => persistDraftNow(), 450);
+  }
+
+  function persistDraftNow() {
+    if (!(open && (mode === 'add' || mode === 'edit'))) return;
+    if (draftBannerVisible) return;
+    const key = draftKeyCurrent();
+    if (!key) return;
+    const meaningful =
+      mode === 'add' ? meaningfulDraftAdd(formData) : meaningfulDraftEdit(formData, trade);
+    if (!meaningful) {
+      clearDraftRaw(key);
+      return;
+    }
+    saveDraftRaw(
+      key,
+      buildDraftPayload({
+        formData,
+        useCurrentTime,
+        useMarketPrice,
+        acknowledgedChecklist,
+        acknowledgedPlayRules,
+        mode,
+        tradeId: trade?.id ?? null
+      })
+    );
+  }
+
+  function clearDraftNow() {
+    const key = draftKeyCurrent();
+    if (key) clearDraftRaw(key);
+  }
+
+  async function restoreDraft() {
+    const raw = pendingDraft;
+    if (!raw || !validateDraftForApply(raw, mode, trade)) return;
+    formData = { ...(raw.formData || {}) };
+    useCurrentTime = !!raw.useCurrentTime;
+    useMarketPrice = !!raw.useMarketPrice;
+    acknowledgedChecklist = Array.isArray(raw.acknowledgedChecklist)
+      ? [...raw.acknowledgedChecklist]
+      : [];
+    acknowledgedPlayRules = Array.isArray(raw.acknowledgedPlayRules)
+      ? [...raw.acknowledgedPlayRules]
+      : [];
+    draftBannerVisible = false;
+    pendingDraft = null;
+    await tick();
+    acknowledgedChecklist = acknowledgedChecklist.filter((v) => notesChecklist.includes(v));
+    acknowledgedPlayRules = acknowledgedPlayRules.filter((id) =>
+      playRules.some((r) => r.id === id)
+    );
+    schedulePersistDraft();
+  }
+
+  function discardDraftBanner() {
+    clearDraftNow();
+    draftBannerVisible = false;
+    pendingDraft = null;
+  }
+
+  function resetModalUi() {
+    open = false;
+    formData = {};
+    closePrice = 0;
+    previewProfit = null;
+    showRiskConfirm = false;
+    pendingViolations = [];
+    draftBannerVisible = false;
+    pendingDraft = null;
+  }
+
+  onDestroy(() => clearTimeout(persistTimer));
+
   // Cooldown — ms осталось (тикает через tickClock).
   $: cooldownRemainingMs = ($tickClock, $cooldown?.until ? Math.max(0, $cooldown.until - Date.now()) : 0);
 
@@ -296,7 +468,8 @@
         trades.updateTrade(trade.id, payload);
       }
     }
-    closeModal();
+    if (mode === 'add' || mode === 'edit') clearDraftNow();
+    resetModalUi();
   }
 
   function save() {
@@ -348,16 +521,87 @@
   }
 
   function closeModal() {
-    open = false;
-    formData = {};
-    closePrice = 0;
-    previewProfit = null;
-    showRiskConfirm = false;
-    pendingViolations = [];
+    persistDraftNow();
+    resetModalUi();
+  }
+
+  function applyUserTemplate(tpl) {
+    const nt = normalizeStoredTradeTemplate(tpl);
+    if (!nt) return;
+    formData = {
+      ...formData,
+      pair: nt.pair,
+      direction: nt.direction,
+      volume: nt.volume,
+      comment: nt.comment,
+      tags: [...nt.tags],
+      strategyId: nt.strategyId,
+      playId: nt.playId,
+      contractSize: nt.contractSize,
+      priceOpen: 0,
+      sl: null,
+      tp: null
+    };
+    acknowledgedPlayRules = [];
+    useMarketPrice = false;
+    marketLoading = false;
+    marketError = '';
+    marketSource = '';
+    marketTimestamp = null;
+  }
+
+  function saveAsTemplate() {
+    const strat = $strategies.find((s) => s.id === formData.strategyId);
+    const playName =
+      strat?.plays?.find((p) => p.id === formData.playId)?.name?.trim() || '';
+    const suggested = playName || String(formData.pair || '').trim() || 'Мой шаблон';
+    const name = window.prompt('Название шаблона', suggested);
+    if (name == null) return;
+    const trimmed = String(name).trim();
+    if (!trimmed) {
+      toasts.warn('Введи непустое имя шаблона.', { ttl: 4000 });
+      return;
+    }
+    const payload = snapshotTradeTemplateFields(formData);
+    templates.addTemplate({
+      id: uuidv4(),
+      name: trimmed,
+      ...payload
+    });
+    toasts.info(`Шаблон «${trimmed}» сохранён.`, { ttl: 3500 });
+  }
+
+  function removeTemplate(id, e) {
+    e?.stopPropagation?.();
+    if (!window.confirm('Удалить этот шаблон?')) return;
+    templates.deleteTemplate(id);
   }
 </script>
 
-<Modal {open} on:close={closeModal}>
+<Modal {open} showAside={mode === 'add' || mode === 'edit'} modalClass="trade-form-modal" on:close={closeModal}>
+  <div slot="aside" class="trade-modal-templates-rail">
+    <div class="trade-modal-templates-rail-inner">
+      <div class="trade-section-kicker">Шаблоны</div>
+      <p class="trade-templates-hint">Пара, направление, объём, теги, стратегия/setup, комментарий. Цена входа, SL и TP — заново.</p>
+      <ul class="trade-templates-list">
+        {#each $templates as tpl (tpl.id)}
+          <li class="trade-templates-item">
+            <button type="button" class="trade-templates-apply btn btn-sm" on:click={() => applyUserTemplate(tpl)}>
+              {tpl.name}
+            </button>
+            <button
+              type="button"
+              class="trade-templates-remove"
+              title="Удалить шаблон"
+              aria-label="Удалить шаблон"
+              on:click={(e) => removeTemplate(tpl.id, e)}
+            >×</button>
+          </li>
+        {/each}
+      </ul>
+    </div>
+  </div>
+
   <div slot="header">
     <h2>
       {mode === 'add' ? 'Новая сделка' : 
@@ -368,6 +612,22 @@
   </div>
   
   <div slot="body">
+    {#if (mode === 'add' || mode === 'edit') && draftBannerVisible && pendingDraft}
+      <div class="trade-draft-banner" role="status">
+        <div class="trade-draft-banner-text">
+          Есть черновик · сохранён{' '}
+          {pendingDraft.savedAt != null
+            ? new Date(Number(pendingDraft.savedAt)).toLocaleString()
+            : ''}
+        </div>
+        <div class="trade-draft-banner-actions">
+          <button type="button" class="btn btn-sm btn-primary" on:click={restoreDraft}>Восстановить</button>
+          <button type="button" class="btn btn-sm trade-modal-cancel" on:click={discardDraftBanner}>
+            Удалить черновик
+          </button>
+        </div>
+      </div>
+    {/if}
     {#if mode === 'close'}
       <div class="info-box">
         <p><strong>{trade?.pair}</strong> {trade?.direction === 'long' ? '📈 Long' : '📉 Short'}</p>
@@ -684,7 +944,7 @@
           </div>
           {#if selectedPlay && playRules.length > 0}
             <div class="play-rules">
-              <div class="play-rules-title">
+              <div class="trade-section-kicker play-rules-title-row">
                 Чек-лист сетапа · «{selectedPlay.name}»
                 {#if selectedPlay.htfRequirement && selectedPlay.htfRequirement !== 'any'}
                   <span class="play-htf-req">HTF: {selectedPlay.htfRequirement === 'aligned' ? 'по bias' : 'против bias'}</span>
@@ -717,7 +977,7 @@
 
       <!-- ICT taxonomy tags -->
       <div class="ict-tags">
-        <div class="ict-tags-title">Теги ICT (по 4 осям)</div>
+        <div class="trade-section-kicker">Теги ICT (по 4 осям)</div>
         {#each ICT_GROUPS as group}
           <div class="ict-group">
             <div class="ict-group-label" title={group.hint}>{group.label}</div>
@@ -743,7 +1003,7 @@
 
       {#if notesChecklist.length > 0}
         <div class="notes-checklist">
-          <div class="notes-checklist-title">📋 Чек-лист из заметок профиля</div>
+          <div class="trade-section-kicker notes-checklist-kicker">📋 Чек-лист из заметок профиля</div>
           {#each notesChecklist as item}
             <label class="notes-checklist-item">
               <input
@@ -759,7 +1019,7 @@
 
       {#if liveViolations.length > 0}
         <div class="violations-preview">
-          <div class="violations-preview-title">
+          <div class="trade-section-kicker violations-preview-kicker">
             {hasBlockingViolation ? '⛔ Нарушения правил' : '⚠️ Предупреждения'}
           </div>
           <ul class="violations-preview-list">
@@ -782,18 +1042,61 @@
         <label for="comment">Комментарий</label>
         <textarea id="comment" bind:value={formData.comment} rows="3"></textarea>
       </div>
+
+      {#if pairCtxKey}
+        <div class="trade-pair-context">
+          <div class="trade-section-kicker trade-pair-context-kicker">Контекст по паре · {formData.pair}</div>
+          <div class="trade-pair-context-grid">
+            <div class="trade-pair-context-cell">
+              <span class="trade-pair-context-label">Открытых по паре</span>
+              <span class="trade-pair-context-value">{openSamePairExcludingEdit}</span>
+            </div>
+            <div class="trade-pair-context-cell">
+              <span class="trade-pair-context-label">Закрыто сегодня (эта пара)</span>
+              <span class="trade-pair-context-value">{closedTodayPair}</span>
+            </div>
+            <div class="trade-pair-context-cell">
+              <span class="trade-pair-context-label">Направление vs HTF</span>
+              <span class="trade-pair-context-value">
+                {#if activeBias && biasVsDirectionLabel}
+                  <span class:bias-align-on={biasAligned === true} class:bias-align-off={biasAligned === false}>
+                    {biasVsDirectionLabel}
+                  </span>
+                  <span class="trade-pair-context-muted"> · {biasLabelText}</span>
+                {:else}
+                  <span class="trade-pair-context-muted">{biasLabelText || 'bias не задан'}</span>
+                {/if}
+              </span>
+            </div>
+            <div class="trade-pair-context-cell">
+              <span class="trade-pair-context-label">Закрыто сегодня (все)</span>
+              <span class="trade-pair-context-value">
+                {closedTodayAll}
+                {#if maxDayTrades > 0}
+                  <span class="trade-pair-context-muted"> / лимит {maxDayTrades}</span>
+                {/if}
+              </span>
+            </div>
+          </div>
+        </div>
+      {/if}
     {/if}
   </div>
   
-  <div slot="footer">
-    <button type="button" on:click={closeModal}>Отмена</button>
-    <button
-      type="button"
-      class="btn {hasBlockingViolation ? 'btn-danger' : liveViolations.length > 0 ? 'btn-warn' : 'btn-primary'}"
-      on:click={save}
-    >
-      {hasBlockingViolation ? 'Сохранить (нарушает правила)' : liveViolations.length > 0 ? 'Сохранить (с предупреждением)' : 'Сохранить'}
-    </button>
+  <div slot="footer" class="trade-modal-footer">
+    <button type="button" class="btn trade-modal-cancel" on:click={closeModal}>Отмена</button>
+    <div class="trade-modal-footer-actions">
+      {#if mode === 'add' || mode === 'edit'}
+        <button type="button" class="btn" on:click={saveAsTemplate}>Сохранить как шаблон</button>
+      {/if}
+      <button
+        type="button"
+        class="btn {hasBlockingViolation ? 'btn-danger' : liveViolations.length > 0 ? 'btn-warn' : 'btn-primary'}"
+        on:click={save}
+      >
+        {hasBlockingViolation ? 'Сохранить (нарушает правила)' : liveViolations.length > 0 ? 'Сохранить (с предупреждением)' : 'Сохранить'}
+      </button>
+    </div>
   </div>
 </Modal>
 
@@ -807,6 +1110,219 @@
 <BiasModal bind:open={showBiasModal} symbol={formData.pair || ''} />
 
 <style>
+  .trade-modal-footer {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .trade-modal-footer-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-left: auto;
+  }
+
+  .trade-modal-cancel {
+    border-color: var(--border-strong);
+    background: transparent;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+  .trade-modal-cancel:hover {
+    background: var(--bg-3);
+    color: var(--text-strong);
+    border-color: var(--border);
+  }
+
+  .trade-draft-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent-border);
+    border-radius: 6px;
+    background: var(--bg-2);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .trade-draft-banner-text {
+    color: var(--text);
+    flex: 1;
+    min-width: 160px;
+  }
+  .trade-draft-banner-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .trade-pair-context {
+    margin-top: 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-2);
+  }
+  .trade-pair-context-kicker.trade-section-kicker {
+    text-transform: none;
+    letter-spacing: 0.03em;
+    font-weight: 700;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+  }
+  .trade-pair-context-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px 14px;
+  }
+  .trade-pair-context-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  .trade-pair-context-label {
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .trade-pair-context-value {
+    color: var(--text-strong);
+    font-variant-numeric: tabular-nums;
+  }
+  .trade-pair-context-muted {
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 11px;
+  }
+  .bias-align-on {
+    color: var(--profit);
+  }
+  .bias-align-off {
+    color: var(--loss);
+  }
+
+  .trade-section-kicker {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.55px;
+    color: var(--text-muted);
+    margin: 0 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    line-height: 1.35;
+  }
+  .play-rules-title-row.trade-section-kicker {
+    text-transform: none;
+    letter-spacing: 0.02em;
+    font-weight: 600;
+    color: var(--text-strong);
+  }
+  .notes-checklist-kicker.trade-section-kicker {
+    text-transform: none;
+    letter-spacing: 0.03em;
+    font-weight: 700;
+    color: var(--text-muted);
+  }
+  .violations-preview-kicker.trade-section-kicker {
+    text-transform: none;
+    letter-spacing: 0.04em;
+    font-weight: 700;
+    color: var(--text-strong);
+    margin-bottom: 8px;
+  }
+
+  .trade-modal-templates-rail {
+    width: 200px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-self: stretch;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    min-height: 0;
+  }
+  .trade-modal-templates-rail-inner {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 14px 12px;
+  }
+  @media (max-width: 720px) {
+    .trade-modal-templates-rail {
+      width: 100%;
+      max-height: min(220px, 38vh);
+      align-self: auto;
+    }
+  }
+
+  .trade-templates-hint {
+    margin: 0 0 8px;
+    color: var(--text-muted);
+    line-height: 1.35;
+    font-size: 11px;
+  }
+  .trade-templates-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .trade-templates-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .trade-templates-apply {
+    flex: 1;
+    min-width: 0;
+    justify-content: flex-start;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .trade-templates-remove {
+    flex-shrink: 0;
+    width: 26px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+  }
+  .trade-templates-remove:hover {
+    background: color-mix(in srgb, var(--loss) 12%, var(--bg));
+    color: var(--loss);
+    border-color: var(--loss);
+  }
+
   .market-msg {
     margin-top: 4px;
     font-size: 12px;
@@ -851,15 +1367,7 @@
     background: var(--bg-2);
     border-radius: 3px;
   }
-  .violations-preview-title {
-    font-size: 12px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: var(--text-strong);
-    margin-bottom: 8px;
-  }
-  .violations-preview-list {
+  .violations-preview {
     list-style: none;
     padding: 0;
     margin: 0 0 6px 0;
@@ -889,21 +1397,22 @@
     color: var(--text-strong);
     flex-shrink: 0;
   }
-  .severity-block .violation-badge { background: var(--loss); color: #fff; }
-  .severity-warn  .violation-badge { background: var(--warning); color: #fff; }
+  .severity-block .violation-badge {
+    background: color-mix(in srgb, var(--loss) 22%, var(--bg-2));
+    color: var(--text-strong);
+    border: 1px solid color-mix(in srgb, var(--loss) 55%, var(--border));
+  }
+  .severity-warn .violation-badge {
+    background: color-mix(in srgb, var(--warning) 35%, var(--bg-2));
+    color: var(--text-strong);
+    border: 1px solid color-mix(in srgb, var(--warning) 55%, var(--border));
+  }
   .violation-text { flex: 1; color: var(--text); }
   .violations-preview-hint {
     font-size: 11px;
     color: var(--text-muted);
     line-height: 1.4;
   }
-
-  .btn-warn {
-    background: var(--warning);
-    color: #fff;
-    border-color: var(--warning);
-  }
-  .btn-warn:hover { filter: brightness(1.05); }
 
   .notes-checklist {
     margin: 0 0 12px 0;
@@ -912,14 +1421,6 @@
     border-left: 3px solid var(--accent-border);
     background: var(--bg-2);
     border-radius: 3px;
-  }
-  .notes-checklist-title {
-    font-size: 12px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: var(--text-strong);
-    margin-bottom: 8px;
   }
   .notes-checklist-item {
     display: flex;
@@ -1011,16 +1512,10 @@
   }
   .play-selector-row .form-group { flex: 1 1 180px; margin-bottom: 0; }
 
-  .play-rules { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
-  .play-rules-title {
-    font-size: 11.5px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-strong);
-    margin-bottom: 6px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  .play-rules {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
   }
   .play-htf-req {
     font-size: 10.5px;
@@ -1075,13 +1570,6 @@
     border: 1px solid var(--border);
     border-radius: 3px;
     background: var(--bg-2);
-  }
-  .ict-tags-title {
-    font-size: 11.5px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-strong);
-    margin-bottom: 8px;
   }
   .ict-group {
     display: flex;

@@ -6,6 +6,7 @@
     dayJournalChecklistTemplate,
     dayJournalSectionLabels
   } from '../lib/dayJournalChecklistTemplate';
+  import { dayJournalPlanTemplates } from '../lib/dayJournalPlanTemplates';
   import JournalSourceHint from './JournalSourceHint.svelte';
 
   const PAGE_SIZE = 10;
@@ -18,12 +19,6 @@
     { id: 'awful', label: 'Слив', icon: '😵' }
   ];
 
-  const PLAN_SNIPPETS = [
-    'Только выбранные KZ · max 2 сделки · стоп по плану · без усреднения.',
-    'Перед входом: HTF bias + ликвидность снята. Не торговать первые 15 мин после новости.',
-    'Если −1R — пауза 30 мин. Если дневной +X — только наблюдение.'
-  ];
-
   let selectedKey = dayjs().format('YYYY-MM-DD');
   /** Страница списка карточек (1-based). */
   let listPage = 1;
@@ -31,8 +26,18 @@
   let editorH = 0;
   let djPrefsOpen = false;
   let newChecklistLabel = '';
+  /** Выбранный в выпадающем списке шаблон плана (id). */
+  let selectedPlanTplId = '';
+  let newPlanTplLabel = '';
+  let newPlanTplText = '';
 
   $: checklistItems = $dayJournalChecklistTemplate;
+  $: planTemplates = $dayJournalPlanTemplates;
+  $: {
+    if (selectedPlanTplId && !planTemplates.some((t) => t.id === selectedPlanTplId)) {
+      selectedPlanTplId = '';
+    }
+  }
   $: secLabels = $dayJournalSectionLabels;
   $: entry = normalizeEntry($dayJournal[selectedKey] || {});
 
@@ -63,6 +68,18 @@
   function addChecklistRow() {
     dayJournalChecklistTemplate.addItem(newChecklistLabel);
     newChecklistLabel = '';
+  }
+
+  function addPlanTplRow() {
+    dayJournalPlanTemplates.addItem(newPlanTplLabel, newPlanTplText);
+    newPlanTplLabel = '';
+    newPlanTplText = '';
+  }
+
+  function applySelectedPlanSnippet() {
+    const t = planTemplates.find((x) => x.id === selectedPlanTplId);
+    if (!t?.text) return;
+    applyPlanSnippet(t.text);
   }
 
   $: sortedRecordKeys = Object.keys($dayJournal)
@@ -243,6 +260,60 @@
               </button>
             </div>
             <div class="dj-prefs-block">
+              <div class="dj-prefs-k">Шаблоны плана</div>
+              <p class="dj-prefs-hint">
+                Название видно в выпадающем списке у блока плана; по кнопке «Вставить» текст добавляется в поле (как раньше «+ шаблон»).
+              </p>
+              <ul class="dj-prefs-list">
+                {#each planTemplates as row, i (row.id)}
+                  <li class="dj-prefs-item dj-prefs-plan-row">
+                    <div class="dj-prefs-plan-stack">
+                      <input
+                        class="dj-prefs-inp dj-prefs-inp-full"
+                        type="text"
+                        value={row.label}
+                        aria-label="Название шаблона {i + 1}"
+                        on:change={(e) =>
+                          dayJournalPlanTemplates.updateItem(row.id, { label: e.currentTarget.value })}
+                      />
+                      <textarea
+                        class="dj-prefs-inp dj-prefs-textarea"
+                        rows="2"
+                        value={row.text}
+                        aria-label="Текст шаблона {i + 1}"
+                        on:change={(e) =>
+                          dayJournalPlanTemplates.updateItem(row.id, { text: e.currentTarget.value })}
+                      ></textarea>
+                    </div>
+                    <div class="dj-prefs-item-actions">
+                      <button type="button" class="btn btn-sm" title="Выше" on:click={() => dayJournalPlanTemplates.moveItem(row.id, -1)}>↑</button>
+                      <button type="button" class="btn btn-sm" title="Ниже" on:click={() => dayJournalPlanTemplates.moveItem(row.id, 1)}>↓</button>
+                      <button type="button" class="btn btn-sm btn-danger" title="Удалить" on:click={() => dayJournalPlanTemplates.removeItem(row.id)}>×</button>
+                    </div>
+                  </li>
+                {/each}
+              </ul>
+              <div class="dj-prefs-plan-add-block">
+                <input
+                  class="dj-prefs-inp dj-prefs-inp-full"
+                  type="text"
+                  placeholder="Название нового шаблона…"
+                  bind:value={newPlanTplLabel}
+                  on:keydown={(e) => e.key === 'Enter' && (e.preventDefault(), addPlanTplRow())}
+                />
+                <textarea
+                  class="dj-prefs-inp dj-prefs-textarea dj-prefs-inp-full"
+                  rows="2"
+                  placeholder="Текст для вставки в план…"
+                  bind:value={newPlanTplText}
+                ></textarea>
+                <button type="button" class="btn btn-sm btn-primary" on:click={addPlanTplRow}>Добавить шаблон</button>
+              </div>
+              <button type="button" class="btn btn-sm" on:click={() => dayJournalPlanTemplates.resetDefaults()}>
+                Сбросить шаблоны плана по умолчанию
+              </button>
+            </div>
+            <div class="dj-prefs-block">
               <div class="dj-prefs-k">Заголовки блоков текста</div>
               <p class="dj-prefs-hint">Отображаются над полями и в карточках записей.</p>
               <label class="dj-prefs-lab" for="dj-sec-plan">План / сессия</label>
@@ -317,11 +388,22 @@
   <section class="dj-card">
     <div class="dj-row-title">
       <span class="dj-label">{secLabels.plan}</span>
-      <span class="dj-snips">
-        {#each PLAN_SNIPPETS as s}
-          <button type="button" class="linkish" on:click={() => applyPlanSnippet(s)}>+ шаблон</button>
-        {/each}
-      </span>
+      <div class="dj-plan-snippet-tools">
+        <select id="dj-plan-tpl-select" class="dj-plan-select" bind:value={selectedPlanTplId}>
+          <option value="">Шаблон плана…</option>
+          {#each planTemplates as t (t.id)}
+            <option value={t.id}>{t.label}</option>
+          {/each}
+        </select>
+        <button
+          type="button"
+          class="btn btn-sm btn-primary"
+          disabled={!selectedPlanTplId}
+          on:click={applySelectedPlanSnippet}
+        >
+          Вставить
+        </button>
+      </div>
     </div>
     <textarea
       class="dj-area"
@@ -747,23 +829,23 @@
   .dj-row-title .dj-label {
     margin-bottom: 0;
   }
-  .dj-snips {
+  .dj-plan-snippet-tools {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px 10px;
+    align-items: center;
+    gap: 8px;
+    max-width: min(100%, 440px);
   }
-  .linkish {
-    border: none;
-    background: none;
-    padding: 0;
+  .dj-plan-select {
+    flex: 1 1 160px;
+    min-width: 0;
     font: inherit;
-    font-size: 12px;
-    color: var(--accent);
-    cursor: pointer;
-    text-decoration: underline;
-  }
-  .linkish:hover {
-    color: var(--text-strong);
+    font-size: 13px;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
   }
   .dj-moods {
     display: flex;
@@ -955,5 +1037,26 @@
   }
   .dj-prefs-lab:first-of-type {
     margin-top: 0;
+  }
+  .dj-prefs-plan-row {
+    align-items: flex-start;
+  }
+  .dj-prefs-plan-stack {
+    flex: 1 1 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+  .dj-prefs-textarea {
+    resize: vertical;
+    min-height: 52px;
+    line-height: 1.4;
+    font-family: inherit;
+  }
+  .dj-prefs-plan-add-block {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 </style>

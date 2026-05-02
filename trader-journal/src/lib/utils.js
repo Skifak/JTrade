@@ -33,10 +33,57 @@ function isFxSymbol(symbol) {
   return /^[A-Z]{6}$/.test(key);
 }
 
+/**
+ * Поля сделки, сохраняемые в пользовательском шаблоне (без цены входа / SL / TP).
+ * @returns {{ pair: string, direction: string, volume: number, comment: string, tags: string[], strategyId: string|null, playId: string|null, contractSize: number|null }}
+ */
+export function snapshotTradeTemplateFields(formData) {
+  const fd = formData && typeof formData === 'object' ? formData : {};
+  const tags = Array.isArray(fd.tags) ? fd.tags.map(String) : [];
+  const vol = Number(fd.volume);
+  const pair = String(fd.pair || 'EURUSD').trim() || 'EURUSD';
+  return {
+    pair,
+    direction: fd.direction === 'short' ? 'short' : 'long',
+    volume: Number.isFinite(vol) && vol > 0 ? vol : 0.01,
+    comment: String(fd.comment ?? ''),
+    tags,
+    strategyId: fd.strategyId ? String(fd.strategyId) : null,
+    playId: fd.playId ? String(fd.playId) : null,
+    contractSize:
+      fd.contractSize != null && Number(fd.contractSize) > 0 ? Number(fd.contractSize) : null
+  };
+}
+
+/** Нормализация записи шаблона из storage / дефолтов (совместимость со старыми полями). */
+export function normalizeStoredTradeTemplate(t) {
+  if (!t || typeof t !== 'object') return null;
+  const snap = snapshotTradeTemplateFields({
+    pair: t.pair,
+    direction: t.direction,
+    volume: t.volume,
+    comment: t.comment,
+    tags: t.tags,
+    strategyId: t.strategyId,
+    playId: t.playId,
+    contractSize: t.contractSize
+  });
+  return {
+    id: String(t.id || '').trim() || uuidv4(),
+    name: String(t.name || 'Шаблон').trim() || 'Шаблон',
+    ...snap
+  };
+}
+
+export function migrateTemplatesList(list) {
+  const arr = Array.isArray(list) ? list : [];
+  return arr.map((t) => normalizeStoredTradeTemplate(t)).filter(Boolean);
+}
+
 // Генерация новой сделки
 export function createNewTrade(template = null) {
   const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
-  
+
   const baseTrade = {
     id: uuidv4(),
     dateOpen: now,
@@ -56,15 +103,26 @@ export function createNewTrade(template = null) {
     /** Переопределение размера контракта на 1.0 лот; null = из справочника по паре */
     contractSize: null,
     tags: [],
-    templateUsed: template?.name || null,
+    strategyId: null,
+    playId: null,
+    templateUsed: null,
     comment: ''
   };
-  
-  if (template) {
-    baseTrade.pair = template.pair;
-    baseTrade.comment = template.comment;
+
+  const nt = template ? normalizeStoredTradeTemplate(template) : null;
+  if (nt) {
+    baseTrade.pair = nt.pair;
+    baseTrade.direction = nt.direction;
+    baseTrade.volume = nt.volume;
+    baseTrade.comment = nt.comment;
+    baseTrade.tags = [...nt.tags];
+    baseTrade.strategyId = nt.strategyId;
+    baseTrade.playId = nt.playId;
+    baseTrade.contractSize = nt.contractSize;
+    baseTrade.templateUsed = nt.name;
+    // цена открытия / SL / TP не берём из шаблона — остаются 0 / null / null
   }
-  
+
   return baseTrade;
 }
 

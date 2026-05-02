@@ -107,8 +107,16 @@
     color: var(--text-strong);
     flex-shrink: 0;
   }
-  .severity-block .risk-badge { background: var(--loss); color: #fff; }
-  .severity-warn  .risk-badge { background: var(--warning); color: #fff; }
+  .severity-block .risk-badge {
+    background: color-mix(in srgb, var(--loss) 22%, var(--bg-2));
+    color: var(--text-strong);
+    border: 1px solid color-mix(in srgb, var(--loss) 55%, var(--border));
+  }
+  .severity-warn .risk-badge {
+    background: color-mix(in srgb, var(--warning) 35%, var(--bg-2));
+    color: var(--text-strong);
+    border: 1px solid color-mix(in srgb, var(--warning) 55%, var(--border));
+  }
 
   .risk-text { flex: 1; color: var(--text); }
 

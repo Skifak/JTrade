@@ -10,6 +10,7 @@ export const ACCOUNT_SCOPED_STORAGE_KEYS = [
   'journalSettings_v1',
   'dayJournal_v1',
   'dayJournalChecklistTemplate_v1',
+  'dayJournalPlanTemplates_v1',
   'dayJournalSectionLabels_v1',
   'strategies',
   'htfBiasLog',

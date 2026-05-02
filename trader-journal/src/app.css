@@ -297,6 +297,18 @@ body {
   border-color: var(--profit);
 }
 
+.btn-warn {
+  background: color-mix(in srgb, var(--warning) 38%, var(--bg-2));
+  border-color: color-mix(in srgb, var(--warning) 65%, var(--border));
+  color: var(--text-strong);
+}
+
+.btn-warn:hover {
+  background: color-mix(in srgb, var(--warning) 48%, var(--bg-2));
+  border-color: var(--warning);
+  filter: none;
+}
+
 .btn-sm {
   height: 24px;
   padding: 2px 7px;
@@ -665,6 +677,33 @@ body {
   justify-content: center;
   z-index: 1000;
   backdrop-filter: blur(2px);
+}
+
+.modal-cluster {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  max-height: 88vh;
+  min-height: 0;
+}
+
+.modal-cluster--with-aside {
+  gap: 14px;
+}
+
+.modal-cluster > .modal {
+  min-height: 0;
+}
+
+@media (max-width: 720px) {
+  .modal-cluster--with-aside {
+    flex-direction: column;
+    align-items: stretch;
+    max-height: 92vh;
+    overflow-y: auto;
+    padding: 8px;
+    gap: 10px;
+  }
 }
 
 .modal {
