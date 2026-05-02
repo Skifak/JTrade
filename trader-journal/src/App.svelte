@@ -543,10 +543,12 @@
                 <td class="mono">{trade.sl ? formatPrice(trade.sl) : '-'}</td>
                 <td class="mono">{trade.tp ? formatPrice(trade.tp) : '-'}</td>
                 <td class="kz-cell">
-                  <span class="kz-tag">{tradeKzLabel(trade)}</span>
-                  {#if tradePlayLabel(trade)}
-                    <span class="play-tag" title={tradePlayLabel(trade)}>{tradePlayLabel(trade)}</span>
-                  {/if}
+                  <div class="kz-inner">
+                    <span class="kz-tag">{tradeKzLabel(trade)}</span>
+                    {#if tradePlayLabel(trade)}
+                      <span class="play-tag" title={tradePlayLabel(trade)}>{tradePlayLabel(trade)}</span>
+                    {/if}
+                  </div>
                 </td>
                 <td class={Number(trade.swap) >= 0 ? 'profit' : 'loss'}>
                   {formatNumber(Number(trade.swap) || 0, 2)}
@@ -647,10 +649,12 @@
                 <td class="mono">{formatPrice(trade.priceOpen)} / {formatPrice(trade.priceClose)}</td>
                 <td class="mono">{trade.sl ? formatPrice(trade.sl) : '-'} / {trade.tp ? formatPrice(trade.tp) : '-'}</td>
                 <td class="kz-cell">
-                  <span class="kz-tag">{tradeKzLabel(trade)}</span>
-                  {#if tradePlayLabel(trade)}
-                    <span class="play-tag" title={tradePlayLabel(trade)}>{tradePlayLabel(trade)}</span>
-                  {/if}
+                  <div class="kz-inner">
+                    <span class="kz-tag">{tradeKzLabel(trade)}</span>
+                    {#if tradePlayLabel(trade)}
+                      <span class="play-tag" title={tradePlayLabel(trade)}>{tradePlayLabel(trade)}</span>
+                    {/if}
+                  </div>
                 </td>
                 <td class={pips == null ? '' : pips >= 0 ? 'profit' : 'loss'}>
                   {pips != null ? formatNumber(pips, 1) : '-'}
@@ -868,30 +872,36 @@
   }
 
   .kz-cell {
+    vertical-align: middle;
+  }
+  .kz-inner {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 4px;
     align-items: flex-start;
     white-space: nowrap;
+    line-height: 0;
   }
   .kz-tag {
-    display: inline-block;
-    padding: 1px 6px;
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 7px;
     border: 1px solid var(--border);
     border-radius: 8px;
     font-size: 10.5px;
     color: var(--text-muted);
     background: var(--bg-2);
-    line-height: 1.3;
+    line-height: 1.25;
   }
   .play-tag {
-    display: inline-block;
-    padding: 1px 6px;
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 7px;
     border-radius: 8px;
     font-size: 10.5px;
     color: var(--accent);
     background: color-mix(in srgb, var(--accent) 15%, transparent);
-    line-height: 1.3;
+    line-height: 1.25;
     max-width: 140px;
     overflow: hidden;
     text-overflow: ellipsis;

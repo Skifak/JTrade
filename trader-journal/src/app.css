@@ -419,6 +419,12 @@ body {
   vertical-align: middle;
 }
 
+/* KZ · Setup: компактные тэги + border снизу визуально «склеиваются», чуть больше воздуха */
+.trades-table td.kz-cell {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
 .trades-table tbody tr:nth-child(even) {
   background: var(--bg-2);
 }

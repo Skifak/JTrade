@@ -1,6 +1,6 @@
 # 📊 Trader Journal
 
-Локальный журнал трейдера на **Svelte 5 + Vite 8** с уклоном в ICT/SMC: ведение сделок, импорт MT5, риск-менеджмент, плейбуки, killzones, HTF bias, live-цены без API-ключей и расширенная статистика.
+Локальный журнал трейдера на **Svelte 5 + Vite 8** с уклоном в ICT/SMC: ведение сделок, импорт MT5, риск-менеджмент, плейбуки, killzones, HTF bias, live-цены без API-ключей, расширенная статистика и вкладка **Аналитика** (локальный «наставник» без LLM).
 
 Доступно два варианта запуска:
 1. **Standalone HTML** — `vite-plugin-singlefile` собирает один `dist/index.html` со всем CSS/JS внутри. Открыть из любого статического хостинга / `npm run preview`.
@@ -68,6 +68,18 @@
 - **Heatmaps**: PnL по часам, по дням недели, по killzone, по тегам, по play.
 - **HTF Bias alignment**: aligned vs against vs unknown.
 - Long/short split, период, средний лот.
+
+### Аналитика (`AnalyticsView.svelte`)
+Отдельная вкладка от «Статистики»: не дублирует KPI-табло, а даёт **маяки состояния**, фазу дорожной карты и текстовые советы из локального корпуса (**без LLM**, без отправки данных наружу).
+
+Подвкладки:
+- **Обзор** — ключи состояния, headline, мини-метрики, дорожная карта, блок советов (`tradingMentor.js` + `adviceCorpus.js`).
+- **Неделя** — неделя к неделе (PnL, дневник, краевые сигналы; `analyticsInsights.js`).
+- **Фокус недели** — один предложенный процессный эксперимент на ISO-неделю; можно закрепить выбор (persist в `localStorage` через `accountStorage`: ключ базы `analyticsWeeklyExperiment_v1` + суффикс счёта).
+- **Дневник и PnL**, **Сетапы**, **Контекст** — связки журнал ↔ результат, edge по плейбукам, теплокарты контекста (TZ killzone берётся из `journalSettings`).
+- **Справка** — локальный FAQ (`analyticsQuestions.js`).
+
+Вспомогательный UI: `JournalSourceHint.svelte`.
 
 ### Live-цены по WebSocket (без ключей)
 Два WS-источника, оба бесплатные и без аутентификации.
@@ -158,7 +170,7 @@ __livePrices.enableLog();  // включить debug-лог WS, перезагр
 - В **Tauri** бинарники пишутся командами `tauri_attachments_*` в подкаталог `trader-journal-assets`; в браузере — IndexedDB.
 
 ### Гайд
-Вкладка **Гайд** — встроенный мануал по всем фичам (`GuideView.svelte`).
+Вкладка **Гайд** — встроенный мануал (`GuideView.svelte`): быстрый старт, сделки, KZ/setup-колонка, журнал дня, плейбуки, статистика vs аналитика, данные.
 
 ### Тосты (`Toasts.svelte` + `src/lib/toasts.js`)
 `toasts.info() / warn() / error()`. Используются при ошибках сохранения localStorage (включая `QuotaExceededError` с автобэкапом битых данных), импорта/экспорта, network errors live-цен.
@@ -285,17 +297,23 @@ src-tauri/
 
 ```
 src/
-├── App.svelte                    # корень: вкладки, импорт/экспорт, шапка, kill-switch, темы
+├── App.svelte                    # корень: вкладки (сделки, статистика, аналитика, …), шапка, kill-switch
 ├── main.js                       # bootstrap
 ├── app.css                       # CSS-переменные тем + общие стили
 ├── lib/
-│   ├── stores.js                 # writable stores: trades, templates, userProfile
+│   ├── stores.js                 # writable stores: trades, templates, userProfile, setupSnippets
+│   ├── accountStorage.js        # load/save данных с суффиксом активного счёта
 │   ├── constants.js              # PAIRS, DEFAULT_CONTRACT_SIZE_BY_SYMBOL, normalizeSymbolKey
 │   ├── utils.js                  # createNewTrade, calculateProfit/FloatingProfit, calculateStats,
 │   │                             # calculatePips/Percent, formatDuration, getTradeSource,
 │   │                             # getConversionQuote (Frankfurter)
 │   ├── risk.js                   # риск-менеджмент: pre-trade rules, daily stop, streak,
 │   │                             # discipline, equity curve, time-of-day analytics
+│   ├── analyticsInsights.js      # WoW, журнал vs PnL, playbook edge, контекстные heatmap
+│   ├── analyticsQuestions.js       # FAQ-тексты для вкладки «Аналитика → Справка»
+│   ├── tradingMentor.js           # пакет наставника: стойки, дорожная карта, метрики
+│   ├── adviceCorpus.js           # корпус текстов советов под маяки (без LLM)
+│   ├── adviceSourcesRegistry.js   # реестр источников/якорей для советов
 │   ├── cooldown.js               # cooldown после убыточной сделки + persist
 │   ├── theme.js                  # 4 темы + persist в localStorage
 │   ├── worldClock.js             # часы 4 городов в шапке
@@ -328,6 +346,8 @@ src/
     ├── DailyReviewModal.svelte   # дневной обзор после достижения цели
     ├── PlaybookView.svelte       # вкладка «Плейбуки»: CRUD стратегий/play, статистика
     ├── Statistics.svelte         # дашборд статистики
+    ├── AnalyticsView.svelte      # вкладка «Аналитика»: наставник, неделя, контекст, FAQ
+    ├── JournalSourceHint.svelte # подсказки источников в аналитике
     ├── DayJournalView.svelte     # вкладка «Журнал» (дневник по датам)
     ├── GlossaryView.svelte       # вкладка «Глоссарий»
     ├── AddImageModal.svelte      # миниатюры, вставка/файлы, кроп
@@ -400,6 +420,7 @@ profit   = rawPnL − commission − swap
 |-------------------------------|-----------------------------------------------------|
 | `trades`                      | массив сделок                                       |
 | `templates`                   | пресеты для быстрых сделок                          |
+| `setupSnippets`               | пользовательские сниппеты (данные активного счёта) |
 | `userProfile`                 | капитал, валюта, риск, цели, лимиты, заметки, флаги |
 | `theme`                       | id выбранной темы (`light`/`beige`/`dark`/`neon`)   |
 | `journalSettings_v1`          | TZ для killzones, окна, приоритет                   |
@@ -408,7 +429,10 @@ profit   = rawPnL − commission − swap
 | `traderGlossary_v1`           | категории и термины глоссария (в т.ч. пути вложений) |
 | `dayJournal_v1`              | записи «журнала дня» по датам                       |
 | `cooldownUntil`               | ms-таймстамп до окончания cooldown (или отсутствует)|
+| `analyticsWeeklyExperiment_v1` | недельный «фокус-эксперимент» во вкладке Аналитика |
 | `__corrupt_backup_<ts>`       | автобэкапы битого JSON (если парсер упал)           |
+
+При нескольких счетах журнала значения по умолчанию лежат под ключами вида `<baseKey>__<accountId>` (см. `keyForAccount` в `accounts.js`, загрузка через `accountStorage.js`). У счёта `acc-default` возможен fallback на «плоские» ключи без суффикса.
 
 Отдельно в **IndexedDB** (`trader-journal-attachments`, только веб) — бинарные файлы скриншотов; в **Tauri** вместо IDB используется папка на диске (см. выше).
 

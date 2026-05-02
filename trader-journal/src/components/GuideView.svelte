@@ -35,6 +35,7 @@
     { id: 'notes',         icon: '☑',  title: 'Notes-чек-лист' },
     { id: 'live-prices',   icon: '⚡', title: 'Live-цены' },
     { id: 'statistics',    icon: '∑',  title: 'Статистика' },
+    { id: 'analytics',     icon: '📈', title: 'Аналитика' },
     { id: 'data',          icon: '⇲',  title: 'Данные и темы' },
     { id: 'faq',           icon: '?',  title: 'FAQ' }
   ];
@@ -151,8 +152,8 @@
           <p>WebSocket Binance + OANDA — без API-ключей и без задержек.</p>
         </div>
         <div class="hero-card">
-          <div class="hero-card-h">∑ Аналитика</div>
-          <p>Equity «реальная vs disciplined», PnL по часам/дням, разбивка по тегам.</p>
+          <div class="hero-card-h">∑ Статистика + 📈 Аналитика</div>
+          <p>KPI и heatmaps во вкладке «Статистика»; отдельно «Аналитика» — маяки, дорожная карта и советы без LLM.</p>
         </div>
       </div>
     </section>
@@ -294,6 +295,14 @@
             <li>Пары, объём, цены, комиссии и swap подхватятся; PnL пересчитается под формулы приложения.</li>
           </ul>
         </div>
+        <div class="info-card big">
+          <h4>Колонка «KZ · Setup» в таблице</h4>
+          <ul>
+            <li>Верхняя плашка — killzone по времени открытия (или значение из поля сделки, если переопределил).</li>
+            <li>Ниже — короткое имя выбранного setup (play), если в форме заданы стратегия и setup.</li>
+            <li>Если указана только killzone — видна одна плашка.</li>
+          </ul>
+        </div>
       </div>
 
       <div class="formula">
@@ -426,9 +435,9 @@
     <section id="killzones" class="guide-section">
       <h2><span class="num">⏰</span>Killzones — окна повышенной ликвидности</h2>
       <p class="lead">
-        Killzone определяется автоматически по <code>dateOpen</code> сделки в часовом поясе
-        <strong>America/New_York</strong> (DST учитывается). Сохраняется в поле <code>killzone</code>
-        и используется для аналитики.
+        Killzone берётся по <code>dateOpen</code> сделки в <strong>часовом поясе журнала для KZ</strong>
+        (по умолчанию <code>America/New_York</code>, DST учитывается; TZ задаётся в окне «Параметры журнала»).
+        Пишется в поле <code>killzone</code> и участвует в pre-trade правилах и отчётах.
       </p>
 
       <div class="cols-2">
@@ -696,10 +705,9 @@ Risk:Reward ≥ 1:2
       <h2><span class="num">11</span>Статистика — что и зачем</h2>
 
       <p class="lead">
-        Вкладка <strong>Статистика</strong> показывает базовые KPI + поведенческие графики.
-        Отдельно вкладка <strong>Аналитика</strong> — не те же графики: маяки по данным журнала, дорожная карта
-        процесса и вопрос для рефлексии (без LLM, всё локально).
-        Сверху — панель фильтров: что в ней выберешь, то и применится ко всем графикам и таблице тегов.
+        Вкладка <strong>Статистика</strong> — KPI, equity curve, heatmaps и фильтры по периоду / направлению / тегам / setup / killzone.
+        Вкладка <strong>Аналитика</strong> описана отдельным разделом гайда ниже — там другой фокус (маяки, дорожная карта, недельный эксперимент).
+        Сверху статистики — панель фильтров: что выберешь, то применится ко всем графикам и таблице тегов.
       </p>
 
       <!-- Фильтры -->
@@ -826,9 +834,41 @@ Risk:Reward ≥ 1:2
       </div>
     </section>
 
+    <!-- ANALYTICS -->
+    <section id="analytics" class="guide-section">
+      <h2><span class="num">12</span>Аналитика — наставник без облака</h2>
+      <p class="lead">
+        Вкладка <strong>Аналитика</strong> не дублирует «Статистику»: здесь обзор состояния процесса, дорожная карта и текстовые советы из
+        локального корпуса. <strong>Без LLM</strong> и без отправки журнала на сервер — только расчёты по сделкам, дневнику и профилю.
+      </p>
+
+      <div class="cols-2">
+        <div class="info-card">
+          <h4>Подвкладки</h4>
+          <ul>
+            <li><strong>Обзор</strong> — «ключи состояния», заголовок-сводка, мини-метрики, дорожная карта и блок советов.</li>
+            <li><strong>Неделя</strong> — неделя к неделе (PnL, дневник, краевые метрики).</li>
+            <li><strong>Фокус недели</strong> — один предложенный процессный эксперимент на календарную ISO-неделю; можно зафиксировать выбор.</li>
+            <li><strong>Дневник и PnL</strong> — насколько дни с записями совпадают с торговым результатом.</li>
+            <li><strong>Сетапы</strong> — срез по стратегиям/plays из реальных закрытых сделок.</li>
+            <li><strong>Контекст</strong> — теплокарты контекста (время и др.) в TZ killzone из параметров журнала.</li>
+            <li><strong>Справка</strong> — встроенный FAQ по этому экрану.</li>
+          </ul>
+        </div>
+        <div class="info-card">
+          <h4>Код и данные</h4>
+          <ul>
+            <li>Сборка «пакета наставника»: <code>src/lib/tradingMentor.js</code>; подбор текстов — <code>adviceCorpus.js</code>.</li>
+            <li>Сводки WoW, журнал vs PnL, контекстные heatmap — <code>analyticsInsights.js</code>; вопросы вкладки «Справка» — <code>analyticsQuestions.js</code>.</li>
+            <li>Зафиксированный недельный эксперимент хранится под ключом <code>analyticsWeeklyExperiment_v1</code> так же, как сделки — с суффиксом активного счёта (<code>__&lt;accountId&gt;</code>).</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
     <!-- DATA -->
     <section id="data" class="guide-section">
-      <h2><span class="num">12</span>Данные, темы и shortcuts</h2>
+      <h2><span class="num">13</span>Данные, темы и shortcuts</h2>
 
       <div class="cols-3">
         <div class="info-card">
@@ -860,11 +900,11 @@ Risk:Reward ≥ 1:2
 
     <!-- FAQ -->
     <section id="faq" class="guide-section">
-      <h2><span class="num">13</span>FAQ</h2>
+      <h2><span class="num">14</span>FAQ</h2>
 
       <details class="faq-item" open>
         <summary>Куда уходят мои сделки и P&L?</summary>
-        <p>Никуда. Всё локально. Нет бекенда, нет аналитики — приложение даже не знает, что ты есть.</p>
+        <p>Никуда по сети: всё локально в браузере/WebView. Отдельного бэкенда «Trader Journal» нет — приложение не шлёт журнал на чужие серверы.</p>
       </details>
 
       <details class="faq-item">
