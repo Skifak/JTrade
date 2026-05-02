@@ -15,7 +15,8 @@
     calculatePricePercent,
     calculateFloatingProfit,
     getTradeSource,
-    isMt5DepositCurrencyProfit
+    isMt5DepositCurrencyProfit,
+    isMt5HistoryImportedTrade
   } from './lib/utils';
   import { parseMt5ReportHtml } from './lib/mt5Parser';
   import { theme, THEMES } from './lib/theme';
@@ -141,8 +142,10 @@
   $: closedTotals = filteredClosedTrades.reduce(
     (acc, t) => {
       acc.profit += tradeProfitDisplayUnits(t, $fxRate);
-      acc.commission += Number(t.commission) || 0;
-      acc.swap += Number(t.swap) || 0;
+      if (!isMt5HistoryImportedTrade(t)) {
+        acc.commission += Number(t.commission) || 0;
+        acc.swap += Number(t.swap) || 0;
+      }
       return acc;
     },
     { profit: 0, commission: 0, swap: 0 }

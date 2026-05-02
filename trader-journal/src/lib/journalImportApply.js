@@ -115,7 +115,13 @@ export async function applyJournalImport(pending, api) {
       if (parsed.reportType === 'history' || parsed.reportType === 'trade') {
         const ccySafe = sanitizeImportedAccountCurrency(parsed.statementCurrency);
         const importedProfitSum = Array.isArray(parsed.trades)
-          ? parsed.trades.reduce((sum, t) => sum + (Number(t?.profit) || 0), 0)
+          ? parsed.trades.reduce((sum, t) => {
+              const p = Number(t?.profit) || 0;
+              const c = Number(t?.commission) || 0;
+              const s = Number(t?.swap) || 0;
+              if (t?.tags?.includes('mt5-history-report')) return sum + p + c + s;
+              return sum + p;
+            }, 0)
           : 0;
         const eq = Number(parsed.summary?.equity);
         const patch = {};

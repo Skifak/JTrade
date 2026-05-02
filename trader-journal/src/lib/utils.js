@@ -81,6 +81,11 @@ export function isMt5DepositCurrencyProfit(trade) {
   );
 }
 
+/** Закрытая позиция из HTML «История» MT5 — прибыль в отчёте часто без комиссии/свопа (отдельные колонки). */
+export function isMt5HistoryImportedTrade(trade) {
+  return Array.isArray(trade?.tags) && trade.tags.includes('mt5-history-report');
+}
+
 // Расчет прибыли
 export function calculateProfit(trade) {
   if (trade.status !== 'closed' || !trade.priceClose) return null;
@@ -204,8 +209,14 @@ export function calculateStats(closedTrades, options = {}) {
   const totalProfit = profits.reduce((s, p) => s + p, 0);
   const grossProfit = profitable.reduce((s, t) => s + profitOf(t), 0);
   const grossLoss = Math.abs(losses.reduce((s, t) => s + profitOf(t), 0));
-  const sumCommission = sorted.reduce((s, t) => s + (Number(t.commission) || 0), 0);
-  const sumSwap = sorted.reduce((s, t) => s + (Number(t.swap) || 0), 0);
+  const sumCommission = sorted.reduce((s, t) => {
+    if (isMt5HistoryImportedTrade(t)) return s;
+    return s + (Number(t.commission) || 0);
+  }, 0);
+  const sumSwap = sorted.reduce((s, t) => {
+    if (isMt5HistoryImportedTrade(t)) return s;
+    return s + (Number(t.swap) || 0);
+  }, 0);
 
   const longs = sorted.filter((t) => t.direction === 'long');
   const shorts = sorted.filter((t) => t.direction === 'short');
