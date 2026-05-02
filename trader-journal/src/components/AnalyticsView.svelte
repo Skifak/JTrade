@@ -7,7 +7,20 @@
   import { getCurrentStreak, checkDailyStop, getDailyPnL } from '../lib/risk';
   import { tickClock } from '../lib/livePrices';
   import { cooldown } from '../lib/cooldown';
+  import { strategies } from '../lib/playbooks';
   import { buildMentorPack } from '../lib/tradingMentor';
+  import { journalSettings } from '../lib/journalSettings';
+  import { loadAccountData, saveAccountData } from '../lib/accountStorage.js';
+  import {
+    isoWeekKey,
+    computeWeekOverWeek,
+    buildWeeklyDeltaLines,
+    pickWeeklyExperiment,
+    computeJournalVsPnL,
+    computePlaybookEdge,
+    computeContextHeatmaps,
+    experimentLabelForKey
+  } from '../lib/analyticsInsights.js';
   import {
     ANALYTICS_QUESTION_CATEGORIES,
     filterAnalyticsQuestions
@@ -15,6 +28,13 @@
   import JournalSourceHint from './JournalSourceHint.svelte';
 
   const dispatch = createEventDispatcher();
+  const WEEK_EXP_KEY = 'analyticsWeeklyExperiment_v1';
+
+  /** @type {'overview' | 'week' | 'focus' | 'journal_pnl' | 'setups' | 'context' | 'faq'} */
+  let analyticsTab = 'overview';
+
+  /** @type {{ weekKey: string; experimentKey: string; committed: boolean } | null} */
+  let weeklyExpStored = null;
 
   /** @type {'all' | string} */
   let faqCategory = 'all';
@@ -43,6 +63,58 @@
   $: dailyStop = checkDailyStop(closedTrades, $userProfile);
   $: cooldownLeftMs = ($tickClock, $cooldown?.until ? Math.max(0, $cooldown.until - Date.now()) : 0);
   $: todayPnL = ($tickClock, getDailyPnL(closedTrades));
+
+  $: profitOf = (t) => tradeProfitDisplayUnits(t, $fxRate);
+
+  $: wow = computeWeekOverWeek(closedTrades, $dayJournal, profitOf);
+  $: deltaLines = buildWeeklyDeltaLines(wow);
+  $: journal28 = computeJournalVsPnL(closedTrades, $dayJournal, 28, profitOf);
+  $: playbookEdge = computePlaybookEdge(closedTrades, $strategies, profitOf);
+  $: killzoneTz =
+    $journalSettings && typeof $journalSettings.killzoneTimezone === 'string'
+      ? $journalSettings.killzoneTimezone
+      : 'America/New_York';
+  $: heatmaps = computeContextHeatmaps(closedTrades, profitOf, killzoneTz);
+  $: weeklyPick = pickWeeklyExperiment(wow, journal28, playbookEdge);
+
+  function reconcileWeeklyExp(weekKeyNow, suggestion, loaded) {
+    const base =
+      loaded && typeof loaded === 'object'
+        ? {
+            weekKey: String(loaded.weekKey || weekKeyNow),
+            experimentKey: String(loaded.experimentKey || suggestion.experimentKey),
+            committed: !!loaded.committed
+          }
+        : null;
+
+    if (!base || base.weekKey !== weekKeyNow) {
+      const next = { weekKey: weekKeyNow, experimentKey: suggestion.experimentKey, committed: false };
+      saveAccountData(WEEK_EXP_KEY, next);
+      return next;
+    }
+    if (!base.committed && base.experimentKey !== suggestion.experimentKey) {
+      const next = { ...base, experimentKey: suggestion.experimentKey };
+      saveAccountData(WEEK_EXP_KEY, next);
+      return next;
+    }
+    return base;
+  }
+
+  $: weeklyExpStored = reconcileWeeklyExp(
+    isoWeekKey(new Date()),
+    weeklyPick,
+    loadAccountData(WEEK_EXP_KEY, null)
+  );
+
+  function commitWeeklyExperiment() {
+    const next = {
+      weekKey: isoWeekKey(new Date()),
+      experimentKey: weeklyPick.experimentKey,
+      committed: true
+    };
+    saveAccountData(WEEK_EXP_KEY, next);
+    weeklyExpStored = next;
+  }
 
   $: pack = buildMentorPack({
     closedTrades,
@@ -74,9 +146,68 @@
     if (level === 'watch') return 'Внимание';
     return 'Норма';
   }
+
+  function formatPF(x) {
+    if (x === Infinity || x > 1e6) return '∞';
+    if (!Number.isFinite(x)) return '—';
+    return x.toFixed(2);
+  }
 </script>
 
 <div class="analytics-root">
+  <div class="analytics-tabbar" role="tablist" aria-label="Разделы аналитики">
+    <button
+      type="button"
+      role="tab"
+      class="analytics-tab"
+      class:analytics-tab--active={analyticsTab === 'overview'}
+      aria-selected={analyticsTab === 'overview'}
+      on:click={() => (analyticsTab = 'overview')}>Обзор</button>
+    <button
+      type="button"
+      role="tab"
+      class="analytics-tab"
+      class:analytics-tab--active={analyticsTab === 'week'}
+      aria-selected={analyticsTab === 'week'}
+      on:click={() => (analyticsTab = 'week')}>Неделя</button>
+    <button
+      type="button"
+      role="tab"
+      class="analytics-tab"
+      class:analytics-tab--active={analyticsTab === 'focus'}
+      aria-selected={analyticsTab === 'focus'}
+      on:click={() => (analyticsTab = 'focus')}>Фокус недели</button>
+    <button
+      type="button"
+      role="tab"
+      class="analytics-tab"
+      class:analytics-tab--active={analyticsTab === 'journal_pnl'}
+      aria-selected={analyticsTab === 'journal_pnl'}
+      on:click={() => (analyticsTab = 'journal_pnl')}>Дневник и PnL</button>
+    <button
+      type="button"
+      role="tab"
+      class="analytics-tab"
+      class:analytics-tab--active={analyticsTab === 'setups'}
+      aria-selected={analyticsTab === 'setups'}
+      on:click={() => (analyticsTab = 'setups')}>Сетапы</button>
+    <button
+      type="button"
+      role="tab"
+      class="analytics-tab"
+      class:analytics-tab--active={analyticsTab === 'context'}
+      aria-selected={analyticsTab === 'context'}
+      on:click={() => (analyticsTab = 'context')}>Контекст</button>
+    <button
+      type="button"
+      role="tab"
+      class="analytics-tab"
+      class:analytics-tab--active={analyticsTab === 'faq'}
+      aria-selected={analyticsTab === 'faq'}
+      on:click={() => (analyticsTab = 'faq')}>Справка</button>
+  </div>
+
+  {#if analyticsTab === 'overview'}
   <header class="analytics-hero">
     <div class="analytics-hero-text">
       <h2 class="analytics-title">Аналитика</h2>
@@ -129,70 +260,6 @@
             >Ручные 30д: {pack.metrics.manualClosed30} · с вложениями {(pack.metrics.manualAttachRate30 * 100).toFixed(0)}%</span>
         {/if}
       </div>
-    {/if}
-  </section>
-
-  <section class="analytics-card analytics-faq">
-    <h3 class="analytics-section-title analytics-section-title--tight">Вопросы и ответы</h3>
-    <p class="analytics-section-lede analytics-section-lede--tight">
-      Готовые разборы типичных тем — без ИИ. Поиск и категории; у пункта с базой — иконка ⓘ: наведи или сфокусируй,
-      чтобы прочитать исходные фрагменты постов.
-    </p>
-    <div class="analytics-faq-toolbar form-group">
-      <label for="analytics-faq-search">Поиск по формулировке</label>
-      <input
-        id="analytics-faq-search"
-        type="search"
-        class="analytics-faq-search"
-        placeholder="Например: журнал, тильт, риск на сделку…"
-        autocomplete="off"
-        bind:value={faqSearch}
-      />
-    </div>
-    <div class="analytics-faq-cats" role="group" aria-label="Категории вопросов">
-      <button
-        type="button"
-        class="analytics-faq-chip"
-        class:analytics-faq-chip--active={faqCategory === 'all'}
-        on:click={() => setFaqCategory('all')}>Все</button>
-      {#each ANALYTICS_QUESTION_CATEGORIES as cat (cat.id)}
-        <button
-          type="button"
-          class="analytics-faq-chip"
-          class:analytics-faq-chip--active={faqCategory === cat.id}
-          on:click={() => setFaqCategory(cat.id)}>{cat.label}</button>
-      {/each}
-    </div>
-    {#if filteredFaq.length === 0}
-      <p class="analytics-muted analytics-faq-empty">Ничего не нашлось — смени фильтр или поиск.</p>
-    {:else}
-      <ul class="analytics-faq-list">
-        {#each filteredFaq as item (item.id)}
-          <li class="analytics-faq-item">
-            <div class="analytics-faq-q-row">
-              <button
-                type="button"
-                class="analytics-faq-q"
-                aria-expanded={faqOpenId === item.id}
-                aria-controls="faq-a-{item.id}"
-                on:click={() => toggleFaq(item.id)}>
-                <span class="analytics-faq-q-text">{item.question}</span>
-                <span class="analytics-faq-chevron" aria-hidden="true">{faqOpenId === item.id ? '▼' : '▶'}</span>
-              </button>
-              {#if item.sourceRefs?.length}
-                <JournalSourceHint sourceIds={item.sourceRefs} />
-              {/if}
-            </div>
-            {#if faqOpenId === item.id}
-              <div class="analytics-faq-a" id="faq-a-{item.id}" role="region">
-                {#each item.answer as para}
-                  <p>{para}</p>
-                {/each}
-              </div>
-            {/if}
-          </li>
-        {/each}
-      </ul>
     {/if}
   </section>
 
@@ -292,6 +359,275 @@
       Открыть дневник
     </button>
   </section>
+
+  {:else if analyticsTab === 'week'}
+  <section class="analytics-card analytics-subtab-lede">
+    <h3 class="analytics-section-title analytics-section-title--tight">Неделя к неделе</h3>
+    <p class="analytics-section-lede analytics-section-lede--tight">
+      Сравнение текущей ISO-недели с предыдущей по закрытым из журнала и дням дневника.
+    </p>
+    <div class="analytics-table-wrap">
+      <table class="analytics-data-table">
+        <thead>
+          <tr>
+            <th>Показатель</th>
+            <th>{wow.prev.weekKey}</th>
+            <th>{wow.current.weekKey}</th>
+            <th>Δ</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Сделок (закрытых в окне)</td>
+            <td>{wow.prev.trades}</td>
+            <td>{wow.current.trades}</td>
+            <td class:analytics-delta-neg={wow.deltas.trades < 0} class:analytics-delta-pos={wow.deltas.trades > 0}>{wow.deltas.trades >= 0 ? '+' : ''}{wow.deltas.trades}</td>
+          </tr>
+          <tr>
+            <td>PnL окна (у.е.)</td>
+            <td>{wow.prev.pnl.toFixed(2)}</td>
+            <td>{wow.current.pnl.toFixed(2)}</td>
+            <td class:analytics-delta-neg={wow.deltas.pnl < 0} class:analytics-delta-pos={wow.deltas.pnl > 0}>{wow.deltas.pnl >= 0 ? '+' : ''}{wow.deltas.pnl.toFixed(2)}</td>
+          </tr>
+          <tr>
+            <td>Побед / поражений</td>
+            <td>{wow.prev.wins} / {wow.prev.losses}</td>
+            <td>{wow.current.wins} / {wow.current.losses}</td>
+            <td>{wow.deltas.wins >= 0 ? '+' : ''}{wow.deltas.wins}</td>
+          </tr>
+          <tr>
+            <td>Винрейт %</td>
+            <td>{wow.prev.winRatePct.toFixed(1)}%</td>
+            <td>{wow.current.winRatePct.toFixed(1)}%</td>
+            <td>{wow.deltas.winRatePct >= 0 ? '+' : ''}{wow.deltas.winRatePct.toFixed(1)}</td>
+          </tr>
+          <tr>
+            <td>Дневника (содержательных дн.)</td>
+            <td>{wow.prev.journalDays}</td>
+            <td>{wow.current.journalDays}</td>
+            <td>{wow.deltas.journalDays >= 0 ? '+' : ''}{wow.deltas.journalDays}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <ul class="analytics-delta-bullets">
+      {#each deltaLines as line, i (i)}
+        <li>{line}</li>
+      {/each}
+    </ul>
+  </section>
+
+  {:else if analyticsTab === 'focus'}
+  <section class="analytics-card">
+    <h3 class="analytics-section-title analytics-section-title--tight">Фокус недели</h3>
+    <p class="analytics-section-lede analytics-section-lede--tight">
+      Один процессный эксперимент на календарную ISO-неделю ({weeklyExpStored?.weekKey}). Сохраняется в ключе аккаунта «analyticsWeeklyExperiment_v1».
+    </p>
+    <div class="analytics-focus-card">
+      <p class="analytics-focus-title">
+        {experimentLabelForKey(
+          weeklyExpStored?.committed ? weeklyExpStored.experimentKey : weeklyPick.experimentKey
+        )}
+      </p>
+      <p class="analytics-muted">{weeklyPick.rationale}</p>
+      <p class="analytics-focus-meta">
+        Активный ключ в хранилище: <code class="analytics-inline-code">{weeklyExpStored?.experimentKey}</code>
+        {#if weeklyExpStored?.committed}
+          <span class="analytics-badge-ok">зафиксировано на неделю</span>
+        {:else}
+          <span class="analytics-badge-soft">может обновляться пока данных больше</span>
+        {/if}
+      </p>
+      <button
+        type="button"
+        class="btn btn-primary"
+        disabled={weeklyExpStored?.committed}
+        on:click={commitWeeklyExperiment}>
+        {weeklyExpStored?.committed ? 'Уже принято' : 'Принять фокус на эту неделю'}
+      </button>
+    </div>
+  </section>
+
+  {:else if analyticsTab === 'journal_pnl'}
+  <section class="analytics-card analytics-subtab-lede">
+    <h3 class="analytics-section-title analytics-section-title--tight">Дневник ↔ PnL (28 дн.)</h3>
+    <p class="analytics-summary-text">{journal28.headline}</p>
+    <div class="analytics-mini-metrics analytics-mini-metrics--block">
+      <span>Торговых дн.: {journal28.tradeDays}</span>
+      <span>Содержательных дней дн.: {journal28.journalDays}</span>
+      <span>Оба: {journal28.bothTradeAndJournalDays}</span>
+      <span>Плюсовых д.: {journal28.profitDays}</span>
+      <span>Минусовых д.: {journal28.lossDays}</span>
+      <span>Сделок без дн.: {journal28.tradedWithoutJournal}</span>
+    </div>
+  </section>
+
+  {:else if analyticsTab === 'setups'}
+  <section class="analytics-card">
+    <h3 class="analytics-section-title analytics-section-title--tight">Эдж по связке strategy/play</h3>
+    <p class="analytics-section-lede analytics-section-lede--tight">
+      Только сделки с заполненными strategyId/playId и закрытием из журнала (приоритет строк с ≥5 сделок для сортировки по ожиданию).
+    </p>
+    {#if playbookEdge.length === 0}
+      <p class="analytics-muted">Нет привязок — добавь их в форме сделки.</p>
+    {:else}
+      <div class="analytics-table-wrap">
+        <table class="analytics-data-table">
+          <thead>
+            <tr>
+              <th>Сетап</th>
+              <th>n</th>
+              <th>WR%</th>
+              <th>Сумма</th>
+              <th>Е [сделка]</th>
+              <th>PF</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each playbookEdge as row (row.key)}
+              <tr>
+                <td>{row.strategyName} → {row.playName}</td>
+                <td>{row.count}</td>
+                <td>{row.winRate.toFixed(1)}</td>
+                <td class:analytics-delta-neg={row.sum < 0} class:analytics-delta-pos={row.sum > 0}>{row.sum.toFixed(2)}</td>
+                <td>{row.expectancy.toFixed(3)}</td>
+                <td>{formatPF(row.profitFactor)}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
+  </section>
+
+  {:else if analyticsTab === 'context'}
+  <section class="analytics-card">
+    <h3 class="analytics-section-title analytics-section-title--tight">Контекст</h3>
+    <p class="analytics-muted">{heatmaps.tzNote}</p>
+    <h4 class="analytics-subhead">Primary killzone (по открытию)</h4>
+    {#if heatmaps.killzones.length === 0}
+      <p class="analytics-muted">Нет закрытых с датой.</p>
+    {:else}
+      <div class="analytics-table-wrap">
+        <table class="analytics-data-table">
+          <thead>
+            <tr>
+              <th>Зона</th>
+              <th>n</th>
+              <th>Сумма</th>
+              <th>Ср.</th>
+              <th>WR%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each heatmaps.killzones as row (row.id + row.label)}
+              <tr>
+                <td>{row.label}</td>
+                <td>{row.count}</td>
+                <td class:analytics-delta-neg={row.sum < 0} class:analytics-delta-pos={row.sum > 0}>{row.sum.toFixed(2)}</td>
+                <td>{row.avgPnL.toFixed(2)}</td>
+                <td>{row.winRatePct.toFixed(0)}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
+    <h4 class="analytics-subhead">День недели (дата закрытия)</h4>
+    {#if heatmaps.weekdays.length === 0}
+      <p class="analytics-muted">—</p>
+    {:else}
+      <div class="analytics-table-wrap">
+        <table class="analytics-data-table">
+          <thead>
+            <tr>
+              <th>День</th>
+              <th>n</th>
+              <th>Сумма</th>
+              <th>Ср.</th>
+              <th>WR%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each heatmaps.weekdays as row (row.dow)}
+              <tr>
+                <td>{row.label}</td>
+                <td>{row.count}</td>
+                <td class:analytics-delta-neg={row.sum < 0} class:analytics-delta-pos={row.sum > 0}>{row.sum.toFixed(2)}</td>
+                <td>{row.avgPnL.toFixed(2)}</td>
+                <td>{row.winRatePct.toFixed(0)}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
+  </section>
+
+  {:else if analyticsTab === 'faq'}
+  <section class="analytics-card analytics-faq">
+    <h3 class="analytics-section-title analytics-section-title--tight">Вопросы и ответы</h3>
+    <p class="analytics-section-lede analytics-section-lede--tight">
+      Готовые разборы типичных тем — без ИИ. Поиск и категории; у пункта с базой — иконка ⓘ: нажми, чтобы открыть панель с исходными фрагментами постов.
+    </p>
+    <div class="analytics-faq-toolbar form-group">
+      <label for="analytics-faq-search">Поиск по формулировке</label>
+      <input
+        id="analytics-faq-search"
+        type="search"
+        class="analytics-faq-search"
+        placeholder="Например: журнал, тильт, риск на сделку…"
+        autocomplete="off"
+        bind:value={faqSearch}
+      />
+    </div>
+    <div class="analytics-faq-cats" role="group" aria-label="Категории вопросов">
+      <button
+        type="button"
+        class="analytics-faq-chip"
+        class:analytics-faq-chip--active={faqCategory === 'all'}
+        on:click={() => setFaqCategory('all')}>Все</button>
+      {#each ANALYTICS_QUESTION_CATEGORIES as cat (cat.id)}
+        <button
+          type="button"
+          class="analytics-faq-chip"
+          class:analytics-faq-chip--active={faqCategory === cat.id}
+          on:click={() => setFaqCategory(cat.id)}>{cat.label}</button>
+      {/each}
+    </div>
+    {#if filteredFaq.length === 0}
+      <p class="analytics-muted analytics-faq-empty">Ничего не нашлось — смени фильтр или поиск.</p>
+    {:else}
+      <ul class="analytics-faq-list">
+        {#each filteredFaq as item (item.id)}
+          <li class="analytics-faq-item">
+            <div class="analytics-faq-q-row">
+              <button
+                type="button"
+                class="analytics-faq-q"
+                aria-expanded={faqOpenId === item.id}
+                aria-controls="faq-a-{item.id}"
+                on:click={() => toggleFaq(item.id)}>
+                <span class="analytics-faq-q-text">{item.question}</span>
+                <span class="analytics-faq-chevron" aria-hidden="true">{faqOpenId === item.id ? '▼' : '▶'}</span>
+              </button>
+              {#if item.sourceRefs?.length}
+                <JournalSourceHint sourceIds={item.sourceRefs} />
+              {/if}
+            </div>
+            {#if faqOpenId === item.id}
+              <div class="analytics-faq-a" id="faq-a-{item.id}" role="region">
+                {#each item.answer as para}
+                  <p>{para}</p>
+                {/each}
+              </div>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </section>
+  {/if}
 </div>
 
 <style>
@@ -300,6 +636,143 @@
     margin: 0 auto;
     padding: 8px 4px 28px;
     box-sizing: border-box;
+  }
+  .analytics-tabbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 16px;
+    padding: 4px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg) 96%, var(--border));
+  }
+  .analytics-tab {
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: transparent;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 650;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition:
+      border-color 0.12s,
+      background 0.12s,
+      color 0.12s;
+  }
+  .analytics-tab:hover {
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+    color: var(--text-strong);
+  }
+  .analytics-tab--active {
+    border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+    color: var(--text-strong);
+  }
+  .analytics-subhead {
+    margin: 16px 0 8px;
+    font-size: 12px;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+  }
+  .analytics-table-wrap {
+    overflow-x: auto;
+    margin-top: 10px;
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+  }
+  .analytics-data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+  }
+  .analytics-data-table th,
+  .analytics-data-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+  }
+  .analytics-data-table th {
+    font-weight: 650;
+    color: var(--text-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .analytics-data-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+  .analytics-delta-pos {
+    color: var(--profit, #16a34a);
+    font-weight: 600;
+  }
+  .analytics-delta-neg {
+    color: var(--loss, #c44);
+    font-weight: 600;
+  }
+  .analytics-delta-bullets {
+    margin: 12px 0 0;
+    padding-left: 1.25rem;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
+  .analytics-delta-bullets li {
+    margin: 6px 0;
+  }
+  .analytics-mini-metrics--block {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .analytics-focus-card {
+    margin-top: 10px;
+    padding: 12px;
+    border-radius: 9px;
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+    background: color-mix(in srgb, var(--accent) 5%, var(--bg));
+  }
+  .analytics-focus-title {
+    margin: 0 0 8px;
+    font-size: 14px;
+    font-weight: 650;
+    color: var(--text-strong);
+    line-height: 1.4;
+  }
+  .analytics-focus-meta {
+    margin: 12px 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .analytics-badge-ok {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--profit, #16a34a) 18%, transparent);
+    color: var(--profit, #16a34a);
+  }
+  .analytics-badge-soft {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--warning, #d97706) 16%, transparent);
+    color: var(--warning, #d97706);
+  }
+  .analytics-subtab-lede .analytics-summary-text {
+    margin-top: 8px;
   }
   .analytics-hero {
     display: flex;

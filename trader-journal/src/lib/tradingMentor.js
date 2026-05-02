@@ -24,7 +24,7 @@ function manualAttachmentWindow(closedTrades, days) {
 }
 
 /** День считается «с дневником», если есть содержательная запись. */
-function dayJournalHasContent(entry) {
+export function dayJournalHasContent(entry) {
   if (!entry || typeof entry !== 'object') return false;
   const t = (s) => String(s || '').trim();
   if (t(entry.mood)) return true;
