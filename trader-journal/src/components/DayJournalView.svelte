@@ -6,6 +6,7 @@
     dayJournalChecklistTemplate,
     dayJournalSectionLabels
   } from '../lib/dayJournalChecklistTemplate';
+  import JournalSourceHint from './JournalSourceHint.svelte';
 
   const PAGE_SIZE = 10;
 
@@ -297,15 +298,18 @@
     <div class="dj-label">Чеклист перед / во время</div>
     <div class="dj-checks">
       {#each checklistItems as row (row.id)}
-        <label class="chk">
-          <input
-            type="checkbox"
-            checked={!!entry.checklist[row.id]}
-            on:change={(e) =>
-              dayJournal.patchDay(selectedKey, { checklist: { [row.id]: e.currentTarget.checked } })}
-          />
-          {row.label}
-        </label>
+        <div class="chk-row">
+          <label class="chk">
+            <input
+              type="checkbox"
+              checked={!!entry.checklist[row.id]}
+              on:change={(e) =>
+                dayJournal.patchDay(selectedKey, { checklist: { [row.id]: e.currentTarget.checked } })}
+            />
+            <span class="chk-lbl">{row.label}</span>
+          </label>
+          <JournalSourceHint sourceIds={row.sourceRefs || []} />
+        </div>
       {/each}
     </div>
   </section>
@@ -799,13 +803,32 @@
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 8px 12px;
   }
+  .chk-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    min-width: 0;
+  }
+  .chk-row .chk {
+    flex: 1;
+    min-width: 0;
+  }
   .chk {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
     font-size: 13px;
     cursor: pointer;
     color: var(--text);
+  }
+  .chk input {
+    margin-top: 3px;
+    flex-shrink: 0;
+  }
+  .chk-lbl {
+    flex: 1;
+    min-width: 0;
+    line-height: 1.4;
   }
   .dj-area {
     width: 100%;

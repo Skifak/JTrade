@@ -1,5 +1,6 @@
 /**
  * Шаблон пунктов чеклиста дневника (порядок и подписи).
+ * Новые пункты по умолчанию подтягиваются после «Сбросить чеклист по умолчанию» в настройках дневника.
  */
 import { writable } from 'svelte/store';
 import { v4 as uuidv4 } from 'uuid';
@@ -13,7 +14,67 @@ export const DEFAULT_CHECKLIST_ITEMS = [
   { id: 'bias', label: 'HTF bias понятен' },
   { id: 'killzone', label: 'В своей killzone' },
   { id: 'riskPlan', label: 'Риск / SL / объём по плану' },
-  { id: 'noRevenge', label: 'Не revenge после стопа' }
+  { id: 'noRevenge', label: 'Не revenge после стопа' },
+  {
+    id: 'weekendLiquidity',
+    label: 'Выходные / тонкий рынок: не разгоняю риск без повода',
+    sourceRefs: ['chunk-crypto-weekend']
+  },
+  {
+    id: 'dxyOrMacro',
+    label: 'Сверился с контекстом USD (DXY) под свою идею',
+    sourceRefs: ['chunk-dxy-risk']
+  },
+  {
+    id: 'newsCalm',
+    label: 'В окне сильных новостей не торгую хаос без правила',
+    sourceRefs: ['chunk-news-offtable', 'chunk-uncertain-regime']
+  },
+  {
+    id: 'htfFirst',
+    label: 'Контекст на старшем ТФ есть; младший не заменяет ТЗ',
+    sourceRefs: ['chunk-htf-context']
+  },
+  {
+    id: 'confirmRules',
+    label: 'Есть подтверждение входа по своей системе',
+    sourceRefs: ['chunk-entry-confirm']
+  },
+  {
+    id: 'alertsNotStare',
+    label: 'Не залипаю в график — алерты / перерывы',
+    sourceRefs: ['chunk-chart-fatigue']
+  },
+  {
+    id: 'partialPlan',
+    label: 'Частичная фиксация / цели согласованы с планом',
+    sourceRefs: ['chunk-partial-take']
+  },
+  {
+    id: 'invalidateOk',
+    label: 'Готов отменить сценарий, если логика сломалась',
+    sourceRefs: ['chunk-scenario-cancel']
+  },
+  {
+    id: 'stopLogic',
+    label: 'Стоп там, где ломается тезис; не двигаю из надежды',
+    sourceRefs: ['chunk-risk-not-guess']
+  },
+  {
+    id: 'noGamblingToday',
+    label: 'Нет входа «от скуки» и мониторинга только баланса',
+    sourceRefs: ['chunk-gambling-markers']
+  },
+  {
+    id: 'noFomoChase',
+    label: 'Упущенное движение без сигнала не тянет меня в догон',
+    sourceRefs: ['chunk-fomo-discipline', 'chunk-patience-flat']
+  },
+  {
+    id: 'bodyReady',
+    label: 'Сон и состояние позволяют принимать решения спокойно',
+    sourceRefs: ['chunk-body-readiness']
+  }
 ];
 
 function normalizeItem(raw) {
@@ -21,7 +82,12 @@ function normalizeItem(raw) {
   const id = String(raw.id || '').trim();
   const label = String(raw.label || '').trim();
   if (!id || !label) return null;
-  return { id, label };
+  const out = { id, label };
+  if (Array.isArray(raw.sourceRefs)) {
+    const refs = raw.sourceRefs.map((x) => String(x).trim()).filter(Boolean);
+    if (refs.length) out.sourceRefs = refs;
+  }
+  return out;
 }
 
 function load() {

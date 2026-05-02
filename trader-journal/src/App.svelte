@@ -33,6 +33,7 @@
   import Toasts from './components/Toasts.svelte';
   import RiskHud from './components/RiskHud.svelte';
   import DailyReviewModal from './components/DailyReviewModal.svelte';
+  import AnalyticsView from './components/AnalyticsView.svelte';
   import GuideView from './components/GuideView.svelte';
   import BiasModal from './components/BiasModal.svelte';
   import PlaybookView from './components/PlaybookView.svelte';
@@ -412,6 +413,9 @@
     <button class="tab {activeTab === 'stats' ? 'active' : ''}" on:click={() => activeTab = 'stats'}>
       Статистика
     </button>
+    <button class="tab {activeTab === 'analytics' ? 'active' : ''}" on:click={() => activeTab = 'analytics'}>
+      Аналитика
+    </button>
     <button class="tab {activeTab === 'journal' ? 'active' : ''}" on:click={() => activeTab = 'journal'}>
       Дневник
     </button>
@@ -714,6 +718,8 @@
     </div>
   {:else if activeTab === 'stats'}
     <Statistics stats={stats} {closedTrades} initialCapital={Number($userProfile?.initialCapital) || 0} currency={$userProfile?.accountCurrency || 'USD'} />
+  {:else if activeTab === 'analytics'}
+    <AnalyticsView on:openJournal={() => (activeTab = 'journal')} />
   {:else if activeTab === 'journal'}
     <DayJournalView />
   {:else if activeTab === 'glossary'}
