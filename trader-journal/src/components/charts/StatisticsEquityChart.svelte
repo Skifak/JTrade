@@ -10,8 +10,20 @@
   export let initialCapital = 0;
 
   let canvas;
+  /** @type {HTMLElement | undefined} */
+  let hostEl;
   /** @type {Chart | null} */
   let chart = null;
+
+  /** Зум по оси X (timestamp ms); оба null — весь диапазон */
+  let zoomXMin = /** @type {number | null} */ (null);
+  let zoomXMax = /** @type {number | null} */ (null);
+
+  let lastDataSig = '';
+
+  let selecting = false;
+  let brushX0 = /** @type {number | null} */ (null);
+  let brushX1 = /** @type {number | null} */ (null);
 
   function tsLabel(ts) {
     return formatDate(ts, 'DD.MM');
@@ -47,15 +59,66 @@
     return out;
   }
 
+  function currentDataSig() {
+    if (!series?.length) return '';
+    const a = series[0];
+    const b = series[series.length - 1];
+    return `${series.length}_${a.ts}_${b.ts}_${disciplinedOnly}_${initialCapital}`;
+  }
+
+  function eventToCanvasPixelX(/** @type {PointerEvent} */ e) {
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    return (e.clientX - rect.left) * scaleX;
+  }
+
+  function clampBrushX(px) {
+    if (!chart) return px;
+    const ca = chart.chartArea;
+    if (!ca) return px;
+    return Math.max(ca.left, Math.min(ca.right, px));
+  }
+
+  $: brushOverlay =
+    selecting &&
+    brushX0 != null &&
+    brushX1 != null &&
+    canvas &&
+    hostEl &&
+    chart
+      ? (() => {
+          const rect = canvas.getBoundingClientRect();
+          const hostRect = hostEl.getBoundingClientRect();
+          const scaleCss = rect.width / canvas.width;
+          const x1 = Math.min(brushX0, brushX1);
+          const x2 = Math.max(brushX0, brushX1);
+          const leftCanvasCss = x1 * scaleCss;
+          const widthCss = Math.max(0, (x2 - x1) * scaleCss);
+          const leftHost = rect.left - hostRect.left + leftCanvasCss;
+          return {
+            left: leftHost,
+            width: widthCss,
+            height: hostRect.height
+          };
+        })()
+      : null;
+
   function rebuild() {
     ensureChartRegistered();
     if (!canvas) return;
     if (!series?.length) {
       chart?.destroy();
       chart = null;
+      zoomXMin = zoomXMax = null;
       return;
     }
 
+    const sig = currentDataSig();
+    if (lastDataSig !== '' && sig !== lastDataSig) {
+      zoomXMin = zoomXMax = null;
+    }
+    lastDataSig = sig;
     const palette = getChartPalette();
     const activeKey = disciplinedOnly ? 'disciplined' : 'real';
     const expanded = expandWithCrossings(activeKey, initialCapital);
@@ -66,7 +129,8 @@
     const firstTs = expanded[0].x;
     const lastTs = expanded[expanded.length - 1].x;
 
-    const rowLabel = disciplinedOnly ? 'Disciplined' : 'Реальный equity';
+    /** Одна строка тултипа; dataset.label пустой — без дубля от Chart.js */
+    const equityTooltipLabel = disciplinedOnly ? 'disciplined' : 'реальный equity';
 
     const cfg = {
       type: 'line',
@@ -118,7 +182,7 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
+        interaction: { mode: 'index', intersect: false, axis: 'x' },
         plugins: {
           legend: { display: false },
           tooltip: {
@@ -137,7 +201,7 @@
                 const dy =
                   (typeof dl?.y === 'number' ? dl.y : 0) + (typeof dg?.y === 'number' ? dg.y : 0);
                 const eq = dy + initialCapital;
-                return `${rowLabel}: ${formatNumber(eq, 2)}`;
+                return `${equityTooltipLabel}: ${formatNumber(eq, 2)}`;
               },
               footer(items) {
                 if (!items.length) return '';
@@ -163,7 +227,7 @@
                   backgroundColor: col
                 };
               },
-              filter(item) {
+              filter(item, index, tooltipItems) {
                 if (item.datasetIndex === 2) return false;
                 const c = item.chart;
                 const idx = item.dataIndex;
@@ -171,8 +235,15 @@
                 const dg = c.data.datasets[1].data[idx];
                 const dy =
                   (typeof dl?.y === 'number' ? dl.y : 0) + (typeof dg?.y === 'number' ? dg.y : 0);
-                if (dy >= 0) return item.datasetIndex === 1;
-                return item.datasetIndex === 0;
+                const wantDs = dy >= 0 ? 1 : 0;
+                if (item.datasetIndex !== wantDs) return false;
+                const firstEq = tooltipItems.findIndex(
+                  (t) =>
+                    t.datasetIndex !== 2 &&
+                    (t.datasetIndex === 0 || t.datasetIndex === 1) &&
+                    t.dataIndex === idx
+                );
+                return index === firstEq;
               }
             }
           }
@@ -208,22 +279,140 @@
       }
     };
 
+    if (zoomXMin != null && zoomXMax != null && zoomXMin < zoomXMax) {
+      cfg.options.scales.x.min = zoomXMin;
+      cfg.options.scales.x.max = zoomXMax;
+    }
+
     if (chart) {
       chart.destroy();
       chart = null;
     }
     chart = new Chart(canvas, cfg);
+
+    if (zoomXMin != null && zoomXMax != null && zoomXMin < zoomXMax) {
+      chart.options.scales.x.min = zoomXMin;
+      chart.options.scales.x.max = zoomXMax;
+      chart.update('none');
+    }
+  }
+
+  function resetZoom() {
+    zoomXMin = zoomXMax = null;
+    if (!chart) return;
+    const xs = chart.options.scales.x;
+    delete xs.min;
+    delete xs.max;
+    chart.update('none');
+  }
+
+  function endBrushTracking() {
+    window.removeEventListener('pointermove', onBrushMove);
+    window.removeEventListener('pointerup', onBrushEnd);
+    window.removeEventListener('pointercancel', onBrushEnd);
+  }
+
+  function onBrushMove(/** @type {PointerEvent} */ e) {
+    const px = eventToCanvasPixelX(e);
+    if (px == null || brushX0 == null) return;
+    brushX1 = clampBrushX(px);
+  }
+
+  function onBrushEnd(/** @type {PointerEvent} */ e) {
+    endBrushTracking();
+
+    try {
+      if (canvas && e?.pointerId != null) canvas.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    const xScale = chart?.scales?.x;
+    const ca = chart?.chartArea;
+    if (!chart || !xScale || !ca || brushX0 == null || brushX1 == null) {
+      selecting = false;
+      brushX0 = brushX1 = null;
+      return;
+    }
+
+    const raw0 = clampBrushX(brushX0);
+    const raw1 = clampBrushX(brushX1);
+    const lo = Math.min(raw0, raw1);
+    const hi = Math.max(raw0, raw1);
+
+    selecting = false;
+    brushX0 = brushX1 = null;
+
+    if (hi - lo < 6) return;
+
+    const v0 = xScale.getValueForPixel(lo);
+    const v1 = xScale.getValueForPixel(hi);
+    const mn = Math.min(v0, v1);
+    const mx = Math.max(v0, v1);
+    if (mx - mn < 60 * 1000) return;
+
+    zoomXMin = mn;
+    zoomXMax = mx;
+    chart.options.scales.x.min = mn;
+    chart.options.scales.x.max = mx;
+    chart.update('none');
+  }
+
+  function onHostPointerDown(/** @type {PointerEvent} */ e) {
+    if (e.button !== 0 || !chart) return;
+    const el = /** @type {HTMLElement} */ (e.target);
+    if (el.closest('.equity-zoom-reset')) return;
+
+    const px = eventToCanvasPixelX(e);
+    if (px == null) return;
+
+    selecting = true;
+    brushX0 = clampBrushX(px);
+    brushX1 = brushX0;
+
+    window.addEventListener('pointermove', onBrushMove);
+    window.addEventListener('pointerup', onBrushEnd);
+    window.addEventListener('pointercancel', onBrushEnd);
+
+    try {
+      canvas?.setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+
+    e.preventDefault();
   }
 
   $: series, disciplinedOnly, initialCapital, canvas, rebuild();
 
   onDestroy(() => {
+    endBrushTracking();
     chart?.destroy();
     chart = null;
   });
 </script>
 
-<div class="equity-chart-host">
+<div
+  class="equity-chart-host"
+  class:equity-chart-host--selecting={selecting}
+  bind:this={hostEl}
+  on:pointerdown={onHostPointerDown}
+  role="presentation"
+>
+  {#if zoomXMin != null && zoomXMax != null}
+    <button type="button" class="equity-zoom-reset" on:click|stopPropagation={resetZoom}>
+      Весь период
+    </button>
+  {/if}
+
+  {#if brushOverlay}
+    <div
+      class="equity-brush"
+      style:left="{brushOverlay.left}px"
+      style:width="{brushOverlay.width}px"
+      style:height="{brushOverlay.height}px"
+    ></div>
+  {/if}
+
   <canvas bind:this={canvas} aria-label="Equity curve"></canvas>
 </div>
 
@@ -233,5 +422,49 @@
     width: 100%;
     min-width: 0;
     height: 240px;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .equity-chart-host--selecting {
+    cursor: crosshair;
+  }
+
+  .equity-zoom-reset {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    z-index: 4;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid var(--border, #334155);
+    border-radius: 4px;
+    background: var(--bg-2, #1e293b);
+    color: var(--text, #e2e8f0);
+    cursor: pointer;
+  }
+
+  .equity-zoom-reset:hover {
+    border-color: var(--accent-border, #38bdf8);
+    color: var(--text-strong, #fff);
+  }
+
+  .equity-brush {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 3;
+    pointer-events: none;
+    box-sizing: border-box;
+    border-left: 2px solid #0369a1;
+    border-right: 2px solid #0369a1;
+    background: rgba(56, 189, 248, 0.28);
+  }
+
+  .equity-chart-host canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
   }
 </style>
