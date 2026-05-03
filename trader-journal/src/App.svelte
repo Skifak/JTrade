@@ -356,17 +356,18 @@
       </div>
     </div>
     <div class="header-right">
-      <div class="theme-switch" role="group" aria-label="Тема оформления">
-        {#each THEMES as t}
-          <button
-            type="button"
-            class:active={$theme === t.id}
-            on:click={() => theme.set(t.id)}
-            title={t.label}
-          >
-            {t.short}
-          </button>
-        {/each}
+      <div class="theme-switch">
+        <label class="theme-switch-label" for="app-theme-select">Тема</label>
+        <select
+          id="app-theme-select"
+          class="theme-select"
+          value={$theme}
+          on:change={(e) => theme.set(e.currentTarget.value)}
+        >
+          {#each THEMES as t (t.id)}
+            <option value={t.id}>{t.label}</option>
+          {/each}
+        </select>
       </div>
       <div class="btn-group">
         <button
