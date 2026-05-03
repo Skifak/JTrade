@@ -17,6 +17,36 @@
     return formatDate(ts, 'DD.MM');
   }
 
+  /**
+   * Точки { x, delta }, delta = equity − initialCapital.
+   * Вставка пересечения с нулём между соседями (линейно по x и Δ).
+   */
+  function expandWithCrossings(activeKey, ic) {
+    const basic = series.map((p) => ({
+      x: p.ts,
+      delta: Number(p[activeKey]) - ic
+    }));
+    const out = [];
+    for (let i = 0; i < basic.length; i++) {
+      out.push(basic[i]);
+      if (i < basic.length - 1) {
+        const a = basic[i];
+        const b = basic[i + 1];
+        const da = a.delta;
+        const db = b.delta;
+        if (da !== 0 && db !== 0 && (da > 0) !== (db > 0)) {
+          const t = (0 - da) / (db - da);
+          if (t > 0 && t < 1) {
+            const xCross = a.x + t * (b.x - a.x);
+            out.push({ x: xCross, delta: 0 });
+          }
+        }
+      }
+    }
+    out.sort((u, v) => u.x - v.x);
+    return out;
+  }
+
   function rebuild() {
     ensureChartRegistered();
     if (!canvas) return;
@@ -28,42 +58,60 @@
 
     const palette = getChartPalette();
     const activeKey = disciplinedOnly ? 'disciplined' : 'real';
-    const stroke = disciplinedOnly ? palette.profit : palette.loss;
-    const fill = hexToRgbA(stroke, 0.18);
+    const expanded = expandWithCrossings(activeKey, initialCapital);
 
-    const pts = series.map((p) => ({ x: p.ts, y: p[activeKey] }));
-    const firstTs = series[0].ts;
-    const lastTs = series[series.length - 1].ts;
+    const lossData = expanded.map((p) => ({ x: p.x, y: Math.min(0, p.delta) }));
+    const gainData = expanded.map((p) => ({ x: p.x, y: Math.max(0, p.delta) }));
+
+    const firstTs = expanded[0].x;
+    const lastTs = expanded[expanded.length - 1].x;
+
+    const rowLabel = disciplinedOnly ? 'Disciplined' : 'Реальный equity';
 
     const cfg = {
       type: 'line',
       data: {
         datasets: [
           {
-            label: disciplinedOnly ? 'Disciplined' : 'Реальный equity',
-            data: pts,
+            label: '',
+            data: lossData,
             parsing: false,
-            borderColor: stroke,
-            backgroundColor: fill,
-            fill: true,
-            tension: 0.22,
+            borderColor: palette.loss,
+            backgroundColor: hexToRgbA(palette.loss, 0.22),
+            fill: 'origin',
+            tension: 0,
             pointRadius: 0,
             pointHoverRadius: 4,
-            borderWidth: 2
+            borderWidth: 2,
+            order: 1
+          },
+          {
+            label: '',
+            data: gainData,
+            parsing: false,
+            borderColor: palette.profit,
+            backgroundColor: hexToRgbA(palette.profit, 0.22),
+            fill: 'origin',
+            tension: 0,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            borderWidth: 2,
+            order: 2
           },
           {
             label: 'Стартовый капитал',
             data: [
-              { x: firstTs, y: initialCapital },
-              { x: lastTs, y: initialCapital }
+              { x: firstTs, y: 0 },
+              { x: lastTs, y: 0 }
             ],
             parsing: false,
             borderColor: palette.textMuted,
             backgroundColor: 'transparent',
-            borderDash: [5, 5],
+            borderDash: [6, 5],
             fill: false,
             pointRadius: 0,
-            borderWidth: 1
+            borderWidth: 1,
+            order: 3
           }
         ]
       },
@@ -74,6 +122,7 @@
         plugins: {
           legend: { display: false },
           tooltip: {
+            displayColors: true,
             callbacks: {
               title(items) {
                 const raw = items[0]?.raw;
@@ -81,13 +130,48 @@
                 return ts != null ? formatDate(ts, 'DD.MM.YYYY HH:mm') : '';
               },
               label(item) {
-                if (item.datasetIndex === 1) return null;
-                const y = item.parsed?.y;
-                if (y == null || !Number.isFinite(y)) return '';
-                const sign = y >= 0 ? '' : '';
-                return `${sign}${formatNumber(y, 2)}`;
+                const c = item.chart;
+                const idx = item.dataIndex;
+                const dl = c.data.datasets[0].data[idx];
+                const dg = c.data.datasets[1].data[idx];
+                const dy =
+                  (typeof dl?.y === 'number' ? dl.y : 0) + (typeof dg?.y === 'number' ? dg.y : 0);
+                const eq = dy + initialCapital;
+                return `${rowLabel}: ${formatNumber(eq, 2)}`;
+              },
+              footer(items) {
+                if (!items.length) return '';
+                const it = items[0];
+                const c = it.chart;
+                const idx = it.dataIndex;
+                const dl = c.data.datasets[0].data[idx];
+                const dg = c.data.datasets[1].data[idx];
+                const dy =
+                  (typeof dl?.y === 'number' ? dl.y : 0) + (typeof dg?.y === 'number' ? dg.y : 0);
+                return `От старта: ${dy >= 0 ? '+' : ''}${formatNumber(dy, 2)}`;
+              },
+              labelColor(context) {
+                const c = context.chart;
+                const idx = context.dataIndex;
+                const dl = c.data.datasets[0].data[idx];
+                const dg = c.data.datasets[1].data[idx];
+                const dy =
+                  (typeof dl?.y === 'number' ? dl.y : 0) + (typeof dg?.y === 'number' ? dg.y : 0);
+                const col = dy >= 0 ? palette.profit : palette.loss;
+                return {
+                  borderColor: col,
+                  backgroundColor: col
+                };
               },
               filter(item) {
+                if (item.datasetIndex === 2) return false;
+                const c = item.chart;
+                const idx = item.dataIndex;
+                const dl = c.data.datasets[0].data[idx];
+                const dg = c.data.datasets[1].data[idx];
+                const dy =
+                  (typeof dl?.y === 'number' ? dl.y : 0) + (typeof dg?.y === 'number' ? dg.y : 0);
+                if (dy >= 0) return item.datasetIndex === 1;
                 return item.datasetIndex === 0;
               }
             }
@@ -107,11 +191,16 @@
             }
           },
           y: {
-            grid: { color: palette.border },
+            grid: {
+              color: (ctx) =>
+                ctx.tick?.value === 0 ? palette.textMuted : palette.border,
+              lineWidth: (ctx) => (ctx.tick?.value === 0 ? 1.5 : 1)
+            },
             ticks: {
               color: palette.textMuted,
               callback(v) {
-                return formatNumber(Number(v), 0);
+                const n = Number(v);
+                return formatNumber(n + initialCapital, 0);
               }
             }
           }
