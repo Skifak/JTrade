@@ -21,8 +21,17 @@
     computeContextHeatmaps,
     experimentLabelForKey,
     journalPnLDailyBars,
-    shortIsoWeekLabel
+    shortIsoWeekLabel,
+    rollupIsoWeek,
+    evaluateWeeklyExperimentOutcome,
+    experimentMetricHint,
+    experimentLongDescription,
+    closedTradesForIsoWeek
   } from '../lib/analyticsInsights.js';
+  import {
+    pushWeeklyExperimentHistory,
+    loadWeeklyExperimentHistory
+  } from '../lib/weeklyExperimentHistory.js';
   import {
     ANALYTICS_QUESTION_CATEGORIES,
     filterAnalyticsQuestions
@@ -111,7 +120,7 @@
     })) ?? [];
   $: weeklyPick = pickWeeklyExperiment(wow, journal28, playbookEdge);
 
-  function reconcileWeeklyExp(weekKeyNow, suggestion, loaded) {
+  function reconcileWeeklyExp(weekKeyNow, suggestion, loaded, closedTradesList, dayJournalMap, profitOfFn) {
     const base =
       loaded && typeof loaded === 'object'
         ? {
@@ -120,6 +129,27 @@
             committed: !!loaded.committed
           }
         : null;
+
+    if (
+      base?.committed &&
+      base.weekKey &&
+      base.weekKey !== weekKeyNow
+    ) {
+      const rollup = rollupIsoWeek(closedTradesList, base.weekKey, profitOfFn, dayJournalMap);
+      const tradesPast = closedTradesForIsoWeek(closedTradesList, base.weekKey, profitOfFn);
+      const outcome = evaluateWeeklyExperimentOutcome(base.experimentKey, rollup, {
+        tradesInWeek: tradesPast,
+        dayJournalMap,
+        profitOf: profitOfFn
+      });
+      pushWeeklyExperimentHistory({
+        weekKey: base.weekKey,
+        experimentKey: base.experimentKey,
+        archivedAt: new Date().toISOString(),
+        rollup: rollup || {},
+        outcome
+      });
+    }
 
     if (!base || base.weekKey !== weekKeyNow) {
       const next = { weekKey: weekKeyNow, experimentKey: suggestion.experimentKey, committed: false };
@@ -137,8 +167,31 @@
   $: weeklyExpStored = reconcileWeeklyExp(
     isoWeekKey(new Date()),
     weeklyPick,
-    loadAccountData(WEEK_EXP_KEY, null)
+    loadAccountData(WEEK_EXP_KEY, null),
+    closedTrades,
+    $dayJournal,
+    profitOf
   );
+
+  $: weeklyFocusHistory = (weeklyExpStored, loadWeeklyExperimentHistory());
+
+  $: activeExperimentKey =
+    weeklyExpStored?.committed ? weeklyExpStored.experimentKey : weeklyPick.experimentKey;
+  $: currentWeekRollup = rollupIsoWeek(closedTrades, isoWeekKey(new Date()), profitOf, $dayJournal);
+  $: tradesCurrentIsoWeek = closedTradesForIsoWeek(closedTrades, isoWeekKey(new Date()), profitOf);
+  $: currentWeekOutcome = evaluateWeeklyExperimentOutcome(activeExperimentKey, currentWeekRollup, {
+    tradesInWeek: tradesCurrentIsoWeek,
+    dayJournalMap: $dayJournal,
+    wow,
+    profitOf
+  });
+
+  function verdictRu(v) {
+    if (v === 'up') return '↑ лучше ожиданий';
+    if (v === 'flat') return '≈ нейтрально';
+    if (v === 'down') return '↓ слабее ожиданий';
+    return 'Вручную';
+  }
 
   function commitWeeklyExperiment() {
     const next = {
@@ -325,10 +378,7 @@
     <section class="analytics-section">
       <h3 class="analytics-section-title">База советов</h3>
       <p class="analytics-section-lede">
-        Релевантные записи по темам активных маяков. Исходные формулировки из базы — иконка ⓘ у заголовка. Расширение:
-        <code class="analytics-inline-code">src/lib/adviceCorpus.js</code>
-        или
-        <code class="analytics-inline-code">localStorage['adviceCorpusExtension_v1']</code>.
+        Подборка текстов по темам активных маяков. Источник и цитаты — по иконке ⓘ у заголовка карточки.
       </p>
       <div class="analytics-advice">
         {#each pack.advicePick as item (item.id)}
@@ -479,7 +529,7 @@
   <section class="analytics-card">
     <h3 class="analytics-section-title analytics-section-title--tight">Фокус недели</h3>
     <p class="analytics-section-lede analytics-section-lede--tight">
-      Один процессный эксперимент на календарную ISO-неделю ({weeklyExpStored?.weekKey}). Сохраняется в ключе аккаунта «analyticsWeeklyExperiment_v1».
+      Один процессный приоритет на текущую календарную неделю ({weeklyExpStored?.weekKey}). Выбор сохраняется вместе с данными активного счёта и переживает перезапуск приложения.
     </p>
     <div class="analytics-focus-card">
       <p class="analytics-focus-title">
@@ -487,9 +537,64 @@
           weeklyExpStored?.committed ? weeklyExpStored.experimentKey : weeklyPick.experimentKey
         )}
       </p>
-      <p class="analytics-muted">{weeklyPick.rationale}</p>
+      <div class="analytics-focus-description">{experimentLongDescription(activeExperimentKey)}</div>
+      {#if experimentMetricHint(activeExperimentKey)}
+        <p class="analytics-focus-metric"><strong>Метрика успеха:</strong> {experimentMetricHint(activeExperimentKey)}</p>
+      {/if}
+      {#if currentWeekRollup && currentWeekOutcome}
+        <div class="analytics-focus-preview">
+          <div class="analytics-focus-preview-head">
+            Текущая неделя ({shortIsoWeekLabel(currentWeekRollup.weekKey)}) — черновая оценка
+            <span class="analytics-verdict-badge">{verdictRu(currentWeekOutcome.verdict)}</span>
+          </div>
+          {#if currentWeekOutcome.progress}
+            <div class="analytics-focus-progress" aria-label="Прогресс по фокусу недели">
+              <div class="analytics-focus-progress-caption">{currentWeekOutcome.progress.caption}</div>
+              <div class="analytics-focus-progress-row">
+                <div
+                  class="analytics-focus-progress-track"
+                  role="progressbar"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-valuenow={currentWeekOutcome.progress.pct != null
+                    ? Math.round(currentWeekOutcome.progress.pct)
+                    : undefined}
+                  aria-valuetext={currentWeekOutcome.progress.pct != null
+                    ? `${Math.round(currentWeekOutcome.progress.pct)} процентов`
+                    : currentWeekOutcome.progress.caption}>
+                  {#if currentWeekOutcome.progress.pct != null}
+                    <div
+                      class="analytics-focus-progress-fill analytics-focus-progress-fill--{currentWeekOutcome.verdict}"
+                      style="width: {Math.min(100, Math.max(0, currentWeekOutcome.progress.pct))}%"></div>
+                  {:else}
+                    <div class="analytics-focus-progress-fill analytics-focus-progress-fill--na"></div>
+                  {/if}
+                </div>
+                {#if currentWeekOutcome.progress.pct != null}
+                  <span class="analytics-focus-progress-value"
+                    >{Math.round(currentWeekOutcome.progress.pct)}%</span>
+                {:else}
+                  <span class="analytics-focus-progress-value analytics-focus-progress-value--muted">—</span>
+                {/if}
+              </div>
+            </div>
+          {/if}
+          {#if currentWeekOutcome.lines?.length}
+            <ul class="analytics-focus-preview-lines">
+              {#each currentWeekOutcome.lines as ln, li (li)}
+                <li>{ln}</li>
+              {/each}
+            </ul>
+          {/if}
+          <p class="analytics-muted analytics-focus-preview-note">
+            Закр.: {currentWeekRollup.trades} · дн. дневника: {currentWeekRollup.journalDays} · PnL окна: {currentWeekRollup.pnl.toFixed(2)}
+            {analyticsCurrency}
+          </p>
+        </div>
+      {/if}
       <p class="analytics-focus-meta">
-        Активный ключ в хранилище: <code class="analytics-inline-code">{weeklyExpStored?.experimentKey}</code>
+        Сейчас выбран фокус:
+        <strong>{experimentLabelForKey(weeklyExpStored?.experimentKey || activeExperimentKey)}</strong>
         {#if weeklyExpStored?.committed}
           <span class="analytics-badge-ok">зафиксировано на неделю</span>
         {:else}
@@ -504,6 +609,60 @@
         {weeklyExpStored?.committed ? 'Уже принято' : 'Принять фокус на эту неделю'}
       </button>
     </div>
+
+    {#if weeklyFocusHistory.length > 0}
+      <h4 class="analytics-subhead" style="margin-top: 18px;">История принятых фокусов</h4>
+      <p class="analytics-muted analytics-section-lede--tight">
+        Запись появляется, когда ты принял фокус на одну неделю, та неделя закончилась и началась следующая — итог тогда архивируется сюда.
+      </p>
+      <div class="analytics-table-wrap">
+        <table class="analytics-data-table analytics-focus-hist-table">
+          <thead>
+            <tr>
+              <th>Неделя</th>
+              <th>Эксперимент</th>
+              <th>Итог</th>
+              <th>Сводка</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each weeklyFocusHistory as row, ri (row.archivedAt + row.weekKey + ri)}
+              <tr>
+                <td><code class="analytics-inline-code">{shortIsoWeekLabel(row.weekKey)}</code></td>
+                <td>{experimentLabelForKey(row.experimentKey)}</td>
+                <td>
+                  <div class="analytics-focus-hist-verdict">{verdictRu(row.outcome?.verdict)}</div>
+                  {#if row.outcome?.progress && row.outcome.progress.pct != null}
+                    <div
+                      class="analytics-focus-hist-bar"
+                      role="img"
+                      aria-label={'Прогресс ' + Math.round(row.outcome.progress.pct) + '%'}>
+                      <span
+                        class="analytics-focus-hist-bar-fill analytics-focus-progress-fill--{row.outcome.verdict}"
+                        style="width: {Math.min(100, Math.max(0, row.outcome.progress.pct))}%"></span>
+                    </div>
+                  {/if}
+                </td>
+                <td class="analytics-focus-hist-detail">
+                  {#if row.rollup && row.rollup.trades != null}
+                    n={row.rollup.trades}, журн. дн.={row.rollup.journalDays ?? '—'}, PnL={Number(row.rollup.pnl || 0).toFixed(2)}
+                  {:else}
+                    —
+                  {/if}
+                  {#if row.outcome?.lines?.length}
+                    <ul class="analytics-focus-hist-ul">
+                      {#each row.outcome.lines as hl, hi (hi)}
+                        <li>{hl}</li>
+                      {/each}
+                    </ul>
+                  {/if}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
   </section>
 
   {:else if analyticsTab === 'journal_pnl'}
@@ -875,6 +1034,153 @@
     border-radius: 999px;
     background: color-mix(in srgb, var(--warning, #d97706) 16%, transparent);
     color: var(--warning, #d97706);
+  }
+  .analytics-focus-description {
+    margin: 0 0 10px;
+    font-size: 13px;
+    line-height: 1.52;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+  }
+  .analytics-focus-metric {
+    margin: 10px 0 0;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--text);
+  }
+  .analytics-focus-preview {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px dashed color-mix(in srgb, var(--accent) 40%, var(--border));
+    background: color-mix(in srgb, var(--bg) 97%, var(--border));
+  }
+  .analytics-focus-preview-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 650;
+    color: var(--text-strong);
+  }
+  .analytics-focus-progress {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  }
+  .analytics-focus-progress-caption {
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+  .analytics-focus-progress-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .analytics-focus-progress-track {
+    flex: 1;
+    min-width: 0;
+    height: 9px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--border) 55%, var(--bg));
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  }
+  .analytics-focus-progress-fill {
+    height: 100%;
+    border-radius: inherit;
+    transition: width 0.25s ease;
+  }
+  .analytics-focus-progress-fill--up {
+    background: color-mix(in srgb, #1d8f4a 82%, var(--accent));
+  }
+  .analytics-focus-progress-fill--flat {
+    background: color-mix(in srgb, var(--warning) 75%, var(--accent));
+  }
+  .analytics-focus-progress-fill--down {
+    background: color-mix(in srgb, var(--stance-warn, var(--warning)) 85%, #a31f1f);
+  }
+  .analytics-focus-progress-fill--manual {
+    background: color-mix(in srgb, var(--accent) 55%, var(--border));
+  }
+  .analytics-focus-progress-fill--na {
+    width: 100% !important;
+    background: repeating-linear-gradient(
+      -12deg,
+      color-mix(in srgb, var(--border) 70%, transparent),
+      color-mix(in srgb, var(--border) 70%, transparent) 6px,
+      color-mix(in srgb, var(--bg) 92%, var(--border)) 6px,
+      color-mix(in srgb, var(--bg) 92%, var(--border)) 12px
+    );
+  }
+  .analytics-focus-progress-value {
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 750;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-strong);
+    min-width: 2.5rem;
+    text-align: right;
+  }
+  .analytics-focus-progress-value--muted {
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+  .analytics-focus-hist-verdict {
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+  .analytics-focus-hist-bar {
+    display: block;
+    height: 5px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--border) 55%, var(--bg));
+    overflow: hidden;
+    max-width: 120px;
+  }
+  .analytics-focus-hist-bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+  }
+  .analytics-verdict-badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--text-muted);
+  }
+  .analytics-focus-preview-lines {
+    margin: 8px 0 0;
+    padding-left: 1.15rem;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--text-muted);
+  }
+  .analytics-focus-preview-lines li {
+    margin: 4px 0;
+  }
+  .analytics-focus-preview-note {
+    margin: 8px 0 0;
+    font-size: 11.5px;
+  }
+  .analytics-focus-hist-table td.analytics-focus-hist-detail {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    max-width: 320px;
+  }
+  .analytics-focus-hist-ul {
+    margin: 6px 0 0;
+    padding-left: 1rem;
+    font-size: 11px;
+    line-height: 1.4;
+  }
+  .analytics-focus-hist-ul li {
+    margin: 3px 0;
   }
   .analytics-subtab-lede .analytics-summary-text {
     margin-top: 8px;

@@ -42,7 +42,9 @@
     notes: '',
     cooldownAfterLossMin: 0,
     streakScalingEnabled: false,
-    dailyReviewEnabled: true
+    dailyReviewEnabled: true,
+    journalDayReminderEnabled: true,
+    journalDayReminderHourLocal: 21
   };
   let wasOpen = false;
   /** id счёта, под который синхронизирован formData — защита от записи профиля A в ключ счёта B */
@@ -140,7 +142,13 @@
       commissionPerLot: Number(formData.commissionPerLot) || 0,
       cooldownAfterLossMin: Number(formData.cooldownAfterLossMin) || 0,
       streakScalingEnabled: !!formData.streakScalingEnabled,
-      dailyReviewEnabled: !!formData.dailyReviewEnabled
+      dailyReviewEnabled: !!formData.dailyReviewEnabled,
+      journalDayReminderEnabled: !!formData.journalDayReminderEnabled,
+      journalDayReminderHourLocal: (() => {
+        const h = Number(formData.journalDayReminderHourLocal);
+        const x = Number.isFinite(h) ? Math.floor(h) : 21;
+        return Math.max(0, Math.min(23, x));
+      })()
     });
     closeModal();
   }
@@ -397,6 +405,25 @@
             <input type="checkbox" bind:checked={formData.dailyReviewEnabled} />
             <span>Напоминание «закрой день при цели»</span>
           </label>
+          <label class="checkbox-row">
+            <input type="checkbox" bind:checked={formData.journalDayReminderEnabled} />
+            <span>Напоминание закрыть день в дневнике</span>
+          </label>
+          <div class="form-group">
+            <label for="journal-reminder-hour">
+              Час напоминания (локально, 0–23)
+              <span class="hint-inline">если запись за сегодня пустая</span>
+            </label>
+            <input
+              id="journal-reminder-hour"
+              type="number"
+              min="0"
+              max="23"
+              step="1"
+              bind:value={formData.journalDayReminderHourLocal}
+              disabled={!formData.journalDayReminderEnabled}
+            />
+          </div>
         </div>
       </div>
     </div>

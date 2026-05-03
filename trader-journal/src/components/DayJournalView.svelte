@@ -31,6 +31,9 @@
   let newPlanTplLabel = '';
   let newPlanTplText = '';
 
+  /** Фильтр бокового списка записей по тексту. */
+  let journalListSearch = '';
+
   $: checklistItems = $dayJournalChecklistTemplate;
   $: planTemplates = $dayJournalPlanTemplates;
   $: {
@@ -95,9 +98,26 @@
     applyPlanSnippet(t.text);
   }
 
-  $: sortedRecordKeys = Object.keys($dayJournal)
+  $: sortedRecordKeysBase = Object.keys($dayJournal)
     .filter((k) => /^\d{4}-\d{2}-\d{2}$/.test(k) && entryHasContent($dayJournal[k]))
     .sort((a, b) => b.localeCompare(a));
+
+  $: journalSearchNorm = journalListSearch.trim().toLowerCase();
+
+  $: sortedRecordKeys =
+    journalSearchNorm === ''
+      ? sortedRecordKeysBase
+      : sortedRecordKeysBase.filter((k) => {
+          const n = normalizeEntry($dayJournal[k] || {});
+          const chk = checklistItems
+            .filter((r) => n.checklist[r.id])
+            .map((r) => String(r.label || '').toLowerCase())
+            .join(' ');
+          const blob = [k, n.mood, n.plan, n.review, n.lessons, chk]
+            .map((x) => String(x || '').toLowerCase())
+            .join('\n');
+          return blob.includes(journalSearchNorm);
+        });
 
   $: totalListPages = Math.max(1, Math.ceil(sortedRecordKeys.length / PAGE_SIZE));
   $: {
@@ -462,6 +482,17 @@
     >
       <div class="dj-records-head">
         <h3 class="dj-records-title">Записи</h3>
+        {#if sortedRecordKeysBase.length > 0}
+          <label class="dj-records-search">
+            Поиск
+            <input
+              type="search"
+              bind:value={journalListSearch}
+              placeholder="Дата, план, разбор…"
+              autocomplete="off"
+            />
+          </label>
+        {/if}
         {#if sortedRecordKeys.length > 0}
           <div class="dj-records-pager">
             <label class="dj-pager-label" for="dj-page-select">
@@ -477,14 +508,16 @@
                 <option value={i + 1}>{i + 1} / {totalListPages}</option>
               {/each}
             </select>
-            <span class="dj-records-count">{sortedRecordKeys.length} всего</span>
+            <span class="dj-records-count">{sortedRecordKeys.length}{journalSearchNorm ? ` / ${sortedRecordKeysBase.length}` : ''}</span>
           </div>
         {/if}
       </div>
 
       <div class="dj-records-body">
-        {#if sortedRecordKeys.length === 0}
+        {#if sortedRecordKeysBase.length === 0}
           <div class="dj-records-empty">Пока нет сохранённых записей с текстом или галками — заполни слева и они появятся здесь.</div>
+        {:else if sortedRecordKeys.length === 0}
+          <div class="dj-records-empty">Нет совпадений по поиску — смени запрос.</div>
         {:else}
           <div class="dj-records-scroll">
             <div class="dj-records-list">
@@ -618,6 +651,27 @@
     color: var(--text-strong);
     text-transform: uppercase;
     letter-spacing: 0.04em;
+  }
+  .dj-records-search {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    flex: 1 1 140px;
+    min-width: min(100%, 160px);
+  }
+  .dj-records-search input {
+    font: inherit;
+    font-size: 13px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-2);
+    color: var(--text);
+    width: 100%;
+    box-sizing: border-box;
   }
   .dj-records-pager {
     display: flex;

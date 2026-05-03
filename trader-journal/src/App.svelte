@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import dayjs from 'dayjs';
   import { trades, userProfile } from './lib/stores';
   import { glossary } from './lib/glossary';
   import * as att from './lib/attachmentApi';
@@ -43,6 +44,8 @@
   import ImageLightbox from './components/ImageLightbox.svelte';
   import AddImageModal from './components/AddImageModal.svelte';
   import OnboardingJournalModal from './components/OnboardingJournalModal.svelte';
+  import { dayJournal } from './lib/dayJournal';
+  import { dayJournalHasContent } from './lib/tradingMentor';
 
   let showForm = false;
   let showProfile = false;
@@ -56,6 +59,17 @@
   let closedSort = { key: 'dateClose', dir: 'desc' };
   let openSymbolFilter = '';
   let closedSymbolFilter = '';
+  let openKzFilter = '';
+  let closedKzFilter = '';
+  /** @type {'' | 'long' | 'short'} */
+  let openDirectionFilter = '';
+  /** @type {'' | 'long' | 'short'} */
+  let closedDirectionFilter = '';
+  let openTradeSearch = '';
+  let closedTradeSearch = '';
+
+  let journalReminderDismissed = false;
+  const JREM_DISMISS_PREFIX = 'journalDayReminderDismissed_';
 
   $: openTrades = $trades.filter((t) => t.status === 'open');
   $: closedTrades = $trades.filter((t) => t.status === 'closed');
@@ -93,8 +107,15 @@
     showDailyReview = true;
   }
   function todayKey() {
-    const d = new Date();
-    return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    return dayjs().format('YYYY-MM-DD');
+  }
+  function dismissJournalDayReminder() {
+    journalReminderDismissed = true;
+    try {
+      sessionStorage.setItem(JREM_DISMISS_PREFIX + todayKey(), '1');
+    } catch {
+      /* ignore */
+    }
   }
   function dismissDailyReview() {
     userProfile.updateProfile({ lastDailyReviewDate: todayKey() });
@@ -103,6 +124,11 @@
 
   onMount(() => {
     livePrices.start();
+    try {
+      journalReminderDismissed = sessionStorage.getItem(JREM_DISMISS_PREFIX + todayKey()) === '1';
+    } catch {
+      journalReminderDismissed = false;
+    }
   });
   onDestroy(() => livePrices.stop());
 
@@ -122,32 +148,6 @@
   });
 
   $: journalSnap = $journalSettings;
-
-  $: openSymbols = Array.from(new Set(openTrades.map((t) => t.pair))).sort();
-  $: closedSymbols = Array.from(new Set(closedTrades.map((t) => t.pair))).sort();
-
-  $: filteredOpenTrades = sortTrades(
-    openSymbolFilter ? openTrades.filter((t) => t.pair === openSymbolFilter) : openTrades,
-    openSort
-  );
-  $: filteredClosedTrades = sortTrades(
-    closedSymbolFilter
-      ? closedTrades.filter((t) => t.pair === closedSymbolFilter)
-      : closedTrades,
-    closedSort
-  );
-
-  $: closedTotals = filteredClosedTrades.reduce(
-    (acc, t) => {
-      acc.profit += tradeProfitDisplayUnits(t, $fxRate);
-      if (!isMt5HistoryImportedTrade(t)) {
-        acc.commission += Number(t.commission) || 0;
-        acc.swap += Number(t.swap) || 0;
-      }
-      return acc;
-    },
-    { profit: 0, commission: 0, swap: 0 }
-  );
 
   function sortTrades(list, { key, dir }) {
     const mul = dir === 'asc' ? 1 : -1;
@@ -213,6 +213,117 @@
     const p = findPlay($strategies, trade.strategyId, trade.playId);
     return p ? p.name : '';
   }
+
+  function tradeEffectiveKzId(trade) {
+    void journalSnap;
+    return trade?.killzone || primaryKillzone(trade?.dateOpen) || '_OUT';
+  }
+
+  function tradeMatchesQuickSearch(trade, qNorm) {
+    if (!qNorm) return true;
+    const blob = [
+      trade.pair,
+      trade.comment,
+      trade.direction,
+      tradeKzLabel(trade),
+      tradePlayLabel(trade),
+      trade.strategyId,
+      trade.playId,
+      Array.isArray(trade.tags) ? trade.tags.join(' ') : ''
+    ]
+      .map((x) => String(x || '').toLowerCase())
+      .join('\n');
+    return blob.includes(qNorm);
+  }
+
+  $: closedSearchNorm = closedTradeSearch.trim().toLowerCase();
+  $: openSearchNorm = openTradeSearch.trim().toLowerCase();
+
+  $: openKzFilterIds = Array.from(new Set(openTrades.map((t) => tradeEffectiveKzId(t)))).sort((a, b) =>
+    killzoneLabel(a).localeCompare(killzoneLabel(b), 'ru')
+  );
+  $: closedKzFilterIds = Array.from(new Set(closedTrades.map((t) => tradeEffectiveKzId(t)))).sort((a, b) =>
+    killzoneLabel(a).localeCompare(killzoneLabel(b), 'ru')
+  );
+
+  /** Пары только из текущей «истории» с учётом KZ / направления / поиска (без фильтра по паре). */
+  $: closedSymbolsForPicker = Array.from(
+    new Set(
+      closedTrades
+        .filter((t) => {
+          if (closedKzFilter && tradeEffectiveKzId(t) !== closedKzFilter) return false;
+          if (closedDirectionFilter && t.direction !== closedDirectionFilter) return false;
+          if (!tradeMatchesQuickSearch(t, closedSearchNorm)) return false;
+          return true;
+        })
+        .map((t) => t.pair)
+        .filter(Boolean)
+    )
+  ).sort();
+  $: openSymbolsForPicker = Array.from(
+    new Set(
+      openTrades
+        .filter((t) => {
+          if (openKzFilter && tradeEffectiveKzId(t) !== openKzFilter) return false;
+          if (openDirectionFilter && t.direction !== openDirectionFilter) return false;
+          if (!tradeMatchesQuickSearch(t, openSearchNorm)) return false;
+          return true;
+        })
+        .map((t) => t.pair)
+        .filter(Boolean)
+    )
+  ).sort();
+
+  $: if (closedSymbolFilter && !closedSymbolsForPicker.includes(closedSymbolFilter)) {
+    closedSymbolFilter = '';
+  }
+  $: if (openSymbolFilter && !openSymbolsForPicker.includes(openSymbolFilter)) {
+    openSymbolFilter = '';
+  }
+
+  $: filteredClosedPool = closedTrades.filter((t) => {
+    if (closedSymbolFilter && t.pair !== closedSymbolFilter) return false;
+    if (closedKzFilter && tradeEffectiveKzId(t) !== closedKzFilter) return false;
+    if (closedDirectionFilter && t.direction !== closedDirectionFilter) return false;
+    if (!tradeMatchesQuickSearch(t, closedSearchNorm)) return false;
+    return true;
+  });
+  $: filteredOpenPool = openTrades.filter((t) => {
+    if (openSymbolFilter && t.pair !== openSymbolFilter) return false;
+    if (openKzFilter && tradeEffectiveKzId(t) !== openKzFilter) return false;
+    if (openDirectionFilter && t.direction !== openDirectionFilter) return false;
+    if (!tradeMatchesQuickSearch(t, openSearchNorm)) return false;
+    return true;
+  });
+
+  $: filteredClosedTrades = sortTrades(filteredClosedPool, closedSort);
+  $: filteredOpenTrades = sortTrades(filteredOpenPool, openSort);
+
+  $: closedTotals = filteredClosedTrades.reduce(
+    (acc, t) => {
+      acc.profit += tradeProfitDisplayUnits(t, $fxRate);
+      if (!isMt5HistoryImportedTrade(t)) {
+        acc.commission += Number(t.commission) || 0;
+        acc.swap += Number(t.swap) || 0;
+      }
+      return acc;
+    },
+    { profit: 0, commission: 0, swap: 0 }
+  );
+
+  $: journalReminderHour = Math.max(
+    0,
+    Math.min(23, Number($userProfile?.journalDayReminderHourLocal ?? 21))
+  );
+  $: journalReminderOn = $userProfile?.journalDayReminderEnabled !== false;
+  $: localHour = ($tickClock, new Date().getHours());
+  $: journalTodayKey = ($tickClock, dayjs().format('YYYY-MM-DD'));
+  $: journalTodayEmpty = !dayJournalHasContent($dayJournal[journalTodayKey]);
+  $: showJournalDayReminder =
+    journalReminderOn &&
+    !journalReminderDismissed &&
+    journalTodayEmpty &&
+    localHour >= journalReminderHour;
 
   function editTrade(trade) {
     currentTrade = trade;
@@ -402,6 +513,23 @@
     </div>
   {/if}
 
+  {#if showJournalDayReminder}
+    <div class="journal-day-reminder" role="status">
+      <div class="journal-day-reminder-text">
+        После {journalReminderHour}:00 локально: дневник за сегодня ещё без содержания — закрой день во вкладке «Дневник».
+      </div>
+      <div class="journal-day-reminder-actions">
+        <button
+          type="button"
+          class="btn btn-sm btn-primary"
+          on:click={() => {
+            activeTab = 'journal';
+          }}>Открыть дневник</button>
+        <button type="button" class="btn btn-sm" on:click={dismissJournalDayReminder}>Не сегодня</button>
+      </div>
+    </div>
+  {/if}
+
   <TemplatesPanel on:apply={applyTemplate} />
 
   <div class="tabs">
@@ -441,10 +569,31 @@
             Символ:
             <select bind:value={openSymbolFilter}>
               <option value="">Все ({openTrades.length})</option>
-              {#each openSymbols as s}
+              {#each openSymbolsForPicker as s}
                 <option value={s}>{s}</option>
               {/each}
             </select>
+          </label>
+          <label>
+            KZ:
+            <select bind:value={openKzFilter}>
+              <option value="">Все</option>
+              {#each openKzFilterIds as kzId (kzId)}
+                <option value={kzId}>{killzoneLabel(kzId)}</option>
+              {/each}
+            </select>
+          </label>
+          <label>
+            Напр.:
+            <select bind:value={openDirectionFilter}>
+              <option value="">Все</option>
+              <option value="long">Long</option>
+              <option value="short">Short</option>
+            </select>
+          </label>
+          <label class="trade-search-label">
+            Поиск:
+            <input type="search" bind:value={openTradeSearch} placeholder="Пара, коммент, setup…" autocomplete="off" />
           </label>
           <div class="ping-row">
             {#each [['binance', 'Binance'], ['kraken', 'Kraken']] as [p, label]}
@@ -479,6 +628,9 @@
             {/each}
           </div>
         </div>
+        {#if filteredOpenTrades.length === 0}
+          <div class="empty-state">Ничего не подходит под фильтры / поиск.</div>
+        {:else}
         <table class="trades-table">
           <thead>
             <tr>
@@ -574,6 +726,7 @@
             {/each}
           </tbody>
         </table>
+        {/if}
       {/if}
     </div>
   {:else if activeTab === 'closed'}
@@ -586,13 +739,37 @@
             Символ:
             <select bind:value={closedSymbolFilter}>
               <option value="">Все ({closedTrades.length})</option>
-              {#each closedSymbols as s}
+              {#each closedSymbolsForPicker as s}
                 <option value={s}>{s}</option>
               {/each}
             </select>
           </label>
+          <label>
+            KZ:
+            <select bind:value={closedKzFilter}>
+              <option value="">Все</option>
+              {#each closedKzFilterIds as kzId (kzId)}
+                <option value={kzId}>{killzoneLabel(kzId)}</option>
+              {/each}
+            </select>
+          </label>
+          <label>
+            Напр.:
+            <select bind:value={closedDirectionFilter}>
+              <option value="">Все</option>
+              <option value="long">Long</option>
+              <option value="short">Short</option>
+            </select>
+          </label>
+          <label class="trade-search-label">
+            Поиск:
+            <input type="search" bind:value={closedTradeSearch} placeholder="Пара, коммент, setup…" autocomplete="off" />
+          </label>
           <button class="btn btn-danger" on:click={clearClosedTrades}>🧹 Удалить все закрытые</button>
         </div>
+        {#if filteredClosedTrades.length === 0}
+          <div class="empty-state">Ничего не подходит под фильтры / поиск.</div>
+        {:else}
         <table class="trades-table">
           <thead>
             <tr>
@@ -719,6 +896,7 @@
             </tr>
           </tfoot>
         </table>
+        {/if}
       {/if}
     </div>
   {:else if activeTab === 'stats'}
@@ -791,6 +969,37 @@
     line-height: 1.35;
   }
   .kill-switch-body strong { color: var(--text-strong); }
+
+  .journal-day-reminder {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+    margin: 0 0 12px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+    background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--text);
+  }
+  .journal-day-reminder-text {
+    flex: 1 1 220px;
+    min-width: 0;
+  }
+  .journal-day-reminder-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .trade-search-label input {
+    min-width: 140px;
+    max-width: 220px;
+    padding: 4px 8px;
+    box-sizing: border-box;
+  }
 
   .table-toolbar {
     display: flex;

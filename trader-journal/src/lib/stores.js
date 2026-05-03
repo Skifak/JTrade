@@ -53,6 +53,10 @@ const DEFAULT_USER_PROFILE = {
   cooldownAfterLossMin: 0,
   streakScalingEnabled: false,
   dailyReviewEnabled: true,
+  /** Напоминание закрыть день в дневнике (после локального часа, если запись за сегодня пустая). */
+  journalDayReminderEnabled: true,
+  /** 0–23, локальное время */
+  journalDayReminderHourLocal: 21,
   lastDailyReviewDate: null,
   /** 0 — без лимита */
   maxTradesPerDay: 0,
