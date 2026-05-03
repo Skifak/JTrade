@@ -2,7 +2,7 @@
   import { createEventDispatcher } from 'svelte';
   import { trades, userProfile } from '../lib/stores';
   import { dayJournal } from '../lib/dayJournal';
-  import { fxRate, tradeProfitDisplayUnits } from '../lib/fxRate';
+  import { fxRate, tradeProfitDisplayUnits, decimalsFor } from '../lib/fxRate';
   import { calculateStats } from '../lib/utils';
   import { getCurrentStreak, checkDailyStop, getDailyPnL } from '../lib/risk';
   import { tickClock } from '../lib/livePrices';
@@ -19,13 +19,20 @@
     computeJournalVsPnL,
     computePlaybookEdge,
     computeContextHeatmaps,
-    experimentLabelForKey
+    experimentLabelForKey,
+    journalPnLDailyBars,
+    shortIsoWeekLabel
   } from '../lib/analyticsInsights.js';
   import {
     ANALYTICS_QUESTION_CATEGORIES,
     filterAnalyticsQuestions
   } from '../lib/analyticsQuestions';
   import JournalSourceHint from './JournalSourceHint.svelte';
+  import AnalyticsWoWCompareChart from './charts/AnalyticsWoWCompareChart.svelte';
+  import AnalyticsWoWPnLChart from './charts/AnalyticsWoWPnLChart.svelte';
+  import AnalyticsJournalDailyPnLChart from './charts/AnalyticsJournalDailyPnLChart.svelte';
+  import AnalyticsTradeDaysJournalStackChart from './charts/AnalyticsTradeDaysJournalStackChart.svelte';
+  import StatisticsKillzoneChart from './charts/StatisticsKillzoneChart.svelte';
 
   const dispatch = createEventDispatcher();
   const WEEK_EXP_KEY = 'analyticsWeeklyExperiment_v1';
@@ -66,15 +73,42 @@
 
   $: profitOf = (t) => tradeProfitDisplayUnits(t, $fxRate);
 
+  $: analyticsCurrency = ($userProfile?.accountCurrency || 'USD').trim() || 'USD';
+  $: analyticsAmtDec = decimalsFor(analyticsCurrency);
+
   $: wow = computeWeekOverWeek(closedTrades, $dayJournal, profitOf);
   $: deltaLines = buildWeeklyDeltaLines(wow);
   $: journal28 = computeJournalVsPnL(closedTrades, $dayJournal, 28, profitOf);
+  $: journalDailyBars = journalPnLDailyBars(closedTrades, $dayJournal, 28, profitOf);
   $: playbookEdge = computePlaybookEdge(closedTrades, $strategies, profitOf);
   $: killzoneTz =
     $journalSettings && typeof $journalSettings.killzoneTimezone === 'string'
       ? $journalSettings.killzoneTimezone
       : 'America/New_York';
   $: heatmaps = computeContextHeatmaps(closedTrades, profitOf, killzoneTz);
+  $: playbookChartRows = playbookEdge.slice(0, 12).map((r) => ({
+    label: `${r.strategyName} → ${r.playName}`,
+    sum: r.sum,
+    count: r.count,
+    wins: r.wins,
+    hint: `E ${r.expectancy.toFixed(3)} · WR ${r.winRate.toFixed(0)}%`
+  }));
+  $: kzChartRows =
+    heatmaps.killzones?.map((r) => ({
+      label: r.label,
+      sum: r.sum,
+      count: r.count,
+      wins: r.wins ?? 0,
+      hint: `avg ${r.avgPnL?.toFixed?.(2) ?? '—'}`
+    })) ?? [];
+  $: dowChartRows =
+    heatmaps.weekdays?.map((r) => ({
+      label: r.label,
+      sum: r.sum,
+      count: r.count,
+      wins: r.wins ?? 0,
+      hint: `avg ${r.avgPnL?.toFixed?.(2) ?? '—'}`
+    })) ?? [];
   $: weeklyPick = pickWeeklyExperiment(wow, journal28, playbookEdge);
 
   function reconcileWeeklyExp(weekKeyNow, suggestion, loaded) {
@@ -410,6 +444,30 @@
         </tbody>
       </table>
     </div>
+    <div class="analytics-chart-grid">
+      <div class="analytics-chart-panel">
+        <h4 class="analytics-chart-panel-title">Сделки и дни дневника</h4>
+        <AnalyticsWoWCompareChart
+          prevLabel={shortIsoWeekLabel(wow.prev.weekKey)}
+          currLabel={shortIsoWeekLabel(wow.current.weekKey)}
+          prevTrades={wow.prev.trades}
+          currTrades={wow.current.trades}
+          prevJournalDays={wow.prev.journalDays}
+          currJournalDays={wow.current.journalDays}
+        />
+      </div>
+      <div class="analytics-chart-panel">
+        <h4 class="analytics-chart-panel-title">PnL окна закрытых</h4>
+        <AnalyticsWoWPnLChart
+          prevLabel={shortIsoWeekLabel(wow.prev.weekKey)}
+          currLabel={shortIsoWeekLabel(wow.current.weekKey)}
+          prevPnl={wow.prev.pnl}
+          currPnl={wow.current.pnl}
+          currency={analyticsCurrency}
+          moneyDecimals={analyticsAmtDec}
+        />
+      </div>
+    </div>
     <ul class="analytics-delta-bullets">
       {#each deltaLines as line, i (i)}
         <li>{line}</li>
@@ -460,6 +518,23 @@
       <span>Минусовых д.: {journal28.lossDays}</span>
       <span>Сделок без дн.: {journal28.tradedWithoutJournal}</span>
     </div>
+    {#if journal28.tradeDays > 0}
+      <div class="analytics-chart-panel analytics-chart-panel--wide">
+        <h4 class="analytics-chart-panel-title">Торговые дни: дневник да / нет</h4>
+        <AnalyticsTradeDaysJournalStackChart
+          withJournal={journal28.bothTradeAndJournalDays}
+          withoutJournal={journal28.tradedWithoutJournal}
+        />
+      </div>
+      <div class="analytics-chart-panel analytics-chart-panel--wide">
+        <h4 class="analytics-chart-panel-title">PnL по календарным дням окна</h4>
+        <AnalyticsJournalDailyPnLChart
+          days={journalDailyBars}
+          currency={analyticsCurrency}
+          moneyDecimals={analyticsAmtDec}
+        />
+      </div>
+    {/if}
   </section>
 
   {:else if analyticsTab === 'setups'}
@@ -471,6 +546,18 @@
     {#if playbookEdge.length === 0}
       <p class="analytics-muted">Нет привязок — добавь их в форме сделки.</p>
     {:else}
+      <div class="analytics-chart-panel analytics-chart-panel--wide analytics-chart-panel--flush">
+        <h4 class="analytics-chart-panel-title">Топ связок (до 12)</h4>
+        <p class="analytics-chart-caption">
+          Горизонтальные столбцы — суммарный PnL; подсказка по слою — WR и expectancy.
+        </p>
+        <StatisticsKillzoneChart
+          rows={playbookChartRows}
+          currency={analyticsCurrency}
+          moneyDecimals={analyticsAmtDec}
+          chartHeight={Math.min(440, 72 + playbookChartRows.length * 34)}
+        />
+      </div>
       <div class="analytics-table-wrap">
         <table class="analytics-data-table">
           <thead>
@@ -508,6 +595,15 @@
     {#if heatmaps.killzones.length === 0}
       <p class="analytics-muted">Нет закрытых с датой.</p>
     {:else}
+      <div class="analytics-chart-panel analytics-chart-panel--flush">
+        <h4 class="analytics-chart-panel-title">Killzone · Net PnL</h4>
+        <StatisticsKillzoneChart
+          rows={kzChartRows}
+          currency={analyticsCurrency}
+          moneyDecimals={analyticsAmtDec}
+          chartHeight={Math.min(320, 68 + kzChartRows.filter((r) => r.count > 0).length * 36)}
+        />
+      </div>
       <div class="analytics-table-wrap">
         <table class="analytics-data-table">
           <thead>
@@ -537,6 +633,15 @@
     {#if heatmaps.weekdays.length === 0}
       <p class="analytics-muted">—</p>
     {:else}
+      <div class="analytics-chart-panel analytics-chart-panel--flush">
+        <h4 class="analytics-chart-panel-title">День недели · Net PnL</h4>
+        <StatisticsKillzoneChart
+          rows={dowChartRows}
+          currency={analyticsCurrency}
+          moneyDecimals={analyticsAmtDec}
+          chartHeight={Math.min(260, 68 + dowChartRows.filter((r) => r.count > 0).length * 36)}
+        />
+      </div>
       <div class="analytics-table-wrap">
         <table class="analytics-data-table">
           <thead>
@@ -632,7 +737,7 @@
 
 <style>
   .analytics-root {
-    max-width: 900px;
+    max-width: 940px;
     margin: 0 auto;
     padding: 8px 4px 28px;
     box-sizing: border-box;
@@ -773,6 +878,46 @@
   }
   .analytics-subtab-lede .analytics-summary-text {
     margin-top: 8px;
+  }
+  .analytics-chart-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 14px 0 4px;
+    align-items: stretch;
+  }
+  @media (max-width: 720px) {
+    .analytics-chart-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .analytics-chart-panel {
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+    background: color-mix(in srgb, var(--bg) 93%, var(--border));
+    box-sizing: border-box;
+    min-width: 0;
+  }
+  .analytics-chart-panel--wide {
+    margin-top: 14px;
+  }
+  .analytics-chart-panel--flush {
+    padding-bottom: 8px;
+  }
+  .analytics-chart-panel-title {
+    margin: 0 0 2px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-muted);
+  }
+  .analytics-chart-caption {
+    margin: 0 0 8px;
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--text-muted);
   }
   .analytics-hero {
     display: flex;

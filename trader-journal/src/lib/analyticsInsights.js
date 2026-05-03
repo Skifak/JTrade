@@ -196,6 +196,47 @@ export function computeJournalVsPnL(closedTrades, dayJournalMap, days = 28, prof
   };
 }
 
+/** Короткая подпись ISO-недели для осей графика: «2026-W05» → «W05». */
+export function shortIsoWeekLabel(weekKey) {
+  const s = String(weekKey || '');
+  const m = /W(\d{2})$/.exec(s);
+  return m ? `W${m[1]}` : s.slice(-8) || '—';
+}
+
+/**
+ * Последние `days` календарных дней: дневной net PnL (если были закрытия) и флаги.
+ * Для столбчатого графика «PnL по дням» в аналитике.
+ */
+export function journalPnLDailyBars(closedTrades, dayJournalMap, days = 28, profitOf) {
+  const getP = profitOf || ((t) => num(t?.profit));
+  const end = dayjs().startOf('day');
+  const start = end.subtract(days - 1, 'day');
+  /** @type {Record<string, number>} */
+  const byDayPnL = {};
+  for (const { trade, pnl } of closedInDateCloseRange(closedTrades, start, end, getP)) {
+    const k = dayjs(trade.dateClose).format('YYYY-MM-DD');
+    byDayPnL[k] = (byDayPnL[k] || 0) + pnl;
+  }
+  /** @type {{ key: string; label: string; pnl: number | null; hasTrade: boolean; hasJournal: boolean }[]} */
+  const out = [];
+  let d = start;
+  while (!d.isAfter(end)) {
+    const key = d.format('YYYY-MM-DD');
+    const hasTrade = Object.prototype.hasOwnProperty.call(byDayPnL, key);
+    const pnl = hasTrade ? byDayPnL[key] : null;
+    const hasJournal = dayJournalHasContent(dayJournalMap?.[key]);
+    out.push({
+      key,
+      label: d.format('D.MM'),
+      pnl,
+      hasTrade,
+      hasJournal
+    });
+    d = d.add(1, 'day');
+  }
+  return out;
+}
+
 /**
  * Агрегат по связанным (strategyId+playId) сделкам.
  * `strategiesList` — значение из store strategies.
