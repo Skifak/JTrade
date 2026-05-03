@@ -16,6 +16,9 @@
   import { fxRate, tradeProfitDisplayUnits } from '../lib/fxRate';
   import { calculateStats } from '../lib/utils';
   import Modal from './Modal.svelte';
+  import StatisticsEquityChart from './charts/StatisticsEquityChart.svelte';
+  import StatisticsGroupedPnLChart from './charts/StatisticsGroupedPnLChart.svelte';
+  import StatisticsKillzoneChart from './charts/StatisticsKillzoneChart.svelte';
 
   export let stats;
   export let closedTrades = [];
@@ -326,167 +329,53 @@
   });
 
   // ============================================================
-  // EQUITY CURVE — улучшенная
+  // EQUITY + BAR ИСТОЧНИКИ ДЛЯ Chart.js
   // ============================================================
-  $: equity = getEquityCurve(filtered, initialCapital);
-  const EQ_W = 760;
-  const EQ_H = 240;
-  const EQ_PAD = { l: 60, r: 14, t: 14, b: 28 };
+  $: equitySeries = getEquityCurve(filtered, initialCapital);
+  $: equitySummary =
+    equitySeries.length >= 2
+      ? (() => {
+          const activeKey = disciplinedOnly ? 'disciplined' : 'real';
+          const last = equitySeries[equitySeries.length - 1];
+          const lastValue = last[activeKey];
+          return { lastValue, valueDelta: lastValue - initialCapital };
+        })()
+      : null;
 
-  $: eq = (() => {
-    if (!equity.length) return null;
-    /** Одна линия: факт (real) или disciplined — в зависимости от чекбокса «Только без нарушений». */
-    const activeKey = disciplinedOnly ? 'disciplined' : 'real';
-    const xs = equity.map((p) => p.ts);
-    const ys = equity.map((p) => p[activeKey]);
-    const xMin = xs[0], xMax = xs[xs.length - 1];
-    let yMin = Math.min(...ys), yMax = Math.max(...ys);
-    if (yMin === yMax) { yMin -= 1; yMax += 1; }
-    const pad = (yMax - yMin) * 0.06;
-    yMin -= pad; yMax += pad;
+  $: byHour = getPnLByHour(filtered);
+  $: byWeekday = getPnLByWeekday(filtered);
+  $: hourLabels = byHour.map((b) => String(b.hour).padStart(2, '0'));
+  $: weekdayLabels = byWeekday.map((b) => b.label);
 
-    const innerW = EQ_W - EQ_PAD.l - EQ_PAD.r;
-    const innerH = EQ_H - EQ_PAD.t - EQ_PAD.b;
-    const xS = (v) => EQ_PAD.l + (xMax === xMin ? innerW / 2 : ((v - xMin) / (xMax - xMin)) * innerW);
-    const yS = (v) => EQ_PAD.t + (1 - (v - yMin) / (yMax - yMin)) * innerH;
-
-    const linePath = (key) =>
-      equity.map((p, i) => `${i === 0 ? 'M' : 'L'}${xS(p.ts).toFixed(1)},${yS(p[key]).toFixed(1)}`).join(' ');
-    const areaPath = (key) => {
-      const baseY = yS(initialCapital).toFixed(1);
-      const top = equity.map((p, i) => `${i === 0 ? 'M' : 'L'}${xS(p.ts).toFixed(1)},${yS(p[key]).toFixed(1)}`).join(' ');
-      const last = equity[equity.length - 1];
-      return `${top} L${xS(last.ts).toFixed(1)},${baseY} L${xS(equity[0].ts).toFixed(1)},${baseY} Z`;
-    };
-
-    const last = equity[equity.length - 1];
-    const lastV = last[activeKey];
-    const valueDelta = lastV - initialCapital;
-
-    // 4 горизонтальные grid-линии
-    const gridLines = [];
-    for (let i = 0; i <= 4; i++) {
-      const v = yMin + ((yMax - yMin) * i) / 4;
-      gridLines.push({ y: yS(v), label: v });
+  $: hourBarStats = (() => {
+    let totalSum = 0, nonEmpty = 0, totalTrades = 0;
+    for (const b of byHour) {
+      if (!b.count) continue;
+      totalSum += b.sum;
+      nonEmpty += 1;
+      totalTrades += b.count;
     }
-    // 4 даты на оси X
-    const xTicks = [];
-    const tickCount = Math.min(5, equity.length);
-    for (let i = 0; i < tickCount; i++) {
-      const idx = Math.round(((equity.length - 1) * i) / Math.max(1, tickCount - 1));
-      const p = equity[idx];
-      xTicks.push({ x: xS(p.ts), date: p.ts });
-    }
-
     return {
-      mainLine: linePath(activeKey),
-      mainArea: areaPath(activeKey),
-      baseY: yS(initialCapital),
-      lastX: xS(last.ts),
-      lastY: yS(lastV),
-      lastValue: lastV,
-      valueDelta,
-      gridLines, xTicks
+      avgPerBucket: nonEmpty > 0 ? totalSum / nonEmpty : 0,
+      avgPerTrade: totalTrades > 0 ? totalSum / totalTrades : 0
     };
   })();
 
-  // ============================================================
-  // BAR CHARTS — улучшенные
-  // ============================================================
-  $: byHour = getPnLByHour(filtered);
-  $: byWeekday = getPnLByWeekday(filtered);
-
-  function barLayout(buckets, width, height, labelKey) {
-    if (!buckets?.length) return null;
-    const sums = buckets.map((b) => b.sum);
-    const absMax = Math.max(1, ...sums.map((v) => Math.abs(v)));
-
-    // best / worst и непустые бакеты
-    let best = null, worst = null;
-    let totalSum = 0;
-    let nonEmptyBuckets = 0;
-    let totalTrades = 0;
-    for (const b of buckets) {
-      if (b.count === 0) continue;
-      if (!best || b.sum > best.sum) best = b;
-      if (!worst || b.sum < worst.sum) worst = b;
+  $: weekdayBarStats = (() => {
+    let totalSum = 0, nonEmpty = 0, totalTrades = 0;
+    for (const b of byWeekday) {
+      if (!b.count) continue;
       totalSum += b.sum;
-      nonEmptyBuckets += 1;
+      nonEmpty += 1;
       totalTrades += b.count;
     }
-    // Средний PnL по бакету с торговлей — в той же шкале, что и бары
-    const avgPerBucket = nonEmptyBuckets > 0 ? totalSum / nonEmptyBuckets : 0;
-    // Средний PnL на сделку — для подписи в заголовке
-    const avgPerTrade  = totalTrades   > 0 ? totalSum / totalTrades   : 0;
-
-    const padL = 36, padR = 14, padT = 14, padB = 32;
-    const innerW = width - padL - padR;
-    const innerH = height - padT - padB;
-    const zeroY = padT + innerH / 2;
-    const slot = innerW / buckets.length;
-    const hitTop = padT;
-    const hitH = innerH;
-
-    // Два бара бок-о-бок в одном слоте: total | avg
-    const groupW = slot * 0.78;
-    const gap = slot * 0.06;
-    const subW = Math.max(2, (groupW - gap) / 2);
-
-    const gridLines = [
-      { y: padT, label: absMax },
-      { y: padT + innerH * 0.25, label: absMax / 2 },
-      { y: zeroY, label: 0 },
-      { y: padT + innerH * 0.75, label: -absMax / 2 },
-      { y: padT + innerH, label: -absMax }
-    ];
-
-    const yFor = (v) => {
-      const h = (Math.abs(v) / absMax) * (innerH / 2);
-      const y = v >= 0 ? zeroY - h : zeroY;
-      return { y, h };
-    };
-
     return {
-      width, height, padL, padR, padT, padB, zeroY, slot, absMax,
-      hitTop, hitH,
-      avgPerBucket, avgPerTrade, nonEmptyBuckets,
-      gridLines,
-      bestKey: best?.[labelKey],
-      worstKey: worst?.[labelKey],
-      bars: buckets.map((b, i) => {
-        const cx = padL + slot * i + slot / 2;
-        const totalLeft = cx - groupW / 2;
-        const avgLeft   = totalLeft + subW + gap;
-
-        const totalGeo = yFor(b.sum);
-        const avgVal = b.count > 0 ? b.sum / b.count : 0;
-        const avgGeo = b.count > 0 ? yFor(avgVal) : null;
-
-        return {
-          cx,
-          label: b[labelKey],
-          sum: b.sum,
-          avgVal,
-          count: b.count,
-          wins: b.wins,
-          subW,
-          totalX: totalLeft,
-          totalY: totalGeo.y,
-          totalH: totalGeo.h,
-          avgX: avgLeft,
-          avgY: avgGeo?.y ?? zeroY,
-          avgH: avgGeo?.h ?? 0,
-          hitX: cx - slot / 2,
-          hitW: slot,
-          isBest:  b[labelKey] === best?.[labelKey]  && b.count > 0,
-          isWorst: b[labelKey] === worst?.[labelKey] && b.count > 0
-        };
-      })
+      avgPerBucket: nonEmpty > 0 ? totalSum / nonEmpty : 0,
+      avgPerTrade: totalTrades > 0 ? totalSum / totalTrades : 0
     };
-  }
+  })();
 
-  $: hourLayout = barLayout(byHour, 760, 200, 'hour');
-  $: wdLayout   = barLayout(byWeekday, 760, 200, 'label');
+  $: kzChartHeight = Math.min(340, Math.max(120, byKZ.filter((b) => b.count > 0).length * 34));
 
   // ============================================================
   // TAGS
@@ -961,7 +850,7 @@
     <div class="empty-state-mini">Под выбранные фильтры не попало ни одной сделки</div>
   {/if}
 
-  {#if eq}
+  {#if equitySummary}
     <h3 class="stats-section-title">
       Equity Curve · {#if disciplinedOnly}только без нарушений{:else}фактический баланс{/if}
     </h3>
@@ -970,17 +859,17 @@
         {#if disciplinedOnly}
           <span class="chart-stat">
             <i class="dot dot-disc"></i>Disciplined (кривая без сделок с нарушениями):
-            <strong class={eq.valueDelta >= 0 ? 'profit' : 'loss'}>
-              {formatNumber(eq.lastValue, 2)} {currency}
-              ({eq.valueDelta >= 0 ? '+' : ''}{formatNumber(eq.valueDelta, 2)})
+            <strong class={equitySummary.valueDelta >= 0 ? 'profit' : 'loss'}>
+              {formatNumber(equitySummary.lastValue, 2)} {currency}
+              ({equitySummary.valueDelta >= 0 ? '+' : ''}{formatNumber(equitySummary.valueDelta, 2)})
             </strong>
           </span>
         {:else}
           <span class="chart-stat">
             <i class="dot dot-real"></i>Реальный баланс (все сделки по фильтрам):
-            <strong class={eq.valueDelta >= 0 ? 'profit' : 'loss'}>
-              {formatNumber(eq.lastValue, 2)} {currency}
-              ({eq.valueDelta >= 0 ? '+' : ''}{formatNumber(eq.valueDelta, 2)})
+            <strong class={equitySummary.valueDelta >= 0 ? 'profit' : 'loss'}>
+              {formatNumber(equitySummary.lastValue, 2)} {currency}
+              ({equitySummary.valueDelta >= 0 ? '+' : ''}{formatNumber(equitySummary.valueDelta, 2)})
             </strong>
           </span>
         {/if}
@@ -995,64 +884,20 @@
           {:else}
             <i class="eq-key eq-key-real"></i>все сделки по фильтру ·
           {/if}
-          пунктир оси = стартовый капитал
+          пунктир — стартовый капитал · hover по графику — точное значение
         </span>
       </div>
 
-      <svg viewBox="0 0 {EQ_W} {EQ_H}" class="chart-svg" preserveAspectRatio="none">
-        <!-- grid -->
-        {#each eq.gridLines as g}
-          <line
-            x1={EQ_PAD.l} x2={EQ_W - EQ_PAD.r}
-            y1={g.y} y2={g.y}
-            class="grid-line"
-          />
-          <text x={EQ_PAD.l - 6} y={g.y + 3} class="chart-axis-label" text-anchor="end">
-            {formatNumber(g.label, 0)}
-          </text>
-        {/each}
-
-        <!-- baseline (initialCapital) -->
-        <line
-          x1={EQ_PAD.l} x2={EQ_W - EQ_PAD.r}
-          y1={eq.baseY} y2={eq.baseY}
-          class="chart-axis baseline"
-          stroke-dasharray="3 3"
-        />
-        <text x={EQ_W - EQ_PAD.r - 4} y={eq.baseY - 4} class="chart-axis-label" text-anchor="end">
-          старт {formatNumber(initialCapital, 0)}
-        </text>
-
-        <path d={eq.mainArea} class={disciplinedOnly ? 'area-disc' : 'area-real'} />
-
-        <path
-          d={eq.mainLine}
-          class={disciplinedOnly ? 'line-disc' : 'line-real'}
-          fill="none"
-          stroke-width="1.1"
-        />
-
-        <circle
-          cx={eq.lastX}
-          cy={eq.lastY}
-          r="4"
-          class={disciplinedOnly ? 'dot-svg-disc' : 'dot-svg-real'}
-        />
-
-        <!-- даты по X -->
-        {#each eq.xTicks as t}
-          <text x={t.x} y={EQ_H - 8} class="chart-tick">{formatDate(t.date, 'DD.MM')}</text>
-        {/each}
-      </svg>
+      <StatisticsEquityChart series={equitySeries} {disciplinedOnly} {initialCapital} />
     </div>
   {/if}
 
-  {#if hourLayout}
+  {#if filtered.length > 0}
     <h3 class="stats-section-title">
       PnL по часу открытия
       <span class="section-meta">
-        avg/сделка: <strong>{formatNumber(hourLayout.avgPerTrade, 2)}</strong> {currency}
-        · avg/торговый час: <strong>{formatNumber(hourLayout.avgPerBucket, 2)}</strong> {currency}
+        avg/сделка: <strong>{formatNumber(hourBarStats.avgPerTrade, 2)}</strong> {currency}
+        · avg/торговый час: <strong>{formatNumber(hourBarStats.avgPerBucket, 2)}</strong> {currency}
       </span>
     </h3>
     <div class="chart-wrap">
@@ -1060,74 +905,17 @@
         <span><b>Y</b> — PnL, {currency}</span>
         <span><b>X</b> — час открытия сделки (0–23, локальное время)</span>
         <span class="muted-legend">
-          <i class="legend-swatch sw-total"></i>левый бар — суммарный PnL за час ·
-          <i class="legend-swatch sw-avg"></i>правый бар — средний PnL/сделка ·
-          мелкая цифра под часом — кол-во сделок ·
-          обводка — лучший / худший час
+          Легенда под графиком: Σ за час и средний PnL на сделку · цвет по знаку · обводка — лучший / худший час · tooltip — WR и суммы
         </span>
       </div>
-      <svg viewBox="0 0 {hourLayout.width} {hourLayout.height}" class="chart-svg" preserveAspectRatio="none">
-        <!-- grid -->
-        {#each hourLayout.gridLines as g}
-          <line
-            x1={hourLayout.padL} x2={hourLayout.width - hourLayout.padR}
-            y1={g.y} y2={g.y}
-            class={g.label === 0 ? 'chart-axis' : 'grid-line'}
-          />
-          <text x={hourLayout.padL - 6} y={g.y + 3} class="chart-axis-label" text-anchor="end">
-            {g.label > 0 ? '+' : ''}{formatNumber(g.label, 0)}
-          </text>
-        {/each}
-
-        {#each hourLayout.bars as b}
-          <!-- total bar -->
-          <rect
-            x={b.totalX} y={b.totalY} width={b.subW} height={b.totalH}
-            class="bar-total {b.sum >= 0 ? 'pos' : 'neg'} {b.isBest ? 'bar-best' : ''} {b.isWorst ? 'bar-worst' : ''}"
-          />
-          <!-- avg bar -->
-          {#if b.count > 0}
-            <rect
-              x={b.avgX} y={b.avgY} width={b.subW} height={b.avgH}
-              class="bar-avg {b.avgVal >= 0 ? 'pos' : 'neg'}"
-            />
-          {/if}
-          {#if (b.isBest || b.isWorst) && b.count > 0}
-            <text
-              x={b.cx}
-              y={b.sum >= 0 ? b.totalY - 4 : b.totalY + b.totalH + 11}
-              class="bar-value-label"
-              text-anchor="middle"
-            >
-              {b.sum >= 0 ? '+' : ''}{formatNumber(b.sum, 0)}
-            </text>
-          {/if}
-          {#if b.label % 3 === 0}
-            <text x={b.cx} y={hourLayout.height - 14} class="chart-tick">{String(b.label).padStart(2, '0')}</text>
-          {/if}
-          {#if b.count > 0 && b.label % 3 === 0}
-            <text x={b.cx} y={hourLayout.height - 2} class="chart-tick muted-tick">{b.count}</text>
-          {/if}
-          <!-- единый hit-area на всю колонку: tooltip показывается над и под баром -->
-          <rect
-            x={b.hitX} y={hourLayout.hitTop} width={b.hitW} height={hourLayout.hitH}
-            class="bar-hit"
-          >
-            <title>{String(b.label).padStart(2, '0')}:00 · {b.count} сделок ({b.wins} W / {b.count - b.wins} L)
-total: {b.sum >= 0 ? '+' : ''}{formatNumber(b.sum, 2)} {currency}{b.count > 0 ? `
-avg/сделка: ${b.avgVal >= 0 ? '+' : ''}${formatNumber(b.avgVal, 2)} ${currency}` : ''}</title>
-          </rect>
-        {/each}
-      </svg>
+      <StatisticsGroupedPnLChart buckets={byHour} labels={hourLabels} {currency} />
     </div>
-  {/if}
 
-  {#if wdLayout}
     <h3 class="stats-section-title">
       PnL по дню недели
       <span class="section-meta">
-        avg/сделка: <strong>{formatNumber(wdLayout.avgPerTrade, 2)}</strong> {currency}
-        · avg/торговый день: <strong>{formatNumber(wdLayout.avgPerBucket, 2)}</strong> {currency}
+        avg/сделка: <strong>{formatNumber(weekdayBarStats.avgPerTrade, 2)}</strong> {currency}
+        · avg/торговый день: <strong>{formatNumber(weekdayBarStats.avgPerBucket, 2)}</strong> {currency}
       </span>
     </h3>
     <div class="chart-wrap">
@@ -1135,65 +923,15 @@ avg/сделка: ${b.avgVal >= 0 ? '+' : ''}${formatNumber(b.avgVal, 2)} ${curr
         <span><b>Y</b> — PnL, {currency}</span>
         <span><b>X</b> — день недели (Пн–Вс)</span>
         <span class="muted-legend">
-          <i class="legend-swatch sw-total"></i>левый бар — суммарный PnL за день ·
-          <i class="legend-swatch sw-avg"></i>правый бар — средний PnL/сделка ·
-          мелкая цифра под днём — кол-во сделок ·
-          обводка — лучший / худший день
+          Два столбца на день: сумма и среднее на сделку · обводка — лучший / худший день с ненулевым флоу
         </span>
       </div>
-      <svg viewBox="0 0 {wdLayout.width} {wdLayout.height}" class="chart-svg" preserveAspectRatio="none">
-        {#each wdLayout.gridLines as g}
-          <line
-            x1={wdLayout.padL} x2={wdLayout.width - wdLayout.padR}
-            y1={g.y} y2={g.y}
-            class={g.label === 0 ? 'chart-axis' : 'grid-line'}
-          />
-          <text x={wdLayout.padL - 6} y={g.y + 3} class="chart-axis-label" text-anchor="end">
-            {g.label > 0 ? '+' : ''}{formatNumber(g.label, 0)}
-          </text>
-        {/each}
-
-        {#each wdLayout.bars as b}
-          <rect
-            x={b.totalX} y={b.totalY} width={b.subW} height={b.totalH}
-            class="bar-total {b.sum >= 0 ? 'pos' : 'neg'} {b.isBest ? 'bar-best' : ''} {b.isWorst ? 'bar-worst' : ''}"
-          />
-          {#if b.count > 0}
-            <rect
-              x={b.avgX} y={b.avgY} width={b.subW} height={b.avgH}
-              class="bar-avg {b.avgVal >= 0 ? 'pos' : 'neg'}"
-            />
-          {/if}
-          {#if (b.isBest || b.isWorst) && b.count > 0}
-            <text
-              x={b.cx}
-              y={b.sum >= 0 ? b.totalY - 4 : b.totalY + b.totalH + 11}
-              class="bar-value-label"
-              text-anchor="middle"
-            >
-              {b.sum >= 0 ? '+' : ''}{formatNumber(b.sum, 0)}
-            </text>
-          {/if}
-          <text x={b.cx} y={wdLayout.height - 14} class="chart-tick">{b.label}</text>
-          {#if b.count > 0}
-            <text x={b.cx} y={wdLayout.height - 2} class="chart-tick muted-tick">{b.count}</text>
-          {/if}
-          <rect
-            x={b.hitX} y={wdLayout.hitTop} width={b.hitW} height={wdLayout.hitH}
-            class="bar-hit"
-          >
-            <title>{b.label} · {b.count} сделок ({b.wins} W / {b.count - b.wins} L)
-total: {b.sum >= 0 ? '+' : ''}{formatNumber(b.sum, 2)} {currency}{b.count > 0 ? `
-avg/сделка: ${b.avgVal >= 0 ? '+' : ''}${formatNumber(b.avgVal, 2)} ${currency}` : ''}</title>
-          </rect>
-        {/each}
-      </svg>
+      <StatisticsGroupedPnLChart buckets={byWeekday} labels={weekdayLabels} {currency} />
     </div>
   {/if}
 
   <!-- PnL by Killzone -->
   {#if byKZ.some((b) => b.count > 0)}
-    {@const kzMax = Math.max(1, ...byKZ.map((b) => Math.abs(b.sum)))}
     <h3 class="stats-section-title">
       PnL по killzone (NY-time)
       <span class="section-meta">
@@ -1204,8 +942,9 @@ avg/сделка: ${b.avgVal >= 0 ? '+' : ''}${formatNumber(b.avgVal, 2)} ${curr
       <div class="axis-legend">
         <span><b>Bar</b> — суммарный PnL за окно, {currency}</span>
         <span><b>WR</b> — % прибыльных в этом KZ</span>
-        <span class="muted-legend">Killzones — рассчитываются по дате открытия в America/New_York с DST.</span>
+        <span class="muted-legend">Killzones — по дате открытия в America/New_York с DST · ниже горизонтальные бары только по KZ с сделками</span>
       </div>
+      <StatisticsKillzoneChart rows={byKZ} {currency} chartHeight={kzChartHeight} />
       <table class="kz-table">
         <thead>
           <tr>
@@ -1213,29 +952,17 @@ avg/сделка: ${b.avgVal >= 0 ? '+' : ''}${formatNumber(b.avgVal, 2)} ${curr
             <th class="num">Сделок</th>
             <th class="num">WR</th>
             <th class="num">Net PnL</th>
-            <th>График</th>
           </tr>
         </thead>
         <tbody>
           {#each byKZ as b}
             {@const wr = b.count ? (b.wins / b.count) * 100 : 0}
-            {@const ratio = Math.abs(b.sum) / kzMax}
             <tr class:dim={b.count === 0}>
               <td><span class="kz-tag-cell" title={b.hint}>{b.label}</span></td>
               <td class="num">{b.count}</td>
               <td class="num">{b.count ? formatNumber(wr, 1) + '%' : '—'}</td>
               <td class="num {b.sum >= 0 ? 'profit' : 'loss'}">
                 {b.count ? (b.sum >= 0 ? '+' : '') + formatNumber(b.sum, 2) : '—'}
-              </td>
-              <td class="kz-bar-cell">
-                {#if b.count > 0}
-                  <div class="kz-bar-track">
-                    <div
-                      class="kz-bar-fill {b.sum >= 0 ? 'pos' : 'neg'}"
-                      style="width: {Math.max(2, ratio * 100)}%"
-                    ></div>
-                  </div>
-                {/if}
               </td>
             </tr>
           {/each}
@@ -1802,6 +1529,8 @@ avg/сделка: ${b.avgVal >= 0 ? '+' : ''}${formatNumber(b.avgVal, 2)} ${curr
     border: 1px solid var(--border);
     border-radius: 4px;
     background: var(--bg-2);
+    box-sizing: border-box;
+    min-width: 0;
   }
   .chart-svg {
     width: 100%;
@@ -2007,20 +1736,6 @@ avg/сделка: ${b.avgVal >= 0 ? '+' : ''}${formatNumber(b.avgVal, 2)} ${curr
     font-size: 11.5px;
     color: var(--text-strong);
   }
-  .kz-bar-cell { width: 240px; }
-  .kz-bar-track {
-    width: 100%;
-    height: 10px;
-    background: var(--bg-3);
-    border-radius: 5px;
-    overflow: hidden;
-  }
-  .kz-bar-fill {
-    height: 100%;
-    transition: width 200ms ease;
-  }
-  .kz-bar-fill.pos { background: var(--profit); }
-  .kz-bar-fill.neg { background: var(--loss); }
 
   .strategy-cell {
     font-size: 12px;
