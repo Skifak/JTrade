@@ -556,8 +556,9 @@
     </div>
   </div>
 
-  <h3 class="stats-section-title">Аналитика · фильтры</h3>
-  <div class="filters-bar">
+  <div class="stats-filters-sticky">
+    <h3 class="stats-section-title">Аналитика · фильтры</h3>
+    <div class="filters-bar">
     <div class="filter-group">
       <span class="filter-label">Период</span>
       <div class="pill-group">
@@ -637,6 +638,7 @@
       <span>WR {formatNumber(filteredAgg.wr, 1)}%</span>
       <span class="muted">{filteredAgg.wins}W / {filteredAgg.losses}L</span>
     </div>
+  </div>
   </div>
 
   <h3 class="stats-section-title">Календарь P&amp;L</h3>
@@ -1120,7 +1122,22 @@
     opacity: 0.7;
   }
 
-  /* ---- Filters ---- */
+  /* ---- Filters (липкий блок под journal-header) ---- */
+  .stats-filters-sticky {
+    position: sticky;
+    top: var(--journal-header-sticky-offset, 56px);
+    z-index: 44;
+    width: 100%;
+    align-self: stretch;
+    background: var(--bg);
+    padding-bottom: 2px;
+    margin-bottom: 16px;
+    box-sizing: border-box;
+  }
+  .stats-filters-sticky .filters-bar {
+    margin-bottom: 0;
+  }
+
   .filters-bar {
     margin: 0 20px 16px;
     padding: 12px 14px;

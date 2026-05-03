@@ -112,6 +112,8 @@
 :root {
   --sans: 'Inter', system-ui, 'Segoe UI', Roboto, Arial, sans-serif;
   --mono: ui-monospace, 'JetBrains Mono', Consolas, 'SFMono-Regular', monospace;
+  /* Зона под липкий .journal-header — фильтры статистики (sticky) цепляются ниже */
+  --journal-header-sticky-offset: 56px;
 
   font: 13px/1.45 var(--sans);
   letter-spacing: 0;
