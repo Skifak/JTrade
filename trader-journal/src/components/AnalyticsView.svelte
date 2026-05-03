@@ -1025,28 +1025,28 @@
     letter-spacing: 0.02em;
   }
   .analytics-stance--ok {
-    border-left: 3px solid var(--profit, #16a34a);
+    border-left: 3px solid var(--stance-ok, var(--profit, #16a34a));
   }
   .analytics-stance--watch {
-    border-left: 3px solid color-mix(in srgb, var(--accent) 70%, var(--border));
+    border-left: 3px solid var(--stance-watch, var(--accent));
   }
   .analytics-stance--warn {
-    border-left: 3px solid var(--warning, #d97706);
+    border-left: 3px solid var(--stance-warn, var(--warning, #d97706));
   }
   .analytics-stance--danger {
-    border-left: 3px solid var(--loss, #c44);
+    border-left: 3px solid var(--stance-danger, var(--loss, #c44));
   }
   .analytics-stance--ok .analytics-stance-lvl {
-    color: var(--profit, #16a34a);
+    color: var(--stance-ok, var(--profit, #16a34a));
   }
   .analytics-stance--watch .analytics-stance-lvl {
-    color: color-mix(in srgb, var(--accent) 85%, var(--text-muted));
+    color: color-mix(in srgb, var(--stance-watch, var(--accent)) 88%, var(--text-muted));
   }
   .analytics-stance--warn .analytics-stance-lvl {
-    color: var(--warning, #d97706);
+    color: var(--stance-warn, var(--warning, #d97706));
   }
   .analytics-stance--danger .analytics-stance-lvl {
-    color: var(--loss, #c44);
+    color: var(--stance-danger, var(--loss, #c44));
   }
   .analytics-card {
     padding: 14px 16px;

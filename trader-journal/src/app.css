@@ -28,6 +28,10 @@
   --loss-fg: #ffffff;
   --shadow: rgba(15, 17, 21, 0.08) 0 6px 16px -4px,
             rgba(15, 17, 21, 0.04) 0 2px 4px -1px;
+  --stance-ok: var(--profit);
+  --stance-watch: var(--accent);
+  --stance-warn: var(--warning);
+  --stance-danger: var(--loss);
 }
 
 [data-theme='beige'] {
@@ -54,6 +58,10 @@
   --loss-fg: #ffffff;
   --shadow: rgba(60, 50, 25, 0.1) 0 6px 16px -4px,
             rgba(60, 50, 25, 0.05) 0 2px 4px -1px;
+  --stance-ok: var(--profit);
+  --stance-watch: var(--accent);
+  --stance-warn: var(--warning);
+  --stance-danger: var(--loss);
 }
 
 [data-theme='dark'] {
@@ -80,6 +88,10 @@
   --loss-fg: #ffffff;
   --shadow: rgba(0, 0, 0, 0.55) 0 8px 18px -4px,
             rgba(0, 0, 0, 0.35) 0 2px 6px -2px;
+  --stance-ok: var(--profit);
+  --stance-watch: var(--accent);
+  --stance-warn: var(--warning);
+  --stance-danger: var(--loss);
 }
 
 /* Неон: глубокий чёрный, лайм #B3FF50 */
@@ -107,6 +119,14 @@
   --loss-fg: #ffffff;
   --shadow: rgba(0, 0, 0, 0.75) 0 10px 24px -6px,
             rgba(179, 255, 80, 0.04) 0 0 0 1px;
+  /*
+    ICT лайм = accent/profit для UI и PnL; ключи состояния отдельно,
+    иначе «Норма» и «Внимание» сливаются (оба через лайм).
+  */
+  --stance-ok: var(--profit);
+  --stance-watch: #52e0ff;
+  --stance-warn: #ff9f40;
+  --stance-danger: var(--loss);
 }
 
 :root {
