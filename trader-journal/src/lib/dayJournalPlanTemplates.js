@@ -28,10 +28,24 @@ export const DEFAULT_PLAN_TEMPLATES = [
   }
 ];
 
+function scrubPlanTplLabelNewlines(raw) {
+  return String(raw ?? '').replace(/\r?\n/g, ' ');
+}
+
+/** Однострочное название для сохранения (переносы → пробел, trim). */
+export function normalizePlanTplLabel(raw) {
+  return scrubPlanTplLabelNewlines(raw).trim();
+}
+
+/** Только для поля ввода: убрать переносы без trim посередине набора. */
+export function scrubPlanTplLabelInput(raw) {
+  return scrubPlanTplLabelNewlines(raw);
+}
+
 function normalizeItem(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const id = String(raw.id || '').trim();
-  const label = String(raw.label || '').trim();
+  const label = normalizePlanTplLabel(raw.label ?? '');
   const text = String(raw.text ?? '').trim();
   if (!id || !label || !text) return null;
   return { id, label, text };
@@ -62,7 +76,7 @@ function createStore() {
   return {
     subscribe,
     addItem(labelStr, textStr) {
-      const label = String(labelStr || '').trim();
+      const label = normalizePlanTplLabel(labelStr);
       const text = String(textStr || '').trim();
       if (!label) {
         toasts.error('Укажи название шаблона.', { ttl: 4000 });
@@ -86,7 +100,8 @@ function createStore() {
         const i = rows.findIndex((r) => r.id === idStr);
         if (i < 0) return rows;
         const r = rows[i];
-        const label = patch.label != null ? String(patch.label).trim() : r.label;
+        const label =
+          patch.label != null ? normalizePlanTplLabel(patch.label) : r.label;
         const text = patch.text != null ? String(patch.text).trim() : r.text;
         if (!label) {
           toasts.error('Название шаблона не может быть пустым.', { ttl: 3500 });

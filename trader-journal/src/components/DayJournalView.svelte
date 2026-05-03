@@ -6,7 +6,7 @@
     dayJournalChecklistTemplate,
     dayJournalSectionLabels
   } from '../lib/dayJournalChecklistTemplate';
-  import { dayJournalPlanTemplates } from '../lib/dayJournalPlanTemplates';
+  import { dayJournalPlanTemplates, scrubPlanTplLabelInput } from '../lib/dayJournalPlanTemplates';
   import JournalSourceHint from './JournalSourceHint.svelte';
 
   const PAGE_SIZE = 10;
@@ -74,6 +74,19 @@
     dayJournalPlanTemplates.addItem(newPlanTplLabel, newPlanTplText);
     newPlanTplLabel = '';
     newPlanTplText = '';
+  }
+
+  function onPlanTplRowLabelInput(e) {
+    const el = e.currentTarget;
+    const v = scrubPlanTplLabelInput(el.value);
+    if (el.value !== v) el.value = v;
+  }
+
+  function onNewPlanTplLabelInput(e) {
+    const el = e.currentTarget;
+    const v = scrubPlanTplLabelInput(el.value);
+    newPlanTplLabel = v;
+    if (el.value !== v) el.value = v;
   }
 
   function applySelectedPlanSnippet() {
@@ -269,18 +282,20 @@
                   <li class="dj-prefs-item dj-prefs-plan-row">
                     <div class="dj-prefs-plan-stack">
                       <input
-                        class="dj-prefs-inp dj-prefs-inp-full"
+                        class="dj-prefs-inp dj-prefs-inp-full dj-prefs-plan-name"
                         type="text"
+                        placeholder="Название"
                         value={row.label}
                         aria-label="Название шаблона {i + 1}"
+                        on:input={onPlanTplRowLabelInput}
                         on:change={(e) =>
                           dayJournalPlanTemplates.updateItem(row.id, { label: e.currentTarget.value })}
                       />
                       <textarea
-                        class="dj-prefs-inp dj-prefs-textarea"
-                        rows="2"
+                        class="dj-prefs-inp dj-prefs-textarea dj-prefs-plan-body"
+                        placeholder="Описание"
                         value={row.text}
-                        aria-label="Текст шаблона {i + 1}"
+                        aria-label="Описание шаблона {i + 1}"
                         on:change={(e) =>
                           dayJournalPlanTemplates.updateItem(row.id, { text: e.currentTarget.value })}
                       ></textarea>
@@ -294,19 +309,22 @@
                 {/each}
               </ul>
               <div class="dj-prefs-plan-add-block">
-                <input
-                  class="dj-prefs-inp dj-prefs-inp-full"
-                  type="text"
-                  placeholder="Название нового шаблона…"
-                  bind:value={newPlanTplLabel}
-                  on:keydown={(e) => e.key === 'Enter' && (e.preventDefault(), addPlanTplRow())}
-                />
-                <textarea
-                  class="dj-prefs-inp dj-prefs-textarea dj-prefs-inp-full"
-                  rows="2"
-                  placeholder="Текст для вставки в план…"
-                  bind:value={newPlanTplText}
-                ></textarea>
+                <div class="dj-prefs-plan-stack">
+                  <input
+                    class="dj-prefs-inp dj-prefs-inp-full dj-prefs-plan-name"
+                    type="text"
+                    placeholder="Название"
+                    value={newPlanTplLabel}
+                    aria-label="Название нового шаблона"
+                    on:input={onNewPlanTplLabelInput}
+                  />
+                  <textarea
+                    class="dj-prefs-inp dj-prefs-textarea dj-prefs-plan-body dj-prefs-inp-full"
+                    placeholder="Описание"
+                    aria-label="Описание нового шаблона"
+                    bind:value={newPlanTplText}
+                  ></textarea>
+                </div>
                 <button type="button" class="btn btn-sm btn-primary" on:click={addPlanTplRow}>Добавить шаблон</button>
               </div>
               <button type="button" class="btn btn-sm" on:click={() => dayJournalPlanTemplates.resetDefaults()}>
@@ -1043,16 +1061,41 @@
   }
   .dj-prefs-plan-stack {
     flex: 1 1 200px;
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-rows: 1fr 9fr;
     gap: 6px;
     min-width: 0;
+    /* явная высота — иначе 10%/90% по строкам не считаются */
+    height: clamp(10rem, 28vmin, 14rem);
+    box-sizing: border-box;
+  }
+  /* Одна строка — дорожка ~10% высоты стека */
+  .dj-prefs-plan-name {
+    padding: 3px 8px;
+    line-height: 1.25;
+    font-size: 12px;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    box-sizing: border-box;
+    align-self: stretch;
   }
   .dj-prefs-textarea {
     resize: vertical;
-    min-height: 52px;
-    line-height: 1.4;
+    line-height: 1.35;
+    padding-block: 4px;
     font-family: inherit;
+  }
+  /* ~90% высоты стека, прокрутка если текст длинный */
+  .dj-prefs-plan-body {
+    padding-block: 6px;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    box-sizing: border-box;
+    align-self: stretch;
+    overflow-y: auto;
+    resize: none;
   }
   .dj-prefs-plan-add-block {
     display: flex;
