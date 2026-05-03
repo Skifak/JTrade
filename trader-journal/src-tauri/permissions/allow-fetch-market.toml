@@ -1,0 +1,5 @@
+# HTTP GET только к allowlist-хостам (Stooq CSV, Yahoo chart) — обход CORS в WebView.
+[[permission]]
+identifier = "allow-fetch-market"
+description = "Загрузка публичных котировок с Stooq/Yahoo без CORS (настольное приложение)"
+commands.allow = ["tauri_fetch_allowed_http_get"]

@@ -11,15 +11,19 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "tauri:icon": "tauri icon",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "audit:js": "npm audit",
     "audit:rust": "cargo audit --manifest-path src-tauri/Cargo.toml"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "@tauri-apps/cli": "^2.0.0",
+    "happy-dom": "^17.6.3",
     "svelte": "^5.55.4",
     "vite": "^8.0.10",
-    "vite-plugin-singlefile": "^2.3.3"
+    "vite-plugin-singlefile": "^2.3.3",
+    "vitest": "^3.2.4"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",

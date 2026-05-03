@@ -1,8 +1,8 @@
 /**
- * Стор живых цен по WebSocket. Без REST-пуллинга.
+ * Стор живых цен по WebSocket (основной поток).
  *
  *   Крипта                          → Binance Spot WS  (bookTicker)
- *   FX / металлы / сырьё / индексы  → TradingView WS   (qsd / lp)
+ *   FX (мажоры) / XAU→XAUT  → Kraken Spot WS (`ticker`); иначе — HTTP Frankfurter/Stooq.
  *
  * Использование:
  *   livePrices.setPairs(['EURUSD', 'BTCUSD']);   // подключает соответствующие WS
@@ -14,7 +14,8 @@
 import { writable } from 'svelte/store';
 import { normalizeSymbolKey } from './constants';
 import { BinanceWs } from './binanceWs';
-import { TradingViewWs } from './tradingViewWs';
+import { KrakenWs } from './krakenWs';
+import { fetchMarketPrice } from './marketData.js';
 
 /* ------------- классификация (как в marketData.js) -------------- */
 
@@ -52,8 +53,8 @@ function toBinanceSymbol(key) {
  *  - error: последняя ошибка коннекта.
  */
 export const pingInfo = writable({
-  binance:    { latencyMs: null, lastTickAt: null, lastChangeAt: null, connected: false, error: null },
-  tradingview:{ latencyMs: null, lastTickAt: null, lastChangeAt: null, connected: false, error: null }
+  binance: { latencyMs: null, lastTickAt: null, lastChangeAt: null, connected: false, error: null },
+  kraken:  { latencyMs: null, lastTickAt: null, lastChangeAt: null, connected: false, error: null }
 });
 
 /** Часы — обновляется раз в 1 сек, чтобы UI пересчитывал «возраст» без дрожания
@@ -77,6 +78,11 @@ const PING_TICK_THROTTLE_MS = 5000;
 // поменялась. Throttle небольшой (1с), потому что событий не много.
 const PING_CHANGE_THROTTLE_MS = 1000;
 
+/** Нет тика Kraken за это время → HTTP (Frankfurter/Stooq). */
+const FX_HTTP_FALLBACK_DELAY_MS = 6500;
+/** Пока WS молчит — периодический HTTP. */
+const FX_HTTP_POLL_INTERVAL_MS = 22000;
+
 /* ------------------------- основной стор ------------------------ */
 
 function createLivePrices() {
@@ -84,16 +90,76 @@ function createLivePrices() {
 
   /** @type {BinanceWs|null} */
   let binanceWs = null;
-  /** @type {TradingViewWs|null} */
-  let tvWs = null;
+  /** @type {KrakenWs|null} */
+  let krakenWs = null;
 
   /** map binanceSymbol(USDT) → internalKey(BTCUSD), чтобы при тиках вернуть наш ключ. */
   const binSymToKey = new Map();
   let clockTimer = null;
 
+  let fxStooqWatchKeys = [];
+  /** @type {ReturnType<typeof setTimeout>|null} */
+  let fxStooqDelayTimer = null;
+  /** @type {ReturnType<typeof setInterval>|null} */
+  let fxStooqPollTimer = null;
+
+  function clearFxStooqTimers() {
+    if (fxStooqDelayTimer) clearTimeout(fxStooqDelayTimer);
+    fxStooqDelayTimer = null;
+    if (fxStooqPollTimer) clearInterval(fxStooqPollTimer);
+    fxStooqPollTimer = null;
+    fxStooqWatchKeys = [];
+  }
+
+  async function applyStooqForFxKeys(keys) {
+    for (const k of keys) {
+      let skip = false;
+      update((map) => {
+        const prev = map[k];
+        if (prev?.provider === 'kraken' && Number(prev?.price) > 0) skip = true;
+        return map;
+      });
+      if (skip) continue;
+      try {
+        const r = await fetchMarketPrice(k);
+        if (!r || r.error || r.price == null || !Number.isFinite(Number(r.price))) continue;
+        const price = Number(r.price);
+        const ts = r.timestamp || Date.now();
+        update((map) => {
+          const prev = map[k];
+          if (prev?.provider === 'kraken' && Number(prev?.price) > 0) return map;
+          return {
+            ...map,
+            [k]: {
+              loading: false,
+              price,
+              source: `${r.source || 'HTTP'} · без потока Kraken`,
+              provider: r.provider || 'frankfurter',
+              timestamp: ts,
+              lastChangeAt: ts,
+              error: null
+            }
+          };
+        });
+      } catch (_) {}
+    }
+  }
+
+  function scheduleFxStooqFallback(keysArr) {
+    clearFxStooqTimers();
+    fxStooqWatchKeys = [...keysArr];
+    fxStooqDelayTimer = setTimeout(() => {
+      fxStooqDelayTimer = null;
+      void applyStooqForFxKeys(fxStooqWatchKeys);
+    }, FX_HTTP_FALLBACK_DELAY_MS);
+    fxStooqPollTimer = setInterval(() => {
+      void applyStooqForFxKeys(fxStooqWatchKeys);
+    }, FX_HTTP_POLL_INTERVAL_MS);
+  }
+
   // Троттлинги апдейтов pingInfo, чтобы пилюля не плясала.
-  const tickThrottle = { binance: 0, tradingview: 0 };
-  const changeThrottle = { binance: 0, tradingview: 0 };
+  const tickThrottle = { binance: 0, kraken: 0 };
+  const changeThrottle = { binance: 0, kraken: 0 };
 
   function patchPing(provider, mut) {
     pingInfo.update((p) => ({ ...p, [provider]: { ...p[provider], ...mut } }));
@@ -153,9 +219,9 @@ function createLivePrices() {
     return binanceWs;
   }
 
-  function ensureTv() {
-    if (tvWs) return tvWs;
-    tvWs = new TradingViewWs({
+  function ensureKraken() {
+    if (krakenWs) return krakenWs;
+    krakenWs = new KrakenWs({
       onTick: ({ symbol, price, eventTime, latencyMs }) => {
         let priceChanged = false;
         update((map) => {
@@ -166,8 +232,8 @@ function createLivePrices() {
             [symbol]: {
               loading: false,
               price,
-              source: `TradingView · ${symbol}`,
-              provider: 'tradingview',
+              source: `Kraken · ${symbol}`,
+              provider: 'kraken',
               timestamp: eventTime,
               lastChangeAt: priceChanged ? eventTime : (prev?.lastChangeAt ?? eventTime),
               error: null
@@ -175,21 +241,21 @@ function createLivePrices() {
           };
         });
 
-        updatePingTick('tradingview', {
+        updatePingTick('kraken', {
           latencyMs,
           lastTickAt: Date.now(),
           connected: true,
           error: null
         });
         if (priceChanged) {
-          updatePingChange('tradingview', { lastChangeAt: eventTime });
+          updatePingChange('kraken', { lastChangeAt: eventTime });
         }
       },
       onStatus: ({ connected, error }) => {
-        patchPing('tradingview', { connected, error: error || null });
+        patchPing('kraken', { connected, error: error || null });
       }
     });
-    return tvWs;
+    return krakenWs;
   }
 
   function setPairs(pairs) {
@@ -234,11 +300,15 @@ function createLivePrices() {
     }
 
     if (otherKeys.size > 0) {
-      ensureTv().setSymbols([...otherKeys]);
-    } else if (tvWs) {
-      tvWs.close();
-      tvWs = null;
-      pingInfo.update((p) => ({ ...p, tradingview: { ...p.tradingview, connected: false } }));
+      ensureKraken().setSymbols([...otherKeys]);
+      scheduleFxStooqFallback([...otherKeys]);
+    } else {
+      clearFxStooqTimers();
+      if (krakenWs) {
+        krakenWs.close();
+        krakenWs = null;
+        pingInfo.update((p) => ({ ...p, kraken: { ...p.kraken, connected: false } }));
+      }
     }
   }
 
@@ -250,8 +320,9 @@ function createLivePrices() {
   function stop() {
     if (clockTimer) clearInterval(clockTimer);
     clockTimer = null;
+    clearFxStooqTimers();
     if (binanceWs) { binanceWs.close(); binanceWs = null; }
-    if (tvWs) { tvWs.close(); tvWs = null; }
+    if (krakenWs) { krakenWs.close(); krakenWs = null; }
   }
 
   return {
@@ -261,10 +332,10 @@ function createLivePrices() {
     stop,
     _debug: () => ({
       binanceConnected: !!binanceWs?.ws,
-      tvConnected: !!tvWs?.ws,
+      krakenConnected: !!krakenWs?.ws,
       binSymToKey: Object.fromEntries(binSymToKey),
-      tvKeys: tvWs ? [...tvWs.keys] : [],
-      tvSymMap: tvWs ? Object.fromEntries(tvWs.tvToKey) : {}
+      krakenKeys: krakenWs ? [...krakenWs.keys] : [],
+      krakenPairMap: krakenWs ? Object.fromEntries(krakenWs.pairToKey) : {}
     })
   };
 }

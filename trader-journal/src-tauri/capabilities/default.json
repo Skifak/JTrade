@@ -5,6 +5,7 @@
   "windows": ["*"],
   "permissions": [
     "core:default",
-    "allow-attachments"
+    "allow-attachments",
+    "allow-fetch-market"
   ]
 }

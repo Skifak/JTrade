@@ -4,14 +4,14 @@
 
 Доступно два варианта запуска:
 1. **Standalone HTML** — `vite-plugin-singlefile` собирает один `dist/index.html` со всем CSS/JS внутри. Открыть из любого статического хостинга / `npm run preview`.
-2. **Десктоп-приложение через Tauri 2** — нативная WebView2-обёртка для Windows (см. [секцию ниже](#tauri-десктоп-сборка)). Решает проблему `file://` + WebSocket: WS к Binance / TradingView в Tauri живут так же, как в `npm run dev`.
+2. **Десктоп-приложение через Tauri 2** — нативная WebView2-обёртка для Windows (см. [секцию ниже](#tauri-десктоп-сборка)). Решает проблему `file://` + WebSocket: WS к Binance / Kraken в Tauri живут так же, как в `npm run dev`.
 
 Метаданные (сделки, профиль, глоссарий, журнал дня и т.д.) живут в **`localStorage`** браузера / WebView. **Файлы изображений** к терминам глоссария и к закрытым сделкам хранятся отдельно: в **Tauri** — в `%AppData%\…\trader-journal-assets`; в чистом браузере — в **IndexedDB**, чтобы не забивать квоту JSON.
 
 ### Конфиденциальность и данные
 - **Свой сервер** у приложения нет: сделки, профиль и глоссарий **нигде не отсылаются** разработчику.
 - **Локальное хранение не шифруется** — доступ к диску/профилю Windows = теоретический доступ к JSON в `localStorage` и к файлам вложений. Чужие ZIP/JSON-экспорты скачивай и открывай осознанно.
-- **Сеть** используется только по твоему сценарию: публичные **WebSocket/REST** к рыночным фидам (Binance, TradingView, Stooq и т.д.) — это не телеметрия приложения, а котировки/снапшоты по документированным в README URL.
+- **Сеть** используется только по твоему сценарию: публичные **WebSocket/REST** к рыночным фидам (Binance, Kraken, Frankfurter, Stooq и т.д.) — это не телеметрия приложения, а котировки/снапшоты по документированным в README URL.
 - **Экспорт/импорт** (в т.ч. ZIP с фото) — твой файл; куда положил бэкап, с тем и делись.
 
 ---
@@ -90,24 +90,20 @@ wss://stream.binance.com:9443/stream?streams=btcusdt@bookTicker/btcusdt@aggTrade
 ```
 Подписка на **`@bookTicker` + `@aggTrade`** на каждый символ — bookTicker даёт mid `(bid+ask)/2`, aggTrade даёт last trade price. Вместе покрывают все микродвижения. Reconnect с экспоненциальным backoff (1c → 2c → 4c → … → 15c). Хвост `USD` автоматически становится `USDT`: `BTCUSD → BTCUSDT`.
 
-#### FX / металлы / сырьё / индексы → TradingView WS (`src/lib/tradingViewWs.js`)
+#### FX (мажоры) и золото (XAUT) → Kraken Spot WS (`src/lib/krakenWs.js`)
 ```
-wss://data.tradingview.com/socket.io/websocket
+wss://ws.kraken.com/
 ```
-Публичный data-feed TradingView. Протокол неофициальный, реверс-инжиниринговый: каждое сообщение оборачивается в `~m~LENGTH~m~JSON`, есть heartbeat-фреймы `~h~N` (отвечаем эхом), сессия создаётся через `quote_create_session`, подписка — `quote_add_symbols` + `quote_fast_symbols`, цены приходят в событиях `qsd` с полем `lp` (last price). При отсутствии `lp` берём mid `(bid+ask)/2`.
+Официальный публичный WebSocket без ключа: подписка `{"event":"subscribe","pair":["EUR/USD","GBP/USD",…],"subscription":{"name":"ticker"}}`. Обновления — массив `[channel_id, ticker, pairName, "ticker"]`; цена — mid `(bid+ask)/2` из полей `b`/`a`, иначе last из `c`.
 
-Маппинг тикеров живёт в `defaultMapSymbol` и **сознательно сделан через `OANDA:`-префикс** для FX/металлов/сырья/индексов:
-- На anonymous-токене `FX:`, `FX_IDC:`, `TVC:`, `SP:`, `NASDAQ:`, `DJ:` обычно отдают **delayed** котировки (минуты — десятки минут).
-- `OANDA:` (форекс-брокер пушит свои собственные потоки) и `BINANCE:` отдают **realtime tick-by-tick**.
-- Поэтому: FX 6-char → `OANDA:EURUSD`, металлы → `OANDA:XAU/XAG/XPT/XPDUSD`, нефть → `OANDA:WTICO/BCOUSD`, нефть/газ/медь → `OANDA:NATGASUSD/XCUUSD`, индексы → `OANDA:SPX500/NAS100/US30/DE30/UK100/JP225/HK33/AU200/FR40`.
-- Soft commodities у OANDA нет — остаются фьючерсы `ICEUS:CC1!/KC1!/SB1!`, `CBOT:ZW1!/ZC1!` (могут быть delayed).
+На Kraken доступны **не все** межбанковские кроссы: поддерживаются только пары из множества `KRAKEN_FX_WSNAME` в коде (AUD/JPY, AUD/USD, EUR/AUD, EUR/CAD, EUR/CHF, EUR/GBP, EUR/JPY, EUR/USD, GBP/USD, USD/CAD, USD/CHF, USD/JPY). Ключи вида `XAU*` мапятся в **`XAUT/USD`** (токенизированное золото на бирже, не спот XAU межбанка).
 
-> ⚠️ TradingView WS не имеет публичного контракта. Они в любой момент могут поменять протокол или начать резать неаутентифицированные сессии. На момент 2026 работает.
+Индексы / нефть / серебро / экзотический FX без WS на Kraken → только **HTTP** через `marketData` (Frankfurter / Stooq).
 
 #### Стор и интеграция (`src/lib/livePrices.js`)
 ```js
 livePrices.setPairs(['EURUSD', 'BTCUSD', 'XAUUSD']);
-// Crypto → Binance, остальное → TradingView. WS поднимаются автоматически.
+// Crypto → Binance, FX/XAUT по возможности → Kraken WS, иначе HTTP. WS поднимаются автоматически.
 livePrices.start();   // запустить tickClock (для UI обновления "возраста")
 livePrices.stop();    // закрыть оба WS
 ```
@@ -117,17 +113,17 @@ livePrices.stop();    // закрыть оба WS
 ```js
 __livePrices.snapshot();   // текущие цены
 __livePrices.ping();       // состояние WS-провайдеров
-__livePrices.debug();      // mapping internalKey ↔ tvSymbol / binSymbol
+__livePrices.debug();      // mapping internalKey ↔ krakenPair / binSymbol
 __livePrices.enableLog();  // включить debug-лог WS, перезагрузить страницу
 ```
 
 #### REST-фасад (`src/lib/marketData.js`)
-Используется только в форме сделки для одноразового снапшота по чекбоксу **📡 По рынку** (поднимать WS на одно нажатие смысла нет). Маршрутизация: крипта → Binance REST, всё остальное → **Stooq CSV**.
+Используется только в форме сделки для одноразового снапшота по чекбоксу **📡 По рынку** (поднимать WS на одно нажатие смысла нет). Маршрутизация: крипта → Binance REST, FX → Frankfurter, индексы/сырьё/металлы → **Yahoo Chart API** + золото через **Binance PAXGUSDT**, резерв → **Stooq CSV**.
 
-> ⚠️ Stooq отдаёт `Access-Control-Allow-Origin: *` непостоянно — на старых/географически удалённых клиентах может прилетать `NetworkError when attempting to fetch resource` из-за CORS. В этом случае «По рынку» не сработает; используй live из WS-тика, который уже подтянулся в открытую сделку.
+> ⚠️ Stooq **не отдаёт CORS** из браузера — прямой `fetch` режется. В **вебе** сначала Yahoo/PAXG; Stooq подключается только если они не сработали. В **Tauri** после ошибки вызывается `tauri_fetch_allowed_http_get` (Rust `reqwest`) для allowlist URL Stooq и Yahoo — обход CORS.
 
 #### Пинг
-В тулбаре две пилюли — `Binance` и `TradingView`. Показывают **возраст последнего тика** от провайдера + время с последнего изменения цены (Δ):
+В тулбаре две пилюли — `Binance` и `Kraken`. Показывают **возраст последнего тика** от провайдера + время с последнего изменения цены (Δ):
 - 🟢 < 10 сек — соединение живое, тики идут.
 - 🟡 10–60 сек — WS открыт, но тиков давно нет (выходной по FX, низкая активность).
 - 🔴 ошибка коннекта.
@@ -204,9 +200,11 @@ npm install
 npm run dev      # дев-сервер с HMR (порт 5173)
 npm run build    # сборка в dist/index.html (один файл)
 npm run preview  # предпросмотр продакшен-сборки на http://localhost:4173
+npm run test     # юнит-тесты (Vitest), один прогон
+npm run test:watch # Vitest в watch-режиме при правках кода
 ```
 
-После `npm run build` в `dist/` лежит один HTML-файл со всем CSS/JS внутри. **Открывать его двойным кликом (`file://`) не рекомендуется**: WebSocket к Binance/TradingView в части браузеров режется при `Origin: null`, и live-цены замолкают. Корректные способы запустить веб-вариант:
+После `npm run build` в `dist/` лежит один HTML-файл со всем CSS/JS внутри. **Открывать его двойным кликом (`file://`) не рекомендуется**: WebSocket к Binance/Kraken в части браузеров режется при `Origin: null`, и live-цены замолкают. Корректные способы запустить веб-вариант:
 
 - `npm run preview` (локальный static-сервер на 4173).
 - `npx serve dist` / nginx / GitHub Pages / Cloudflare Pages.
@@ -222,7 +220,7 @@ npm run preview  # предпросмотр продакшен-сборки на
 
 Tauri 2 оборачивает фронт в нативное окно с **WebView2** (Edge/Chromium) и отдаёт страницу не как `file://`, а как `https://tauri.localhost/...`. Из-за этого:
 
-- WebSocket к `wss://stream.binance.com:9443` и `wss://data.tradingview.com` рукопожимают **с валидным `Origin`** — провайдеры не режут запросы.
+- WebSocket к `wss://stream.binance.com:9443` и `wss://ws.kraken.com` рукопожимают **с валидным `Origin`** — провайдеры не режут запросы.
 - HTTPS-запросы (Stooq, Frankfurter, Binance REST) тоже не упираются в CORS, как при `file://`.
 - Получается единый `.exe` (или `.msi`/`.nsis`-инсталлятор), который пользователь запускает двойным кликом.
 
@@ -323,10 +321,10 @@ src/
 │   ├── playbooks.js              # стратегии / play / правила + дефолтная ICT-стратегия
 │   ├── ictTaxonomy.js            # narrative / structure / poi / execution теги
 │   ├── htfBias.js                # лог bias daily/h4 + key levels + reasoning
-│   ├── livePrices.js             # оркестратор Binance WS + TradingView WS
+│   ├── livePrices.js             # оркестратор Binance WS + Kraken WS
 │   ├── binanceWs.js              # клиент Binance combined streams (bookTicker + aggTrade)
-│   ├── tradingViewWs.js          # клиент TradingView WS, OANDA-mapping
-│   ├── marketData.js             # REST-фасад: Binance + Stooq (одноразовый снапшот)
+│   ├── krakenWs.js               # клиент Kraken ticker + маппинг пар под журнал
+│   ├── marketData.js             # REST: Binance + Frankfurter + Yahoo/PAXG + Stooq (Tauri bypass CORS)
 │   ├── mt5Parser.js              # парсер HTML-отчётов MT5 (Trade Report + History)
 │   ├── journalBundle.js         # ZIP экспорт/импорт (сделки + глоссарий + файлы)
 │   ├── attachmentApi.js         # вложения: Tauri AppData vs IndexedDB, пути trades/… glossary/…
@@ -444,14 +442,14 @@ profit   = rawPnL − commission − swap
 
 - **Кроссы FX без USD** (например `EURGBP`) считаются в котируемой валюте, не пересчитываются в USD.
 - **Индексы / нефть / акции**: размер контракта по умолчанию `1`, нужно задавать вручную через `trade.contractSize` или расширять `DEFAULT_CONTRACT_SIZE_BY_SYMBOL`.
-- **`marketPrice` в отчёте MT5** — снимок на момент генерации файла. В UI поверх него подставляется live из Binance/TradingView, исходная цифра остаётся как fallback.
+- **`marketPrice` в отчёте MT5** — снимок на момент генерации файла. В UI поверх него подставляется live из Binance/Kraken (или HTTP), исходная цифра остаётся как fallback.
 - **Sharpe** упрощённый: `mean(profit) / std(profit)`, не классический «дневной с risk-free».
 - **Просадка** считается только по закрытым сделкам, без intraday MFE/MAE (нужны тики).
 - **Частичные закрытия** позиции в один и тот же момент могут привести к ложной привязке комментария к чужой позиции (в практике редкий кейс).
-- **TradingView WS неофициальный**. Если задепрекейтят протокол или начнут отдавать ошибку для anonymous-сессий, FX/металлы/сырьё перестанут обновляться. Тогда нужен fallback на платный API (Twelve Data, Finnhub, OANDA).
-- **Не все брокерские тикеры мапятся в TV/OANDA**. Если у тебя пара, которую `defaultMapSymbol` не знает, она просто не подпишется. Расширь список в `src/lib/tradingViewWs.js`.
+- **Kraken FX WS** покрывает только перечисленные в `krakenWs.js` мажорные кроссы и XAUT/USD; GBP/JPY, NZD*, большинство экзотов — только HTTP. При необходимости расширяй `KRAKEN_FX_WSNAME`, если пара появилась в Kraken AssetPairs.
+- **Не все брокерские тикеры имеют Kraken WS.** Если пара не входит в whitelist или не мапится в XAUT — live идёт через Frankfurter/Stooq по таймеру из `livePrices.js`.
 - **Binance** покрывает только крипту, торгующуюся на бирже. Экзотика (пары без USDT) может не подняться.
-- **Stooq REST CORS** — на части клиентов «По рынку» в форме сделки может падать с `NetworkError`. На live-цены в таблице открытых это не влияет (они идут через WS).
+- **Stooq из чистого браузера** без Yahoo/PAXG-трека недоступен (нет ACAO). В Tauri или после успешного Yahoo цены подтягиваются.
 - **Нет синка между устройствами** — данные в `localStorage` одного браузера. Бэкап = «Экспорт» вручную.
 
 ---
@@ -464,7 +462,10 @@ profit   = rawPnL − commission − swap
 
 **Tauri 2 — capabilities (ревью):** `src-tauri/capabilities/default.json` вешается только на окно `main` и выдаёт:
 - `core:default` — стандартный набор Tauri 2 (без лишних плагинов в этом проекте);
-- `allow-attachments` — **только** кастомные команды в `src-tauri/permissions/allow-attachments.toml`: `tauri_attachments_{write,read,remove_file,remove_scope_dir,get_root}` для папки `trader-journal-assets` в AppData. Отдельных `fs:default` / `shell:default` / `http` plugin scope в capability **нет** — веб-часть ходит в сеть как обычный WebView (`fetch` / WS), не через Tauri shell.
+- `allow-attachments` — **только** кастомные команды в `src-tauri/permissions/allow-attachments.toml`: `tauri_attachments_{write,read,remove_file,remove_scope_dir,get_root}` для папки `trader-journal-assets` в AppData;
+- `allow-fetch-market` — команда `tauri_fetch_allowed_http_get`: только HTTPS на **allowlist** хостов `stooq.com` (`/q/l/`) и `query1.finance.yahoo.com` (`/v8/finance/chart/`), чтобы обойти CORS для котировок без общего `fs`/`shell`.
+
+Отдельных `fs:default` / `shell:default` / `http` plugin scope в capability **нет** — веб-часть ходит в сеть как обычный WebView (`fetch` / WS), не через Tauri shell.
 
 `app.security.csp` в `tauri.conf.json` сейчас `null` (сборка `singlefile` + инлайн); ужесточение CSP — отдельный осознанный шаг, если уйдёшь от one-file.
 

@@ -3,8 +3,10 @@
 use base64::Engine;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use tauri::Manager;
+use url::Url;
 
 const ASSETS_SUBDIR: &str = "trader-journal-assets";
 
@@ -105,6 +107,47 @@ fn tauri_attachments_get_root(app: tauri::AppHandle) -> Result<String, String> {
         .map(String::from)
 }
 
+fn validate_public_market_url(raw: &str) -> Result<(), String> {
+    let u = Url::parse(raw).map_err(|e| format!("URL: {}", e))?;
+    if u.scheme() != "https" {
+        return Err("only https".into());
+    }
+    let host = u.host_str().ok_or("no host")?;
+    match host {
+        "stooq.com" | "www.stooq.com" => {
+            if !u.path().starts_with("/q/l/") {
+                return Err("stooq: только /q/l/".into());
+            }
+        }
+        "query1.finance.yahoo.com" => {
+            if !u.path().starts_with("/v8/finance/chart/") {
+                return Err("yahoo: только /v8/finance/chart/".into());
+            }
+            if u.path().contains("..") {
+                return Err("invalid path".into());
+            }
+        }
+        _ => return Err("host не в allowlist".into()),
+    }
+    Ok(())
+}
+
+/// Обход CORS: только GET по белому списку URL (рынки).
+#[tauri::command]
+async fn tauri_fetch_allowed_http_get(url: String) -> Result<String, String> {
+    validate_public_market_url(&url)?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .user_agent("TraderJournal/1.0")
+        .build()
+        .map_err(|e| e.to_string())?;
+    let res = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    if !res.status().is_success() {
+        return Err(format!("HTTP {}", res.status()));
+    }
+    res.text().await.map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -113,7 +156,8 @@ pub fn run() {
             tauri_attachments_read,
             tauri_attachments_remove_file,
             tauri_attachments_remove_scope_dir,
-            tauri_attachments_get_root
+            tauri_attachments_get_root,
+            tauri_fetch_allowed_http_get
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -149,7 +149,7 @@
         </div>
         <div class="hero-card">
           <div class="hero-card-h">⚡ Live-цены</div>
-          <p>WebSocket Binance + OANDA — без API-ключей и без задержек.</p>
+          <p>WebSocket Binance + Kraken — без API-ключей.</p>
         </div>
         <div class="hero-card">
           <div class="hero-card-h">∑ Статистика + 📈 Аналитика</div>
@@ -267,7 +267,7 @@
           <h4>Новая сделка</h4>
           <ul>
             <li>Шаблоны слева — заполняют пару/таймфрейм/комментарии.</li>
-            <li>Чекбокс «По рынку» — подставит текущий live bid/ask.</li>
+            <li>Чекбокс «По рынку» — только FX и крипта; подставляет live из WS (Kraken/Binance).</li>
             <li>Кнопка <strong>🎯</strong> рядом с объёмом — посчитает лот под твой лимит риска.</li>
             <li>Поля SL и TP — желательно <em>оба</em> (для R:R и для риск-карточки).</li>
           </ul>
@@ -683,7 +683,7 @@ Risk:Reward ≥ 1:2
           </ul>
         </div>
         <div class="info-card">
-          <h4>FX / металлы / индексы / нефть → OANDA через TradingView</h4>
+          <h4>FX (мажоры) и золото (XAUT) → Kraken WS; прочее → HTTP Frankfurter/Stooq</h4>
           <ul>
             <li>Маппинг символов: <code>EURUSD → OANDA:EURUSD</code></li>
             <li>Real-time для major-pairs, XAUUSD, XAGUSD, US30/SPX/NAS, WTICO/BCO</li>

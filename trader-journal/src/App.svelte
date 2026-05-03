@@ -446,7 +446,7 @@
             </select>
           </label>
           <div class="ping-row">
-            {#each [['binance', 'Binance'], ['tradingview', 'TradingView']] as [p, label]}
+            {#each [['binance', 'Binance'], ['kraken', 'Kraken']] as [p, label]}
               {@const info = $pingInfo[p]}
               {@const tickAge = info.lastTickAt ? $tickClock - info.lastTickAt : null}
               {@const changeAge = info.lastChangeAt ? $tickClock - info.lastChangeAt : null}

@@ -1,17 +1,19 @@
 /**
  * Рыночные цены без API-ключей.
  *
- *   Крипта                 → Binance public  (https://api.binance.com)
- *   FX / Металлы / Сырьё /
- *   Индексы / акции        → Stooq CSV       (https://stooq.com)
+ *   Крипта → Binance public (https://api.binance.com)
+ *   FX → Frankfurter (https://api.frankfurter.dev/v1 — без редиректа, иначе Firefox ломает CORS на 301 с .app)
+ *   Индексы / сырьё / металлы (не XAU*) → Yahoo Chart API (JSON); при ошибке → Stooq CSV.
+ *   Золото XAU* → Binance PAXGUSDT (≈ золото), затем Yahoo GC=F, затем Stooq.
  *
- * Оба источника отдают `Access-Control-Allow-Origin: *`, работают
- * напрямую из браузера, не требуют регистрации/ключей.
+ * Stooq не отдаёт Access-Control-Allow-Origin — в браузере fetch режется.
+ * В Tauri вызывается `tauri_fetch_allowed_http_get` (обход CORS).
  *
  * Возвращает: { price, source, symbol, timestamp }
  *      либо : { error, source } при ошибке.
  */
 import { normalizeSymbolKey } from './constants';
+import { isTauriApp } from './attachmentApi.js';
 
 /* ---------------------- классификация символа ---------------------- */
 
@@ -44,6 +46,33 @@ const INDEX_TO_STOOQ = {
   HK50: '^hsi', HKG33: '^hsi'
 };
 
+/** MT5-тикеры → Yahoo Finance chart (индексы / фьючи); обычно доступно из браузера по CORS. */
+const KEY_TO_YAHOO = {
+  US500: '^GSPC', SPX500: '^GSPC', SP500: '^GSPC',
+  US100: '^IXIC', NAS100: '^IXIC', NASDAQ100: '^IXIC',
+  US30: '^DJI', DJ30: '^DJI', US30CASH: '^DJI',
+  GER40: '^GDAXI', DE40: '^GDAXI', GER30: '^GDAXI',
+  UK100: '^FTSE', FTSE100: '^FTSE',
+  JPN225: '^N225', JP225: '^N225',
+  HK50: '^HSI', HKG33: '^HSI',
+  USOIL: 'CL=F', WTIUSD: 'CL=F', WTI: 'CL=F', XTIUSD: 'CL=F', CRUDE: 'CL=F', OILUSD: 'CL=F',
+  UKOIL: 'BZ=F', BRENT: 'BZ=F', XBRUSD: 'BZ=F', BRENTUSD: 'BZ=F',
+  NATGAS: 'NG=F', NGUSD: 'NG=F', XNGUSD: 'NG=F',
+  COPPER: 'HG=F', XCUUSD: 'HG=F',
+  COCOAUSD: 'CC=F', COFFEEUSD: 'KC=F', SUGARUSD: 'SB=F', WHEATUSD: 'ZW=F', CORNUSD: 'ZC=F',
+  XAGUSD: 'SI=F', XPTUSD: 'PL=F', XPDUSD: 'PA=F'
+};
+
+function keyToYahooSymbol(key) {
+  const k = String(key || '').toUpperCase();
+  if (!k) return null;
+  if (Object.prototype.hasOwnProperty.call(KEY_TO_YAHOO, k)) return KEY_TO_YAHOO[k];
+  if (k.startsWith('XAG')) return 'SI=F';
+  if (k.startsWith('XPT')) return 'PL=F';
+  if (k.startsWith('XPD')) return 'PA=F';
+  return null;
+}
+
 function isCryptoKey(key) {
   if (!key) return false;
   if (key.endsWith('USDT') || key.endsWith('USDC')) {
@@ -66,10 +95,18 @@ function isFxKey(key) {
   return /^[A-Z]{6}$/.test(key) && !isCryptoKey(key) && !isMetalKey(key);
 }
 
-/** Какой провайдер обслуживает символ. */
+/** Какой провайдер обслуживает символ (для batch). */
 function providerForKey(key) {
   if (isCryptoKey(key)) return 'binance';
+  if (isFxKey(key)) return 'frankfurter';
   return 'stooq';
+}
+
+/** Чекбокс «По рынку» в форме — только FX и крипта (live через WS в livePrices). */
+export function supportsFormMarketFill(pair) {
+  const key = normalizeSymbolKey(pair);
+  if (!key) return false;
+  return isCryptoKey(key) || isFxKey(key);
 }
 
 /** AbortSignal с таймаутом (Polyfill для старых браузеров). */
@@ -83,6 +120,23 @@ function timeoutSignal(ms) {
 }
 
 const REQUEST_TIMEOUT_MS = 10_000;
+
+/**
+ * Браузерный fetch; при ошибке (в т.ч. CORS) в Tauri — повтор через Rust по allowlist.
+ */
+async function fetchTextBrowserThenTauri(url) {
+  try {
+    const res = await fetch(url, { signal: timeoutSignal(REQUEST_TIMEOUT_MS) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.text();
+  } catch (first) {
+    if (typeof window !== 'undefined' && isTauriApp()) {
+      const { invoke } = await import('@tauri-apps/api/core');
+      return invoke('tauri_fetch_allowed_http_get', { url });
+    }
+    throw first;
+  }
+}
 
 /* -------------------------- Binance --------------------------- */
 
@@ -165,6 +219,275 @@ async function fetchBinanceBatch(items) {
   }
 }
 
+/* ------------------------ Frankfurter (FX, CORS) ----------------- */
+
+const FRANKFURTER_LATEST = 'https://api.frankfurter.dev/v1/latest';
+
+/**
+ * Курсы ECB (обновление рабочими днями, не тик).
+ * Только api.frankfurter.dev/v1 — не api.frankfurter.app: там 301 без ACAO, Firefox режет preflight.
+ * @param {{key:string, display:string}[]} items
+ * @returns {Promise<Map<string, any>>}
+ */
+async function fetchFrankfurterBatch(items) {
+  const out = new Map();
+  if (items.length === 0) return out;
+
+  /** base (3 буквы) → quote → список внутренних ключей с такой парой */
+  const byBase = new Map();
+  for (const it of items) {
+    const key = it.key;
+    const base = key.slice(0, 3);
+    const quote = key.slice(3, 6);
+    if (!byBase.has(base)) byBase.set(base, new Map());
+    const qm = byBase.get(base);
+    if (!qm.has(quote)) qm.set(quote, []);
+    qm.get(quote).push(key);
+  }
+
+  for (const [base, quoteMap] of byBase) {
+    const quotes = [...quoteMap.keys()].sort().join(',');
+    const url = `${FRANKFURTER_LATEST}?base=${encodeURIComponent(base)}&symbols=${encodeURIComponent(quotes)}`;
+    const t0 = performance.now();
+    try {
+      const res = await fetch(url, { signal: timeoutSignal(REQUEST_TIMEOUT_MS) });
+      const pingMs = Math.round(performance.now() - t0);
+      if (!res.ok) {
+        for (const keys of quoteMap.values()) {
+          for (const k of keys) {
+            out.set(k, {
+              error: `Frankfurter HTTP ${res.status}`,
+              provider: 'frankfurter',
+              source: 'Frankfurter',
+              pingMs
+            });
+          }
+        }
+        continue;
+      }
+      const data = await res.json();
+      const rates = data?.rates || {};
+      const dateStr = data?.date || '';
+      let timestamp = Date.now();
+      if (dateStr) {
+        const p = Date.parse(`${dateStr}T12:00:00Z`);
+        if (Number.isFinite(p)) timestamp = p;
+      }
+      for (const [quote, keys] of quoteMap) {
+        const price = Number(rates[quote]);
+        if (!Number.isFinite(price) || price <= 0) {
+          for (const k of keys) {
+            out.set(k, {
+              error: `Frankfurter: нет ${base}/${quote}`,
+              provider: 'frankfurter',
+              source: 'Frankfurter',
+              pingMs
+            });
+          }
+          continue;
+        }
+        for (const k of keys) {
+          out.set(k, {
+            price,
+            source: `Frankfurter · ${base}/${quote}`,
+            provider: 'frankfurter',
+            symbol: `${base}${quote}`,
+            timestamp,
+            pingMs
+          });
+        }
+      }
+    } catch (err) {
+      const pingMs = Math.round(performance.now() - t0);
+      const isTimeout = err?.name === 'TimeoutError' || err?.name === 'AbortError';
+      const msg = isTimeout ? 'таймаут 10 сек' : err?.message || 'сеть недоступна';
+      for (const keys of quoteMap.values()) {
+        for (const k of keys) {
+          out.set(k, {
+            error: `Frankfurter: ${msg}`,
+            provider: 'frankfurter',
+            source: 'Frankfurter',
+            pingMs
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+async function fetchFromFrankfurter(key) {
+  const m = await fetchFrankfurterBatch([{ key, display: key }]);
+  return m.get(key) || { error: 'Frankfurter: нет данных', provider: 'frankfurter', source: 'Frankfurter' };
+}
+
+/* ---------------- Yahoo chart (+ индексы / сырьё без Stooq в браузере) ---------------- */
+
+function parseYahooChartJson(text) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return { error: 'Yahoo: не JSON' };
+  }
+  const cerr = data?.chart?.error;
+  if (cerr) {
+    const desc = cerr.description || cerr.code || 'chart error';
+    return { error: `Yahoo: ${desc}` };
+  }
+  const result = data?.chart?.result?.[0];
+  if (!result) return { error: 'Yahoo: нет result' };
+  const meta = result.meta || {};
+  let price = Number(meta.regularMarketPrice);
+  let timestamp = Number(meta.regularMarketTime) * 1000;
+  if (!Number.isFinite(timestamp) || timestamp <= 0) timestamp = Date.now();
+
+  if (!Number.isFinite(price) || price <= 0) {
+    const q = result?.indicators?.quote?.[0];
+    const closes = Array.isArray(q?.close) ? q.close : null;
+    if (closes) {
+      for (let i = closes.length - 1; i >= 0; i--) {
+        const c = Number(closes[i]);
+        if (Number.isFinite(c) && c > 0) {
+          price = c;
+          break;
+        }
+      }
+    }
+  }
+  if (!Number.isFinite(price) || price <= 0) {
+    price = Number(meta.previousClose);
+  }
+  if (!Number.isFinite(price) || price <= 0) {
+    return { error: 'Yahoo: нет цены' };
+  }
+  return { price, timestamp };
+}
+
+async function fetchYahooChartRow(yahooSym) {
+  const enc = encodeURIComponent(yahooSym);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${enc}?interval=5m&range=5d`;
+  const t0 = performance.now();
+  try {
+    const text = await fetchTextBrowserThenTauri(url);
+    const pingMs = Math.round(performance.now() - t0);
+    const parsed = parseYahooChartJson(text);
+    if (parsed.error) {
+      return { error: parsed.error, provider: 'yahoo', source: 'Yahoo', pingMs };
+    }
+    return {
+      price: parsed.price,
+      source: `Yahoo · ${yahooSym}`,
+      provider: 'yahoo',
+      timestamp: parsed.timestamp,
+      pingMs
+    };
+  } catch (err) {
+    const pingMs = Math.round(performance.now() - t0);
+    const msg = err?.message || 'сеть недоступна';
+    return { error: `Yahoo: ${msg}`, provider: 'yahoo', source: 'Yahoo', pingMs };
+  }
+}
+
+/**
+ * Индексы / сырьё / металлы: XAU* → Binance PAXGUSDT; затем Yahoo; иначе Stooq (в Tauri без CORS).
+ * @param {{key:string, display:string}[]} items
+ */
+async function fetchMacroAssetsBatch(items) {
+  const out = new Map();
+  if (items.length === 0) return out;
+
+  const xauItems = items.filter((it) => it.key.startsWith('XAU'));
+  const rest = items.filter((it) => !it.key.startsWith('XAU'));
+
+  if (xauItems.length > 0) {
+    const m = await fetchBinanceBatch([{ key: 'PAXGUSD', display: 'PAXGUSD' }]);
+    const row = m.get('PAXGUSD');
+    for (const it of xauItems) {
+      if (!row?.error && row?.price != null && Number.isFinite(Number(row.price))) {
+        out.set(it.key, {
+          price: Number(row.price),
+          source: `Binance · PAXGUSDT ≈ ${it.key}`,
+          provider: 'binance-proxy',
+          symbol: it.key,
+          timestamp: row.timestamp ?? Date.now(),
+          pingMs: row.pingMs
+        });
+      }
+    }
+  }
+
+  /** @type {{key:string, display:string}[]} */
+  const forStooq = [];
+  const yahooGroups = new Map();
+
+  for (const it of rest) {
+    const ys = keyToYahooSymbol(it.key);
+    if (!ys) {
+      forStooq.push(it);
+      continue;
+    }
+    if (!yahooGroups.has(ys)) yahooGroups.set(ys, []);
+    yahooGroups.get(ys).push(it);
+  }
+
+  for (const [ysym, group] of yahooGroups) {
+    const yr = await fetchYahooChartRow(ysym);
+    if (!yr.error && yr.price != null) {
+      for (const it of group) {
+        out.set(it.key, {
+          price: yr.price,
+          source: `Yahoo · ${ysym}`,
+          provider: 'yahoo',
+          symbol: it.key,
+          timestamp: yr.timestamp,
+          pingMs: yr.pingMs
+        });
+      }
+    } else {
+      forStooq.push(...group);
+    }
+  }
+
+  const missingXau = xauItems.filter((it) => !out.has(it.key));
+  if (missingXau.length > 0) {
+    const yr = await fetchYahooChartRow('GC=F');
+    if (!yr.error && yr.price != null) {
+      for (const it of missingXau) {
+        out.set(it.key, {
+          price: yr.price,
+          source: 'Yahoo · GC=F',
+          provider: 'yahoo',
+          symbol: it.key,
+          timestamp: yr.timestamp,
+          pingMs: yr.pingMs
+        });
+      }
+    } else {
+      forStooq.push(...missingXau);
+    }
+  }
+
+  if (forStooq.length === 0) return out;
+
+  const seen = new Set();
+  const stooqDedup = [];
+  for (const it of forStooq) {
+    if (seen.has(it.key)) continue;
+    seen.add(it.key);
+    stooqDedup.push(it);
+  }
+
+  const sm = await fetchStooqBatch(stooqDedup);
+  for (const [k, v] of sm) out.set(k, v);
+  return out;
+}
+
+async function fetchMacroAssetSingle(key) {
+  const m = await fetchMacroAssetsBatch([{ key, display: key }]);
+  return m.get(key) || { error: 'Нет данных', provider: 'stooq', source: 'stooq' };
+}
+
 /* --------------------------- Stooq ---------------------------- */
 
 function toStooqSymbol(key) {
@@ -230,18 +553,8 @@ async function fetchStooqBatch(items) {
   const t0 = performance.now();
   const out = new Map();
   try {
-    const res = await fetch(url, { signal: timeoutSignal(REQUEST_TIMEOUT_MS) });
+    const text = await fetchTextBrowserThenTauri(url);
     const pingMs = Math.round(performance.now() - t0);
-    if (!res.ok) {
-      for (const it of items) {
-        out.set(it.key, {
-          error: `Stooq HTTP ${res.status}`,
-          source: 'stooq', provider: 'stooq', pingMs
-        });
-      }
-      return out;
-    }
-    const text = await res.text();
     const parsed = parseStooqCsvMulti(text);
     for (const it of items) {
       const sym = toStooqSymbol(it.key);
@@ -289,8 +602,13 @@ export async function fetchMarketPrice(pair) {
 
   if (isCryptoKey(key)) return fetchFromBinance(key);
 
-  // Всё остальное (FX, металлы, сырьё, индексы, акции) → Stooq.
-  return fetchFromStooq(key);
+  if (isFxKey(key)) {
+    const fr = await fetchFromFrankfurter(key);
+    if (!fr.error && fr.price != null && Number.isFinite(Number(fr.price))) return fr;
+    return fetchFromStooq(key);
+  }
+
+  return fetchMacroAssetSingle(key);
 }
 
 /**
@@ -302,7 +620,7 @@ export async function fetchMarketPrice(pair) {
  */
 export async function fetchMarketPricesBatch(pairs, opts = {}) {
   const onProgress = opts.onProgress || (() => {});
-  const groups = { binance: [], stooq: [] };
+  const groups = { binance: [], frankfurter: [], stooq: [] };
 
   const seen = new Set();
   for (const p of pairs) {
@@ -312,7 +630,10 @@ export async function fetchMarketPricesBatch(pairs, opts = {}) {
     groups[providerForKey(key)].push({ key, display: p });
   }
 
-  const total = (groups.binance.length ? 1 : 0) + (groups.stooq.length ? 1 : 0);
+  const total =
+    (groups.binance.length ? 1 : 0) +
+    (groups.frankfurter.length ? 1 : 0) +
+    (groups.stooq.length ? 1 : 0);
   let done = 0;
   const out = new Map();
 
@@ -326,9 +647,18 @@ export async function fetchMarketPricesBatch(pairs, opts = {}) {
       })
     );
   }
+  if (groups.frankfurter.length) {
+    tasks.push(
+      fetchFrankfurterBatch(groups.frankfurter).then((m) => {
+        for (const [k, v] of m) out.set(k, v);
+        done++;
+        onProgress({ provider: 'frankfurter', done, total });
+      })
+    );
+  }
   if (groups.stooq.length) {
     tasks.push(
-      fetchStooqBatch(groups.stooq).then((m) => {
+      fetchMacroAssetsBatch(groups.stooq).then((m) => {
         for (const [k, v] of m) out.set(k, v);
         done++;
         onProgress({ provider: 'stooq', done, total });

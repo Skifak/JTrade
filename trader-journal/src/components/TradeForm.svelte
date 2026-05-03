@@ -17,6 +17,7 @@
   } from '../lib/tradeFormDraft.js';
   import { v4 as uuidv4 } from 'uuid';
   import { PAIRS, normalizeSymbolKey } from '../lib/constants';
+  import { supportsFormMarketFill } from '../lib/marketData.js';
   import {
     calculateTradeRisk,
     suggestVolumeForRisk,
@@ -160,10 +161,20 @@
   }
 
   // Когда форма открыта и «По рынку» включено — подписываем WS на пару формы.
-  // App.svelte сольёт это с openPairs и поднимет нужный feed (Binance/TV).
-  // Это решает CORS-ошибку Stooq для FX и делает поведение единым для всех
-  // инструментов: цена прилетает не REST'ом, а WebSocket'ом.
-  $: shouldTrackForm = open && useMarketPrice && (mode === 'add' || mode === 'edit') && !!formData?.pair;
+  // Только FX и крипта (индексы / металлы / сырьё — без автоподстановки).
+  $: supportsMarketFill =
+    open && (mode === 'add' || mode === 'edit') && supportsFormMarketFill(formData?.pair);
+
+  $: if (supportsMarketFill === false && open && (mode === 'add' || mode === 'edit') && useMarketPrice) {
+    useMarketPrice = false;
+    marketLoading = false;
+    marketError = '';
+    marketSource = '';
+    marketTimestamp = null;
+  }
+
+  $: shouldTrackForm =
+    supportsMarketFill && useMarketPrice && (mode === 'add' || mode === 'edit') && !!formData?.pair;
   $: formPairs.set(shouldTrackForm ? [formData.pair] : []);
 
   // Реактивный pull live-цены в формовое поле priceOpen.
@@ -191,6 +202,7 @@
   // Кнопка ↻ — форсит ре-подписку (на случай если WS был закрыт по какой-то
   // причине). Реально просто сбрасываем formPairs и ставим обратно через тик.
   function refreshMarketPrice() {
+    if (!supportsFormMarketFill(formData?.pair)) return;
     if (!formData?.pair) {
       marketError = 'Сначала выбери пару';
       return;
@@ -363,7 +375,7 @@
     if (!raw || !validateDraftForApply(raw, mode, trade)) return;
     formData = { ...(raw.formData || {}) };
     useCurrentTime = !!raw.useCurrentTime;
-    useMarketPrice = !!raw.useMarketPrice;
+    useMarketPrice = !!raw.useMarketPrice && supportsFormMarketFill(formData.pair);
     acknowledgedChecklist = Array.isArray(raw.acknowledgedChecklist)
       ? [...raw.acknowledgedChecklist]
       : [];
@@ -784,28 +796,32 @@
               type="number"
               step="0.00001"
               bind:value={formData.priceOpen}
-              disabled={useMarketPrice && marketLoading}
+              disabled={supportsMarketFill && useMarketPrice && marketLoading}
             />
-            <button
-              type="button"
-              class="btn btn-sm"
-              on:click={refreshMarketPrice}
-              disabled={marketLoading || !formData.pair}
-              title="Обновить рыночную цену"
-            >
-              {marketLoading ? '⏳' : '↻'}
-            </button>
+            {#if supportsMarketFill}
+              <button
+                type="button"
+                class="btn btn-sm"
+                on:click={refreshMarketPrice}
+                disabled={marketLoading || !formData.pair}
+                title="Обновить рыночную цену"
+              >
+                {marketLoading ? '⏳' : '↻'}
+              </button>
+            {/if}
           </div>
-          <label class="checkbox-label" style="margin-top: 6px;">
-            <input type="checkbox" bind:checked={useMarketPrice} />
-            📡 По рынку (live-цена)
-          </label>
-          {#if marketError}
-            <div class="market-msg loss">{marketError}</div>
-          {:else if useMarketPrice && marketSource && !marketLoading}
-            <div class="market-msg">
-              Источник: {marketSource}{marketTimestamp ? ` · ${new Date(marketTimestamp).toLocaleTimeString()}` : ''}
-            </div>
+          {#if supportsMarketFill}
+            <label class="checkbox-label" style="margin-top: 6px;">
+              <input type="checkbox" bind:checked={useMarketPrice} />
+              📡 По рынку (live-цена)
+            </label>
+            {#if marketError}
+              <div class="market-msg loss">{marketError}</div>
+            {:else if useMarketPrice && marketSource && !marketLoading}
+              <div class="market-msg">
+                Источник: {marketSource}{marketTimestamp ? ` · ${new Date(marketTimestamp).toLocaleTimeString()}` : ''}
+              </div>
+            {/if}
           {/if}
         </div>
       </div>
