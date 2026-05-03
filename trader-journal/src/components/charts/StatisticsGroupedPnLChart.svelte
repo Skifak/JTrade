@@ -9,6 +9,7 @@
   /** Подписи по порядку buckets */
   export let labels = [];
   export let currency = 'USD';
+  export let moneyDecimals = 2;
 
   let canvas;
   /** @type {Chart | null} */
@@ -109,14 +110,14 @@
                 const avg = b.sum / b.count;
                 return [
                   wl,
-                  `Σ: ${formatNumber(b.sum, 2)} ${currency}`,
-                  `Avg: ${formatNumber(avg, 2)} ${currency}`
+                  `Σ: ${formatNumber(b.sum, moneyDecimals)} ${currency}`,
+                  `Avg: ${formatNumber(avg, moneyDecimals)} ${currency}`
                 ];
               },
               label(item) {
                 const v = item.parsed?.y;
                 if (v == null || !Number.isFinite(v)) return `${item.dataset.label}: —`;
-                return `${item.dataset.label}: ${formatNumber(v, 2)} ${currency}`;
+                return `${item.dataset.label}: ${formatNumber(v, moneyDecimals)} ${currency}`;
               }
             }
           }
@@ -139,7 +140,7 @@
               color: palette.textMuted,
               callback(v) {
                 const n = Number(v);
-                return `${n >= 0 ? '' : ''}${formatNumber(n, 0)}`;
+                return `${n >= 0 ? '' : ''}${formatNumber(n, moneyDecimals)}`;
               }
             }
           }
@@ -154,7 +155,7 @@
     chart = new Chart(canvas, cfg);
   }
 
-  $: buckets, labels, currency, canvas, rebuild();
+  $: buckets, labels, currency, moneyDecimals, canvas, rebuild();
 
   onDestroy(() => {
     chart?.destroy();

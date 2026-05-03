@@ -13,7 +13,7 @@
   import { strategies, flattenPlays } from '../lib/playbooks';
   import { htfBias, findActiveBias, isAlignedWithBias } from '../lib/htfBias';
   import { prettyTag, isIctTag } from '../lib/ictTaxonomy';
-  import { fxRate, tradeProfitDisplayUnits } from '../lib/fxRate';
+  import { fxRate, tradeProfitDisplayUnits, decimalsFor } from '../lib/fxRate';
   import { calculateStats } from '../lib/utils';
   import Modal from './Modal.svelte';
   import StatisticsEquityChart from './charts/StatisticsEquityChart.svelte';
@@ -24,6 +24,9 @@
   export let closedTrades = [];
   export let initialCapital = 0;
   export let currency = 'USD';
+
+  /** Знаков после запятой для сумм в валюте счёта (BTC — 6, иначе HUD и статистика расходятся). */
+  $: amtDec = decimalsFor(currency);
 
   $: hasTrades = stats?.totalTrades > 0;
   $: journalSnap = $journalSettings;
@@ -404,18 +407,18 @@
     <div class="stat-card">
       <div class="stat-label">Чистая прибыль</div>
       <div class="stat-value {stats.netProfit >= 0 ? 'profit' : 'loss'}">
-        {formatNumber(stats.netProfit, 2)} {currency}
+        {formatNumber(stats.netProfit, amtDec)} {currency}
       </div>
     </div>
 
     <div class="stat-card">
       <div class="stat-label">Общая прибыль</div>
-      <div class="stat-value profit">{formatNumber(stats.grossProfit, 2)} {currency}</div>
+      <div class="stat-value profit">{formatNumber(stats.grossProfit, amtDec)} {currency}</div>
     </div>
 
     <div class="stat-card">
       <div class="stat-label">Общий убыток</div>
-      <div class="stat-value loss">−{formatNumber(stats.grossLoss, 2)} {currency}</div>
+      <div class="stat-value loss">−{formatNumber(stats.grossLoss, amtDec)} {currency}</div>
     </div>
 
     <div class="stat-card">
@@ -428,21 +431,21 @@
     <div class="stat-card">
       <div class="stat-label">Матожидание</div>
       <div class="stat-value {stats.expectancy >= 0 ? 'profit' : 'loss'}">
-        {formatNumber(stats.expectancy, 2)} {currency}
+        {formatNumber(stats.expectancy, amtDec)} {currency}
       </div>
     </div>
 
     <div class="stat-card">
       <div class="stat-label">Сумма комиссий</div>
       <div class="stat-value {stats.sumCommission >= 0 ? 'profit' : 'loss'}">
-        {formatNumber(stats.sumCommission, 2)} {currency}
+        {formatNumber(stats.sumCommission, amtDec)} {currency}
       </div>
     </div>
 
     <div class="stat-card">
       <div class="stat-label">Сумма свопов</div>
       <div class="stat-value {stats.sumSwap >= 0 ? 'profit' : 'loss'}">
-        {formatNumber(stats.sumSwap, 2)} {currency}
+        {formatNumber(stats.sumSwap, amtDec)} {currency}
       </div>
     </div>
   </div>
@@ -465,22 +468,22 @@
 
     <div class="stat-card">
       <div class="stat-label">Средняя прибыль</div>
-      <div class="stat-value profit">{formatNumber(stats.avgProfit, 2)} {currency}</div>
+      <div class="stat-value profit">{formatNumber(stats.avgProfit, amtDec)} {currency}</div>
     </div>
 
     <div class="stat-card">
       <div class="stat-label">Средний убыток</div>
-      <div class="stat-value loss">−{formatNumber(stats.avgLoss, 2)} {currency}</div>
+      <div class="stat-value loss">−{formatNumber(stats.avgLoss, amtDec)} {currency}</div>
     </div>
 
     <div class="stat-card">
       <div class="stat-label">Макс. прибыль</div>
-      <div class="stat-value profit">{formatNumber(stats.maxProfit, 2)} {currency}</div>
+      <div class="stat-value profit">{formatNumber(stats.maxProfit, amtDec)} {currency}</div>
     </div>
 
     <div class="stat-card">
       <div class="stat-label">Макс. убыток</div>
-      <div class="stat-value loss">{formatNumber(stats.maxLoss, 2)} {currency}</div>
+      <div class="stat-value loss">{formatNumber(stats.maxLoss, amtDec)} {currency}</div>
     </div>
   </div>
 
@@ -507,7 +510,7 @@
       <div class="stat-label">Макс. подряд выигрышей</div>
       <div class="stat-value">
         {stats.maxConsecutiveWins}
-        <small class="stat-sub">({formatNumber(stats.maxConsecutiveWinAmount, 2)} {currency})</small>
+        <small class="stat-sub">({formatNumber(stats.maxConsecutiveWinAmount, amtDec)} {currency})</small>
       </div>
     </div>
 
@@ -515,7 +518,7 @@
       <div class="stat-label">Макс. подряд проигрышей</div>
       <div class="stat-value">
         {stats.maxConsecutiveLosses}
-        <small class="stat-sub">({formatNumber(stats.maxConsecutiveLossAmount, 2)} {currency})</small>
+        <small class="stat-sub">({formatNumber(stats.maxConsecutiveLossAmount, amtDec)} {currency})</small>
       </div>
     </div>
 
@@ -534,7 +537,7 @@
   <div class="stats-grid">
     <div class="stat-card">
       <div class="stat-label">Макс. просадка</div>
-      <div class="stat-value loss">−{formatNumber(stats.maxDrawdown, 2)} {currency}</div>
+      <div class="stat-value loss">−{formatNumber(stats.maxDrawdown, amtDec)} {currency}</div>
     </div>
 
     <div class="stat-card">
@@ -629,7 +632,7 @@
     <div class="filter-summary">
       <span>{filteredAgg.count} сделок</span>
       <span class={filteredAgg.sum >= 0 ? 'profit' : 'loss'}>
-        {filteredAgg.sum >= 0 ? '+' : ''}{formatNumber(filteredAgg.sum, 2)} {currency}
+        {filteredAgg.sum >= 0 ? '+' : ''}{formatNumber(filteredAgg.sum, amtDec)} {currency}
       </span>
       <span>WR {formatNumber(filteredAgg.wr, 1)}%</span>
       <span class="muted">{filteredAgg.wins}W / {filteredAgg.losses}L</span>
@@ -648,7 +651,7 @@
         <span
           class="pnl-cal-month-sum {pnlCalendar.monthTotal >= 0 ? 'profit' : 'loss'}"
         >
-          {pnlCalendar.monthTotal >= 0 ? '+' : ''}{formatNumber(pnlCalendar.monthTotal, 0)} {currency}
+          {pnlCalendar.monthTotal >= 0 ? '+' : ''}{formatNumber(pnlCalendar.monthTotal, amtDec)} {currency}
         </span>
       </div>
       <div class="pnl-cal-nav">
@@ -686,14 +689,14 @@
               <span class="pnl-cal-daynum">{cell.dayNum}</span>
               {#if cell.inMonth && cell.hasTrades}
                 <span class="pnl-cal-pnl {cell.sum >= 0 ? 'profit' : 'loss'}">
-                  {cell.sum >= 0 ? '+' : ''}{formatNumber(cell.sum, 0)} {currency}
+                  {cell.sum >= 0 ? '+' : ''}{formatNumber(cell.sum, amtDec)} {currency}
                 </span>
                 <span class="pnl-cal-meta">{cell.count} {tradesWordRu(cell.count)}</span>
                 <span class="pnl-cal-metric maxp">
-                  Max P: <span class={cell.maxP >= 0 ? 'profit' : 'loss'}>{formatNumber(cell.maxP, 0)} {currency}</span>
+                  Max P: <span class={cell.maxP >= 0 ? 'profit' : 'loss'}>{formatNumber(cell.maxP, amtDec)} {currency}</span>
                 </span>
                 <span class="pnl-cal-metric maxdd">
-                  Max DD: <span class="loss">{formatNumber(cell.maxDD, 0)} {currency}</span>
+                  Max DD: <span class="loss">{formatNumber(cell.maxDD, amtDec)} {currency}</span>
                 </span>
               {:else if cell.inMonth}
                 <span class="pnl-cal-empty">Нет сделок</span>
@@ -702,7 +705,7 @@
           {/each}
           <div class="pnl-cal-cell pnl-cal-week-sum" role="gridcell">
             <span class={row.weekSum >= 0 ? 'profit' : 'loss'}>
-              {row.weekSum >= 0 ? '+' : ''}{formatNumber(row.weekSum, 0)} {currency}
+              {row.weekSum >= 0 ? '+' : ''}{formatNumber(row.weekSum, amtDec)} {currency}
             </span>
           </div>
         </div>
@@ -720,7 +723,7 @@
           class="day-modal-net day-modal-tip {dayModalSummary.sum >= 0 ? 'profit' : 'loss'}"
           title="Суммарный P&amp;L по всем сделкам с датой закрытия в этот день (с учётом фильтров статистики). WR — доля прибыльных сделок; W/L — число выигрышей и убытков."
         >
-          {dayModalSummary.sum >= 0 ? '+' : ''}{formatNumber(dayModalSummary.sum, 2)} {currency}
+          {dayModalSummary.sum >= 0 ? '+' : ''}{formatNumber(dayModalSummary.sum, amtDec)} {currency}
           <span class="day-modal-net-sub"
             >· WR {formatNumber(dayModalSummary.wr, 1)}% ({dayModalSummary.w}W / {dayModalSummary.l}L)</span
           >
@@ -731,7 +734,7 @@
             title="Средняя прибыль по сделкам с положительным результатом за этот день. Если прибыльных не было — 0."
           >
             <span class="day-modal-kpi-l">Avg win</span>
-            <span class="day-modal-kpi-v profit">+{formatNumber(dayModalSummary.avgWin, 2)}</span>
+            <span class="day-modal-kpi-v profit">+{formatNumber(dayModalSummary.avgWin, amtDec)}</span>
           </div>
           <div
             class="day-modal-kpi day-modal-tip"
@@ -739,7 +742,7 @@
           >
             <span class="day-modal-kpi-l">Avg loss</span>
             <span class="day-modal-kpi-v loss"
-              >−{formatNumber(dayModalSummary.avgLoss, 2)}</span
+              >−{formatNumber(dayModalSummary.avgLoss, amtDec)}</span
             >
           </div>
           <div
@@ -762,7 +765,7 @@
             <span class="day-modal-kpi-l">Expectancy</span>
             <span
               class="day-modal-kpi-v {dayModalSummary.expectancy >= 0 ? 'profit' : 'loss'}"
-              >{dayModalSummary.expectancy >= 0 ? '+' : ''}{formatNumber(dayModalSummary.expectancy, 2)}</span
+              >{dayModalSummary.expectancy >= 0 ? '+' : ''}{formatNumber(dayModalSummary.expectancy, amtDec)}</span
             >
           </div>
           <div
@@ -770,7 +773,7 @@
             title="Максимальная просадка от накопленного пика внутри дня: сделки идут в порядке времени закрытия, считается кривая кумулятивного P&amp;L."
           >
             <span class="day-modal-kpi-l">Max DD</span>
-            <span class="day-modal-kpi-v loss">{formatNumber(dayModalSummary.maxDD, 2)}</span>
+            <span class="day-modal-kpi-v loss">{formatNumber(dayModalSummary.maxDD, amtDec)}</span>
           </div>
           <div
             class="day-modal-kpi day-modal-tip"
@@ -786,7 +789,7 @@
             <span class="day-modal-kpi-l">Best</span>
             <span
               class="day-modal-kpi-v {dayModalSummary.best >= 0 ? 'profit' : 'loss'}"
-              >{dayModalSummary.best >= 0 ? '+' : ''}{formatNumber(dayModalSummary.best, 2)}</span
+              >{dayModalSummary.best >= 0 ? '+' : ''}{formatNumber(dayModalSummary.best, amtDec)}</span
             >
           </div>
           <div
@@ -794,7 +797,7 @@
             title="Минимальный результат одной сделки за день (худшая сделка по P&amp;L)."
           >
             <span class="day-modal-kpi-l">Worst</span>
-            <span class="day-modal-kpi-v loss">{formatNumber(dayModalSummary.worst, 2)}</span>
+            <span class="day-modal-kpi-v loss">{formatNumber(dayModalSummary.worst, amtDec)}</span>
           </div>
         </div>
         {#if dayModalSummary.withViol > 0}
@@ -829,7 +832,7 @@
                     >{t.direction === 'short' ? 'S' : 'L'}</td
                   >
                   <td class="num pnl {Number(t.profit) >= 0 ? 'profit' : 'loss'}">
-                    {Number(t.profit) >= 0 ? '+' : ''}{formatNumber(Number(t.profit) || 0, 2)}
+                    {Number(t.profit) >= 0 ? '+' : ''}{formatNumber(Number(t.profit) || 0, amtDec)}
                   </td>
                   <td class="setup" title={pm ? `${pm.strategyName} → ${pm.playName}` : ''}>
                     {pm ? pm.playName : '—'}
@@ -860,16 +863,16 @@
           <span class="chart-stat">
             <i class="dot dot-disc"></i>Disciplined (кривая без сделок с нарушениями):
             <strong class={equitySummary.valueDelta >= 0 ? 'profit' : 'loss'}>
-              {formatNumber(equitySummary.lastValue, 2)} {currency}
-              ({equitySummary.valueDelta >= 0 ? '+' : ''}{formatNumber(equitySummary.valueDelta, 2)})
+              {formatNumber(equitySummary.lastValue, amtDec)} {currency}
+              ({equitySummary.valueDelta >= 0 ? '+' : ''}{formatNumber(equitySummary.valueDelta, amtDec)})
             </strong>
           </span>
         {:else}
           <span class="chart-stat">
             <i class="dot dot-real"></i>Реальный баланс (все сделки по фильтрам):
             <strong class={equitySummary.valueDelta >= 0 ? 'profit' : 'loss'}>
-              {formatNumber(equitySummary.lastValue, 2)} {currency}
-              ({equitySummary.valueDelta >= 0 ? '+' : ''}{formatNumber(equitySummary.valueDelta, 2)})
+              {formatNumber(equitySummary.lastValue, amtDec)} {currency}
+              ({equitySummary.valueDelta >= 0 ? '+' : ''}{formatNumber(equitySummary.valueDelta, amtDec)})
             </strong>
           </span>
         {/if}
@@ -888,7 +891,7 @@
         </span>
       </div>
 
-      <StatisticsEquityChart series={equitySeries} {disciplinedOnly} {initialCapital} />
+      <StatisticsEquityChart series={equitySeries} {disciplinedOnly} {initialCapital} moneyDecimals={amtDec} />
     </div>
   {/if}
 
@@ -896,8 +899,8 @@
     <h3 class="stats-section-title">
       PnL по часу открытия
       <span class="section-meta">
-        avg/сделка: <strong>{formatNumber(hourBarStats.avgPerTrade, 2)}</strong> {currency}
-        · avg/торговый час: <strong>{formatNumber(hourBarStats.avgPerBucket, 2)}</strong> {currency}
+        avg/сделка: <strong>{formatNumber(hourBarStats.avgPerTrade, amtDec)}</strong> {currency}
+        · avg/торговый час: <strong>{formatNumber(hourBarStats.avgPerBucket, amtDec)}</strong> {currency}
       </span>
     </h3>
     <div class="chart-wrap">
@@ -908,14 +911,14 @@
           Легенда под графиком: Σ за час и средний PnL на сделку · цвет по знаку · обводка — лучший / худший час · tooltip — WR и суммы
         </span>
       </div>
-      <StatisticsGroupedPnLChart buckets={byHour} labels={hourLabels} {currency} />
+      <StatisticsGroupedPnLChart buckets={byHour} labels={hourLabels} {currency} moneyDecimals={amtDec} />
     </div>
 
     <h3 class="stats-section-title">
       PnL по дню недели
       <span class="section-meta">
-        avg/сделка: <strong>{formatNumber(weekdayBarStats.avgPerTrade, 2)}</strong> {currency}
-        · avg/торговый день: <strong>{formatNumber(weekdayBarStats.avgPerBucket, 2)}</strong> {currency}
+        avg/сделка: <strong>{formatNumber(weekdayBarStats.avgPerTrade, amtDec)}</strong> {currency}
+        · avg/торговый день: <strong>{formatNumber(weekdayBarStats.avgPerBucket, amtDec)}</strong> {currency}
       </span>
     </h3>
     <div class="chart-wrap">
@@ -926,7 +929,7 @@
           Два столбца на день: сумма и среднее на сделку · обводка — лучший / худший день с ненулевым флоу
         </span>
       </div>
-      <StatisticsGroupedPnLChart buckets={byWeekday} labels={weekdayLabels} {currency} />
+      <StatisticsGroupedPnLChart buckets={byWeekday} labels={weekdayLabels} {currency} moneyDecimals={amtDec} />
     </div>
   {/if}
 
@@ -944,7 +947,7 @@
         <span><b>WR</b> — % прибыльных в этом KZ</span>
         <span class="muted-legend">Killzones — по дате открытия в America/New_York с DST · ниже горизонтальные бары только по KZ с сделками</span>
       </div>
-      <StatisticsKillzoneChart rows={byKZ} {currency} chartHeight={kzChartHeight} />
+      <StatisticsKillzoneChart rows={byKZ} {currency} moneyDecimals={amtDec} chartHeight={kzChartHeight} />
       <table class="kz-table">
         <thead>
           <tr>
@@ -962,7 +965,7 @@
               <td class="num">{b.count}</td>
               <td class="num">{b.count ? formatNumber(wr, 1) + '%' : '—'}</td>
               <td class="num {b.sum >= 0 ? 'profit' : 'loss'}">
-                {b.count ? (b.sum >= 0 ? '+' : '') + formatNumber(b.sum, 2) : '—'}
+                {b.count ? (b.sum >= 0 ? '+' : '') + formatNumber(b.sum, amtDec) : '—'}
               </td>
             </tr>
           {/each}
@@ -1004,8 +1007,8 @@
               <td><span class="play-cell">{p.meta.playName}</span></td>
               <td class="num">{p.count}</td>
               <td class="num">{formatNumber(p.winRate, 1)}%</td>
-              <td class="num {p.sum >= 0 ? 'profit' : 'loss'}">{formatNumber(p.sum, 2)}</td>
-              <td class="num {p.expectancy >= 0 ? 'profit' : 'loss'}">{formatNumber(p.expectancy, 2)}</td>
+              <td class="num {p.sum >= 0 ? 'profit' : 'loss'}">{formatNumber(p.sum, amtDec)}</td>
+              <td class="num {p.expectancy >= 0 ? 'profit' : 'loss'}">{formatNumber(p.expectancy, amtDec)}</td>
               <td class="num">{Number.isFinite(p.profitFactor) ? formatNumber(p.profitFactor, 2) : '∞'}</td>
             </tr>
           {/each}
@@ -1036,7 +1039,7 @@
           <div class="bias-card-row">
             <span>Net PnL</span>
             <strong class={b.sum >= 0 ? 'profit' : 'loss'}>
-              {b.count ? (b.sum >= 0 ? '+' : '') + formatNumber(b.sum, 2) : '—'}
+              {b.count ? (b.sum >= 0 ? '+' : '') + formatNumber(b.sum, amtDec) : '—'}
             </strong>
           </div>
         </div>
@@ -1070,8 +1073,8 @@
               <td><span class="tag-pill">{isIctTag(t.tag) ? prettyTag(t.tag) : t.tag}</span></td>
               <td class="num">{t.count}</td>
               <td class="num">{formatNumber(t.winRate, 1)}%</td>
-              <td class="num {t.sum >= 0 ? 'profit' : 'loss'}">{formatNumber(t.sum, 2)}</td>
-              <td class="num {t.expectancy >= 0 ? 'profit' : 'loss'}">{formatNumber(t.expectancy, 2)}</td>
+              <td class="num {t.sum >= 0 ? 'profit' : 'loss'}">{formatNumber(t.sum, amtDec)}</td>
+              <td class="num {t.expectancy >= 0 ? 'profit' : 'loss'}">{formatNumber(t.expectancy, amtDec)}</td>
               <td class="num">{Number.isFinite(t.profitFactor) ? formatNumber(t.profitFactor, 2) : '∞'}</td>
             </tr>
           {/each}

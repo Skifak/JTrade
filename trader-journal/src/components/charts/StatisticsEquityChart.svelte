@@ -8,6 +8,8 @@
   export let series = [];
   export let disciplinedOnly = false;
   export let initialCapital = 0;
+  /** Знаков после запятой для осей/тултипа (BTC ≠ USD). */
+  export let moneyDecimals = 2;
 
   let canvas;
   /** @type {HTMLElement | undefined} */
@@ -201,7 +203,7 @@
                 const dy =
                   (typeof dl?.y === 'number' ? dl.y : 0) + (typeof dg?.y === 'number' ? dg.y : 0);
                 const eq = dy + initialCapital;
-                return `${equityTooltipLabel}: ${formatNumber(eq, 2)}`;
+                return `${equityTooltipLabel}: ${formatNumber(eq, moneyDecimals)}`;
               },
               footer(items) {
                 if (!items.length) return '';
@@ -212,7 +214,7 @@
                 const dg = c.data.datasets[1].data[idx];
                 const dy =
                   (typeof dl?.y === 'number' ? dl.y : 0) + (typeof dg?.y === 'number' ? dg.y : 0);
-                return `От старта: ${dy >= 0 ? '+' : ''}${formatNumber(dy, 2)}`;
+                return `От старта: ${dy >= 0 ? '+' : ''}${formatNumber(dy, moneyDecimals)}`;
               },
               labelColor(context) {
                 const c = context.chart;
@@ -271,7 +273,7 @@
               color: palette.textMuted,
               callback(v) {
                 const n = Number(v);
-                return formatNumber(n + initialCapital, 0);
+                return formatNumber(n + initialCapital, moneyDecimals);
               }
             }
           }
@@ -382,7 +384,7 @@
     e.preventDefault();
   }
 
-  $: series, disciplinedOnly, initialCapital, canvas, rebuild();
+  $: series, disciplinedOnly, initialCapital, moneyDecimals, canvas, rebuild();
 
   onDestroy(() => {
     endBrushTracking();

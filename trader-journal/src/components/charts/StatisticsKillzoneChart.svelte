@@ -7,6 +7,7 @@
   /** @type {{ label: string; sum: number; count: number; wins: number; hint?: string }[]} */
   export let rows = [];
   export let currency = 'USD';
+  export let moneyDecimals = 2;
   /** Высота canvas-блока (px) */
   export let chartHeight = 180;
 
@@ -68,7 +69,7 @@
                 if (!r) return '';
                 const wr = r.count ? (r.wins / r.count) * 100 : 0;
                 return [
-                  `PnL: ${r.sum >= 0 ? '+' : ''}${formatNumber(r.sum, 2)} ${currency}`,
+                  `PnL: ${r.sum >= 0 ? '+' : ''}${formatNumber(r.sum, moneyDecimals)} ${currency}`,
                   `Сделок: ${r.count} · WR ${formatNumber(wr, 1)}%`
                 ];
               }
@@ -81,7 +82,7 @@
             ticks: {
               color: palette.textMuted,
               callback(v) {
-                return formatNumber(Number(v), 0);
+                return formatNumber(Number(v), moneyDecimals);
               }
             }
           },
@@ -104,7 +105,7 @@
     chart = new Chart(canvas, cfg);
   }
 
-  $: rows, currency, canvas, rebuild();
+  $: rows, currency, moneyDecimals, canvas, rebuild();
 
   onDestroy(() => {
     chart?.destroy();

@@ -467,6 +467,8 @@
         accountCurrency: String(cleanCurrency || 'USD').toUpperCase(),
         initialCapital: Number(cleanCapital) || 0
       });
+      await tick();
+      dispatch('account-profile-seeded');
       const closed = get(trades).filter((t) => t.status === 'closed');
       const st = calculateStats(closed, {
         initialCapital: Number(cleanCapital) || 0,
@@ -526,6 +528,9 @@
         importBatchId: historyEntryId
       });
       if (!ok) return;
+
+      await tick();
+      dispatch('account-profile-seeded');
 
       if (metaSnap) journalAccounts.setAccountImportMeta(id, { ...metaSnap, historyEntryId });
 

@@ -1,6 +1,7 @@
 <script>
   import { trades, userProfile } from '../lib/stores';
-  import { activeJournalAccount } from '../lib/accounts';
+  import { activeJournalAccount, activeJournalAccountId } from '../lib/accounts';
+  import { get } from 'svelte/store';
   import { convertAmount, formatNumber, getConversionQuote } from '../lib/utils';
   import { getDisciplineScore, getDisciplinedPnL } from '../lib/risk';
   import Modal from './Modal.svelte';
@@ -44,6 +45,8 @@
     dailyReviewEnabled: true
   };
   let wasOpen = false;
+  /** id счёта, под который синхронизирован formData — защита от записи профиля A в ключ счёта B */
+  let lastProfileAccountId = '';
   /** setup — форма профиля текущего счёта; create — мастер нового счёта */
   let profileTab = 'setup';
   let previousCurrency = 'USD';
@@ -52,16 +55,26 @@
   let isConvertingCurrency = false;
   let fxMessage = '';
 
-  $: if (open && !wasOpen) {
-    profileTab = 'setup';
-    formData = { ...$userProfile };
-    previousCurrency = formData.accountCurrency || 'USD';
-    wasOpen = true;
-    refreshPnlConversionRate(previousCurrency);
-  }
-
-  $: if (!open && wasOpen) {
+  $: if (open) {
+    const aid = String($activeJournalAccountId || '').trim();
+    if (!wasOpen) {
+      profileTab = 'setup';
+      formData = { ...$userProfile };
+      previousCurrency = formData.accountCurrency || 'USD';
+      wasOpen = true;
+      lastProfileAccountId = aid;
+      refreshPnlConversionRate(previousCurrency);
+    } else if (aid && aid !== lastProfileAccountId) {
+      lastProfileAccountId = aid;
+      formData = { ...$userProfile };
+      previousCurrency = formData.accountCurrency || 'USD';
+      fxMessage = '';
+      pnlConversionRate = 1;
+      refreshPnlConversionRate(previousCurrency);
+    }
+  } else if (wasOpen) {
     wasOpen = false;
+    lastProfileAccountId = '';
     fxMessage = '';
     pnlConversionRate = 1;
   }
@@ -92,7 +105,24 @@
     open = false;
   }
 
+  /** После создания счёта и записи профиля из мастера — подтянуть форму «Настройка счёта». */
+  function syncFormAfterAccountMutation() {
+    if (!open) return;
+    formData = { ...get(userProfile) };
+    previousCurrency = formData.accountCurrency || 'USD';
+    lastProfileAccountId = String(get(activeJournalAccountId) || '').trim();
+    fxMessage = '';
+    pnlConversionRate = 1;
+    refreshPnlConversionRate(previousCurrency);
+  }
+
   function saveProfile() {
+    const aid = String(get(activeJournalAccountId) || '').trim();
+    if (aid !== lastProfileAccountId) {
+      lastProfileAccountId = aid;
+      formData = { ...get(userProfile) };
+      previousCurrency = formData.accountCurrency || 'USD';
+    }
     userProfile.updateProfile({
       ...formData,
       initialCapital: Number(formData.initialCapital) || 0,
@@ -195,7 +225,11 @@
       </div>
 
       {#if profileTab === 'setup'}
-        <ProfileAccountsTab variant="full" profileSplit="account" />
+        <ProfileAccountsTab
+          variant="full"
+          profileSplit="account"
+          on:account-profile-seeded={syncFormAfterAccountMutation}
+        />
 
         <div class="profile-summary-grid profile-summary-grid--stretch">
       <div class="profile-metric">
@@ -422,7 +456,11 @@
       <textarea id="profile-notes" rows="3" bind:value={formData.notes} placeholder="Правила, ограничения, checklist перед входом"></textarea>
     </div>
       {:else}
-        <ProfileAccountsTab variant="full" profileSplit="create" />
+        <ProfileAccountsTab
+          variant="full"
+          profileSplit="create"
+          on:account-profile-seeded={syncFormAfterAccountMutation}
+        />
       {/if}
     </div>
   </div>
