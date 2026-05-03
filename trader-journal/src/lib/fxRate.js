@@ -18,6 +18,7 @@
  *  - раз в FX_REFRESH_MS, чтобы не устаревал в долгоживущей сессии
  */
 import { writable, get } from 'svelte/store';
+import { activeJournalAccountId } from './accounts.js';
 import { userProfile } from './stores';
 import { getConversionQuote, isMt5DepositCurrencyProfit, isMt5HistoryImportedTrade } from './utils';
 
@@ -31,22 +32,33 @@ const _state = writable({
   loading: false
 });
 
-let inflight = null;
+/** Монотонно растёт при каждом refresh — ответ устаревшего fetch не пишет в store. */
+let fetchGeneration = 0;
+
 let lastTarget = null;
 
 async function fetchAndSet(target) {
-  if (!target) target = 'USD';
-  if (target === 'USD') {
-    _state.set({ rate: 1, source: 'identity', target: 'USD', updatedAt: Date.now(), loading: false });
+  const gen = ++fetchGeneration;
+  const t = String(target || 'USD').toUpperCase();
+
+  if (t === 'USD') {
+    _state.set({
+      rate: 1,
+      source: 'identity',
+      target: 'USD',
+      updatedAt: Date.now(),
+      loading: false
+    });
     return;
   }
   _state.update((s) => ({ ...s, loading: true }));
-  const quote = await getConversionQuote('USD', target);
+  const quote = await getConversionQuote('USD', t);
+  if (gen !== fetchGeneration) return;
   if (quote && Number.isFinite(quote.rate) && quote.rate > 0) {
     _state.set({
       rate: quote.rate,
       source: quote.source,
-      target,
+      target: t,
       updatedAt: Date.now(),
       loading: false
     });
@@ -54,7 +66,7 @@ async function fetchAndSet(target) {
     _state.set({
       rate: 1,
       source: 'unavailable',
-      target,
+      target: t,
       updatedAt: Date.now(),
       loading: false
     });
@@ -62,12 +74,8 @@ async function fetchAndSet(target) {
 }
 
 function refresh(target) {
-  const t = target || lastTarget || 'USD';
-  if (inflight) return inflight;
-  inflight = fetchAndSet(t).finally(() => {
-    inflight = null;
-  });
-  return inflight;
+  const t = String((target ?? lastTarget ?? 'USD') || 'USD').toUpperCase();
+  void fetchAndSet(t);
 }
 
 // Подписка на смену валюты в профиле.
@@ -75,7 +83,28 @@ userProfile.subscribe((p) => {
   const next = (p?.accountCurrency || 'USD').toUpperCase();
   if (next !== lastTarget) {
     lastTarget = next;
-    refresh(next);
+    void fetchAndSet(next);
+  }
+});
+
+/**
+ * После смены journal-счёта stores делают userProfile.rehydrate() синхронно.
+ * Подписываемся на activeId и в microtask подтягиваем курс — всегда после rehydrate,
+ * в т.ч. если код валюты совпал (USD→USD) но в полёте был stale-запрос под BTC.
+ */
+activeJournalAccountId.subscribe(() => {
+  if (typeof queueMicrotask === 'function') {
+    queueMicrotask(() => {
+      const p = get(userProfile);
+      const next = (p?.accountCurrency || 'USD').toUpperCase();
+      lastTarget = next;
+      void fetchAndSet(next);
+    });
+  } else {
+    const p = get(userProfile);
+    const next = (p?.accountCurrency || 'USD').toUpperCase();
+    lastTarget = next;
+    void fetchAndSet(next);
   }
 });
 
