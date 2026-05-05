@@ -312,7 +312,7 @@
       <div class="analytics-stances-head">
         <span class="analytics-stances-kicker">Ключи состояния</span>
         <span class="analytics-stances-hint"
-          >Общий срез по журналу. Блок «База советов» подмешивает темы всех ключей, кроме «Норма», к маякам.</span>
+          >Общий срез по журналу. Блок «База советов» подмешивает темы всех ключей, кроме «Норма», к маякам; оригиналы — посты Виктора и Руфата.</span>
       </div>
       <div class="analytics-stances-row">
         {#each pack.stances as st (st.id)}
@@ -378,7 +378,7 @@
     <section class="analytics-section">
       <h3 class="analytics-section-title">База советов</h3>
       <p class="analytics-section-lede">
-        Подборка текстов по темам активных маяков. Источник и цитаты — по иконке ⓘ у заголовка карточки.
+        Подборка по темам маяков. Оригиналы постов — ⓘ у заголовка; если в карточке два автора, в панели вкладки «Руфат» и «Виктор».
       </p>
       <div class="analytics-advice">
         {#each pack.advicePick as item (item.id)}
@@ -832,7 +832,7 @@
   <section class="analytics-card analytics-faq">
     <h3 class="analytics-section-title analytics-section-title--tight">Вопросы и ответы</h3>
     <p class="analytics-section-lede analytics-section-lede--tight">
-      Готовые разборы типичных тем — без ИИ. Поиск и категории; у пункта с базой — иконка ⓘ: нажми, чтобы открыть панель с исходными фрагментами постов.
+      Готовые разборы типичных тем — без ИИ. Поиск и категории; у пункта с привязкой к базе — ⓘ: полный текст поста (при двух авторах — вкладки).
     </p>
     <div class="analytics-faq-toolbar form-group">
       <label for="analytics-faq-search">Поиск по формулировке</label>

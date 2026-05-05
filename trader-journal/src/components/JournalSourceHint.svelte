@@ -1,6 +1,10 @@
 <script>
   import { tick, onDestroy } from 'svelte';
-  import { getMergedSourceTooltipText } from '../lib/adviceSourcesRegistry';
+  import {
+    resolveSourceIds,
+    sourceIdsHaveMultipleAuthors,
+    getChunkSegments
+  } from '../lib/adviceSourcesRegistry';
 
   /** @type {string[]} */
   export let sourceIds = [];
@@ -9,10 +13,13 @@
   /** @type {HTMLElement | undefined} */
   let wrapEl;
 
-  $: tooltipText =
-    Array.isArray(sourceIds) && sourceIds.length
-      ? getMergedSourceTooltipText(sourceIds)
-      : '';
+  /** @type {'rufat' | 'victor'} */
+  let authorTab = 'rufat';
+
+  $: resolved = resolveSourceIds(sourceIds);
+  $: multiAuthorPanel = sourceIdsHaveMultipleAuthors(sourceIds);
+  $: rufatRows = resolved.filter((r) => r.chunk.authorKey === 'rufat');
+  $: victorRows = resolved.filter((r) => r.chunk.authorKey === 'victor');
 
   function detachOutside() {
     if (typeof document === 'undefined') return;
@@ -39,6 +46,7 @@
     }
     detachOutside();
     open = true;
+    authorTab = 'rufat';
     await tick();
     requestAnimationFrame(() => {
       if (typeof document !== 'undefined') {
@@ -66,7 +74,7 @@
   onDestroy(detachOutside);
 </script>
 
-{#if tooltipText}
+{#if resolved.length}
   <span class="jsh-wrap" bind:this={wrapEl}>
     <span
       class="jsh-trigger"
@@ -74,7 +82,7 @@
       role="button"
       aria-expanded={open}
       aria-haspopup="dialog"
-      aria-label="Открыть фрагменты базы"
+      aria-label="Оригиналы постов"
       class:jsh-trigger--active={open}
       on:click|stopPropagation={toggleOpen}
       on:keydown={onTriggerKeydown}
@@ -85,14 +93,118 @@
       class="jsh-panel"
       class:jsh-panel--open={open}
       role="dialog"
-      aria-label="Текст из базы"
+      aria-label="Тексты авторов"
       aria-hidden={!open}
     >
       <div class="jsh-panel-head">
-        <span class="jsh-panel-title">Источники</span>
+        <span class="jsh-panel-title">Оригиналы</span>
         <button type="button" class="jsh-close" aria-label="Закрыть" on:click={closePanel}>×</button>
       </div>
-      <div class="jsh-panel-scroll">{tooltipText}</div>
+      <div class="jsh-panel-scroll">
+        {#if multiAuthorPanel}
+          <div class="jsh-tabs" role="tablist" aria-label="Автор">
+            <button
+              type="button"
+              role="tab"
+              class="jsh-tab"
+              class:jsh-tab--active={authorTab === 'rufat'}
+              aria-selected={authorTab === 'rufat'}
+              on:click={() => (authorTab = 'rufat')}
+            >Руфат</button>
+            <button
+              type="button"
+              role="tab"
+              class="jsh-tab"
+              class:jsh-tab--active={authorTab === 'victor'}
+              aria-selected={authorTab === 'victor'}
+              on:click={() => (authorTab = 'victor')}
+            >Виктор</button>
+          </div>
+        {/if}
+
+        {#if multiAuthorPanel}
+          {#if authorTab === 'rufat'}
+            <div class="jsh-tab-panel" role="tabpanel">
+              {#each rufatRows as row (row.id)}
+                <article class="jsh-post">
+                  <header class="jsh-author-bar">
+                    <a
+                      href={row.chunk.authorUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="jsh-author-link"
+                    >{row.chunk.authorName}</a>
+                  </header>
+                  <div class="jsh-post-body">
+                    {#each getChunkSegments(row.chunk) as seg, si (si)}
+                      {#if seg.type === 'text'}{seg.value}{:else}
+                        <a
+                          href={seg.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="jsh-inline-link"
+                        >{seg.text}</a>
+                      {/if}
+                    {/each}
+                  </div>
+                </article>
+              {/each}
+            </div>
+          {:else}
+            <div class="jsh-tab-panel" role="tabpanel">
+              {#each victorRows as row (row.id)}
+                <article class="jsh-post">
+                  <header class="jsh-author-bar">
+                    <a
+                      href={row.chunk.authorUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="jsh-author-link"
+                    >{row.chunk.authorName}</a>
+                  </header>
+                  <div class="jsh-post-body">
+                    {#each getChunkSegments(row.chunk) as seg, si (si)}
+                      {#if seg.type === 'text'}{seg.value}{:else}
+                        <a
+                          href={seg.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="jsh-inline-link"
+                        >{seg.text}</a>
+                      {/if}
+                    {/each}
+                  </div>
+                </article>
+              {/each}
+            </div>
+          {/if}
+        {:else}
+          {#each resolved as row (row.id)}
+            <article class="jsh-post">
+              <header class="jsh-author-bar">
+                <a
+                  href={row.chunk.authorUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="jsh-author-link"
+                >{row.chunk.authorName}</a>
+              </header>
+              <div class="jsh-post-body">
+                {#each getChunkSegments(row.chunk) as seg, si (si)}
+                  {#if seg.type === 'text'}{seg.value}{:else}
+                    <a
+                      href={seg.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="jsh-inline-link"
+                    >{seg.text}</a>
+                  {/if}
+                {/each}
+              </div>
+            </article>
+          {/each}
+        {/if}
+      </div>
     </div>
   </span>
 {/if}
@@ -223,7 +335,85 @@
     padding: 11px 13px;
     flex: 1;
     min-height: 0;
+  }
+  .jsh-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+    gap: 0;
+    margin: 0 0 10px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-2);
+  }
+  .jsh-tab {
+    margin: 0;
+    padding: 9px 10px;
+    border: none;
+    border-right: 1px solid var(--border);
+    background: transparent;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition:
+      background 0.12s,
+      color 0.12s;
+  }
+  .jsh-tab:last-child {
+    border-right: none;
+  }
+  .jsh-tab:hover {
+    color: var(--text-strong);
+    background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+  }
+  .jsh-tab--active {
+    color: var(--text-strong);
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  }
+  .jsh-tab-panel {
+    min-height: 0;
+  }
+  .jsh-post {
+    margin-bottom: 14px;
+  }
+  .jsh-post:last-child {
+    margin-bottom: 0;
+  }
+  .jsh-author-bar {
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+    background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+  }
+  .jsh-author-link {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .jsh-author-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .jsh-post-body {
     white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .jsh-inline-link {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .jsh-inline-link:hover {
+    color: color-mix(in srgb, var(--accent) 85%, var(--text));
   }
   @media (max-width: 520px) {
     .jsh-panel {

@@ -28,7 +28,7 @@ function fmtPctOrAmount(formData, modeKey, pctKey, amtKey) {
  * @property {'block'|'warn'|'info'} level
  * @property {string[]} [codes] — коды из evaluateTradeRules
  * @property {string[]} paragraphs
- * @property {string[]} [sourceIds] — ключи ADVICE_SOURCE_CHUNKS
+ * @property {string[]} [sourceIds] — ключи mm-vic-* / abu-ruf-* в adviceSourceChunksData.json
  * @property {string} [sourceUrl]
  * @property {(formData: object) => string} summary
  */
@@ -41,7 +41,7 @@ export const PROFILE_RULE_ENTRIES = [
     layer: 'gate',
     level: 'block',
     codes: ['risk-exceeds'],
-    sourceIds: ['chunk-entry-confirm'],
+    sourceIds: ['mm-vic-03'],
     paragraphs: [
       'Перед сохранением открытой сделки считается денежный риск от входа до SL (объём × контракт × расстояние до стопа).',
       'Если риск выше лимита из профиля, сохранение блокируется (кроме явного подтверждения там, где модалка это позволяет).',
@@ -61,7 +61,7 @@ export const PROFILE_RULE_ENTRIES = [
     layer: 'gate',
     level: 'block',
     codes: ['exposure-cap'],
-    sourceIds: ['chunk-partial-take', 'chunk-crowd-liquidity'],
+    sourceIds: ['abu-ruf-06', 'abu-ruf-07'],
     paragraphs: [
       'Для всех открытых позиций с выставленным SL суммируется потенциальный убыток; добавляется риск новой (или редактируемой) сделки.',
       'Сумма не должна превышать «бюджет»: число разрешённых открытых позиций × лимит риска на одну сделку (с учётом anti-martingale).',
@@ -80,7 +80,7 @@ export const PROFILE_RULE_ENTRIES = [
     layer: 'gate',
     level: 'block',
     codes: ['daily-stop'],
-    sourceIds: ['chunk-news-offtable'],
+    sourceIds: ['abu-ruf-01'],
     paragraphs: [
       'PnL за календарный день по закрытым сделкам сравнивается с лимитом. При достижении лимита новая сделка блокируется.',
       'На главном экране кнопка «Новая сделка» также отключается до следующего дня — это тот же порог, что в профиле.'
@@ -98,7 +98,7 @@ export const PROFILE_RULE_ENTRIES = [
     layer: 'gate',
     level: 'block',
     codes: ['max-open'],
-    sourceIds: ['chunk-chart-fatigue'],
+    sourceIds: ['mm-vic-07', 'abu-ruf-11'],
     paragraphs: [
       'Считаются другие открытые сделки той же учётки. Если лимит уже достигнут, ещё одну открытую запись добавить нельзя без закрытия или редактирования сценария.'
     ],
@@ -113,7 +113,7 @@ export const PROFILE_RULE_ENTRIES = [
     layer: 'gate',
     level: 'block',
     codes: ['max-trades-day'],
-    sourceIds: ['chunk-chart-fatigue'],
+    sourceIds: ['mm-vic-07', 'abu-ruf-11'],
     paragraphs: [
       'Считаются сделки с датой закрытия «сегодня». Если лимит исчерпан, новая открытая запись блокируется — защита от овертрейдинга.'
     ],
@@ -128,6 +128,7 @@ export const PROFILE_RULE_ENTRIES = [
     layer: 'gate',
     level: 'block',
     codes: ['streak-stop'],
+    sourceIds: ['abu-ruf-04'],
     paragraphs: [
       'Подряд идущие закрытые убыточные сделки. Когда длина ≥ лимита из профиля, новые входы блокируются до смены серии.',
       'Не подменяет паузу «в голове» — но технически не даст оформить следующую запись в журнале без нарушения правила.'
@@ -143,7 +144,7 @@ export const PROFILE_RULE_ENTRIES = [
     layer: 'gate',
     level: 'block',
     codes: ['cooldown'],
-    sourceIds: ['chunk-chart-fatigue'],
+    sourceIds: ['mm-vic-07', 'abu-ruf-11'],
     paragraphs: [
       'После фиксации убыточной сделки запускается таймер. Пока он идёт, кнопка новой сделки и форма блокируются — снижение revenge-входов.',
       'Оставшееся время видно в HUD (карточка Anti-revenge).'
@@ -159,7 +160,7 @@ export const PROFILE_RULE_ENTRIES = [
     layer: 'gate',
     level: 'warn',
     codes: ['no-sl'],
-    sourceIds: ['chunk-entry-confirm'],
+    sourceIds: ['mm-vic-03'],
     paragraphs: [
       'Без SL нельзя вычислить денежный риск сделки; журнал помечает предупреждение. Это не блок по умолчанию, но ломает контроль лимита и бюджета экспозиции.'
     ],
@@ -171,6 +172,7 @@ export const PROFILE_RULE_ENTRIES = [
     layer: 'gate',
     level: 'warn',
     codes: ['rr-low'],
+    sourceIds: ['mm-vic-03', 'abu-ruf-06'],
     paragraphs: [
       'Если и SL, и TP заданы, отношение потенциальной прибыли к риску считается автоматически. Ниже 1:1 — предупреждение (блок не ставится).'
     ],
@@ -182,7 +184,7 @@ export const PROFILE_RULE_ENTRIES = [
     layer: 'gate',
     level: 'warn',
     codes: ['hedge'],
-    sourceIds: ['chunk-crowd-liquidity'],
+    sourceIds: ['abu-ruf-07'],
     paragraphs: [
       'Если уже есть открытая позиция по паре в одну сторону, а новая — в другую, выдаётся предупреждение (хедж / размытие сценария).'
     ],
@@ -194,7 +196,7 @@ export const PROFILE_RULE_ENTRIES = [
     layer: 'gate',
     level: 'warn',
     codes: ['notes-checklist'],
-    sourceIds: ['chunk-entry-confirm'],
+    sourceIds: ['mm-vic-02'],
     paragraphs: [
       'Каждая непустая строка в «Заметки к профилю» (кроме комментариев #) превращается в пункт. В форме сделки их нужно отметить галочками.',
       'Иначе — предупреждение при сохранении. Блокировки нет, но дисциплина фиксируется.'
@@ -212,7 +214,7 @@ export const PROFILE_RULE_ENTRIES = [
     layer: 'gate',
     level: 'block',
     codes: ['play-preconditions'],
-    sourceIds: ['chunk-smc-triangle'],
+    sourceIds: ['abu-ruf-14'],
     paragraphs: [
       'У сетапа (play) могут быть pre/entry правила с флажком required. Пока не отмечены — сохранение сделки с этим play блокируется.'
     ],
@@ -224,7 +226,7 @@ export const PROFILE_RULE_ENTRIES = [
     layer: 'gate',
     level: 'warn',
     codes: ['play-killzone', 'play-killzone-out'],
-    sourceIds: ['chunk-htf-context'],
+    sourceIds: ['mm-vic-05', 'abu-ruf-14'],
     paragraphs: [
       'Если у play задан список допустимых killzone, а текущее окно сессии другое (или вне KZ), журнал выдаёт предупреждение.',
       'Временная зона — настройки терминала/ОС; KZ берутся из общей логики приложения.'
@@ -237,7 +239,7 @@ export const PROFILE_RULE_ENTRIES = [
     layer: 'gate',
     level: 'warn',
     codes: ['against-bias', 'play-against-but-aligned'],
-    sourceIds: ['chunk-htf-context', 'chunk-smc-triangle'],
+    sourceIds: ['mm-vic-05', 'abu-ruf-14'],
     paragraphs: [
       'Если для пары задан daily/H4 bias, направление сделки сравнивается с ним. Против bias — предупреждение (кроме play, где явно требуется counter-bias).',
       'Если play только «против bias», а сделка по bias — тоже предупреждение.'
@@ -250,7 +252,7 @@ export const PROFILE_RULE_ENTRIES = [
     layer: 'gate',
     level: 'info',
     codes: [],
-    sourceIds: ['chunk-partial-take'],
+    sourceIds: ['abu-ruf-06'],
     paragraphs: [
       'После двух и более закрытых убытков подряд коэффициент уменьшает допустимый риск на следующую сделку (½, ¼, …).',
       'Влияет на проверку «риск на сделку» и на бюджет экспозиции — в HUD отображается как ×коэффициент.'
@@ -262,6 +264,7 @@ export const PROFILE_RULE_ENTRIES = [
     title: 'HUD: дневной P/L, открытый риск, позиции, серия, цели, дисциплина',
     layer: 'hud',
     level: 'info',
+    sourceIds: ['mm-vic-03'],
     paragraphs: [
       'Панель над журналом дублирует ключевые пороги: расход дневного стопа, заполнение бюджета Σриска по открытым, число позиций, серия, прогресс к цели дня, качество дисциплины.',
       'Карточка Anti-revenge показывает cooldown или текущий коэффициент anti-martingale.'
@@ -273,7 +276,7 @@ export const PROFILE_RULE_ENTRIES = [
     title: 'Напоминание закрыть день при цели дня',
     layer: 'shell',
     level: 'info',
-    sourceIds: ['chunk-partial-take'],
+    sourceIds: ['abu-ruf-06'],
     paragraphs: [
       'Если дневная цель по профилю достигнута по закрытому PnL и опция включена, появляется модалка «закрой день» — чтобы зафиксировать процесс, а не переторговать.'
     ],
@@ -287,7 +290,7 @@ export const PROFILE_RULE_ENTRIES = [
     title: 'Напоминание заполнить дневник',
     layer: 'shell',
     level: 'info',
-    sourceIds: ['chunk-chart-fatigue'],
+    sourceIds: ['mm-vic-07', 'abu-ruf-11'],
     paragraphs: [
       'В заданный локальный час, если дневник за сегодня пуст, показывается ненавязчивое напоминание (можно скрыть до конца дня).'
     ],
@@ -301,6 +304,7 @@ export const PROFILE_RULE_ENTRIES = [
     title: 'Метрика «Дисциплина»',
     layer: 'hud',
     level: 'info',
+    sourceIds: ['mm-vic-02'],
     paragraphs: [
       'Процент закрытых сделок без записанных нарушений (ruleViolations). Нарушения проставляются при сохранении, если ты подтвердил вход, несмотря на предупреждения гейта.',
       'Связано с «разрывом» disciplined PnL в профиле и отчётах.'
@@ -312,7 +316,7 @@ export const PROFILE_RULE_ENTRIES = [
     title: 'Практика: красная зона новостей (вне кода)',
     layer: 'practice',
     level: 'info',
-    sourceIds: ['chunk-news-offtable'],
+    sourceIds: ['abu-ruf-01'],
     paragraphs: [
       'Журнал не подставляет экономический календарь автоматически. Имеет смысл вручную договориться «не торговать около HIGH/CPI/NFP» и вынести это в заметки профиля или чек-лист дня.',
       'Так ты видишь нарушение в чек-листе так же, как остальные свои правила.'
@@ -324,7 +328,7 @@ export const PROFILE_RULE_ENTRIES = [
     title: 'Практика: не торговать «на последние деньги»',
     layer: 'practice',
     level: 'info',
-    sourceIds: ['chunk-chart-fatigue'],
+    sourceIds: ['mm-vic-03'],
     paragraphs: [
       'Размер позиции и дневной стоп защищают счёт, но не подменяют запас по жизни. Если стресс от размера счёта высокий — инструмент журналирования фиксирует только часть проблемы.',
       'Часто помогает искусственно занизить «эмоциональный» капитал: в профиле держать цифру, с которой ты реально готов торговать ровно и без «отыгрыша».'

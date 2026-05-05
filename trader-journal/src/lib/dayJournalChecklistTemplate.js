@@ -18,62 +18,62 @@ export const DEFAULT_CHECKLIST_ITEMS = [
   {
     id: 'weekendLiquidity',
     label: 'Выходные / тонкий рынок: не разгоняю риск без повода',
-    sourceRefs: ['chunk-crypto-weekend']
+    sourceRefs: ['abu-ruf-01']
   },
   {
     id: 'dxyOrMacro',
     label: 'Сверился с контекстом USD (DXY) под свою идею',
-    sourceRefs: ['chunk-dxy-risk']
+    sourceRefs: ['abu-ruf-10']
   },
   {
     id: 'newsCalm',
     label: 'В окне сильных новостей не торгую хаос без правила',
-    sourceRefs: ['chunk-news-offtable', 'chunk-uncertain-regime']
+    sourceRefs: ['mm-vic-06', 'abu-ruf-01']
   },
   {
     id: 'htfFirst',
     label: 'Контекст на старшем ТФ есть; младший не заменяет ТЗ',
-    sourceRefs: ['chunk-htf-context']
+    sourceRefs: ['mm-vic-05', 'abu-ruf-14']
   },
   {
     id: 'confirmRules',
     label: 'Есть подтверждение входа по своей системе',
-    sourceRefs: ['chunk-entry-confirm']
+    sourceRefs: ['mm-vic-04']
   },
   {
     id: 'alertsNotStare',
     label: 'Не залипаю в график — алерты / перерывы',
-    sourceRefs: ['chunk-chart-fatigue']
+    sourceRefs: ['mm-vic-07', 'abu-ruf-11']
   },
   {
     id: 'partialPlan',
     label: 'Частичная фиксация / цели согласованы с планом',
-    sourceRefs: ['chunk-partial-take']
+    sourceRefs: ['abu-ruf-06']
   },
   {
     id: 'invalidateOk',
     label: 'Готов отменить сценарий, если логика сломалась',
-    sourceRefs: ['chunk-scenario-cancel']
+    sourceRefs: ['abu-ruf-05']
   },
   {
     id: 'stopLogic',
     label: 'Стоп там, где ломается тезис; не двигаю из надежды',
-    sourceRefs: ['chunk-risk-not-guess']
+    sourceRefs: ['mm-vic-03']
   },
   {
     id: 'noGamblingToday',
     label: 'Нет входа «от скуки» и мониторинга только баланса',
-    sourceRefs: ['chunk-gambling-markers']
+    sourceRefs: ['abu-ruf-04', 'abu-ruf-07']
   },
   {
     id: 'noFomoChase',
     label: 'Упущенное движение без сигнала не тянет меня в догон',
-    sourceRefs: ['chunk-fomo-discipline', 'chunk-patience-flat']
+    sourceRefs: ['mm-vic-06', 'abu-ruf-05']
   },
   {
     id: 'bodyReady',
     label: 'Сон и состояние позволяют принимать решения спокойно',
-    sourceRefs: ['chunk-body-readiness']
+    sourceRefs: ['mm-vic-07']
   }
 ];
 

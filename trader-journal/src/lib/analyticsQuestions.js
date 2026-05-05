@@ -216,7 +216,7 @@ export const analyticsQuestions = [
       'Тонкая ликвидность упрощает манипуляции и ложные сломы; техника на коротком горизонте работает хуже.',
       'Многие сознательно снижают активность и не разгоняют риск из‑за скуки.'
     ],
-    sourceRefs: ['chunk-crypto-weekend']
+    sourceRefs: ['abu-ruf-01']
   },
   {
     id: 'baza-dxy-why',
@@ -227,7 +227,7 @@ export const analyticsQuestions = [
       'Укрепление доллара нередко сопровождается оттоком из спекулятивных инструментов — это контекст, а не прямой сигнал входа.',
       'Имеет смысл учитывать его как фильтр общего режима риска.'
     ],
-    sourceRefs: ['chunk-dxy-risk']
+    sourceRefs: ['abu-ruf-10']
   },
   {
     id: 'baza-partial-take-faq',
@@ -238,7 +238,7 @@ export const analyticsQuestions = [
       'Рынок часто не доходит до «идеальной» цели из‑за скрытой ликвидности.',
       'Компромисс между жадностью и управлением: часть в кармане — часть по плану держится дальше.'
     ],
-    sourceRefs: ['chunk-partial-take']
+    sourceRefs: ['abu-ruf-06']
   },
   {
     id: 'baza-ltf-noise',
@@ -249,7 +249,7 @@ export const analyticsQuestions = [
       'Контекст на H1/H4 даёт более устойчивую картину направления и зон.',
       'Меньше микрорешений «на каждую свечу» — ниже шанс импульсивных входов.'
     ],
-    sourceRefs: ['chunk-htf-context']
+    sourceRefs: ['mm-vic-05', 'abu-ruf-14']
   },
   {
     id: 'baza-news-trade-faq',
@@ -260,7 +260,7 @@ export const analyticsQuestions = [
       'Технические уровни могут временно терять приоритет перед потоком ордеров.',
       'Для многих систем безопаснее дождаться стабилизации и только потом искать сетап.'
     ],
-    sourceRefs: ['chunk-news-offtable', 'chunk-political-news-vol']
+    sourceRefs: ['mm-vic-06', 'abu-ruf-01']
   },
   {
     id: 'baza-confirmation-faq',
@@ -271,7 +271,7 @@ export const analyticsQuestions = [
       'Без подтверждения вход ближе к угадыванию, даже если зона выглядела красиво.',
       'Точное определение подтверждения должно быть прописано заранее в плейбуке.'
     ],
-    sourceRefs: ['chunk-entry-confirm']
+    sourceRefs: ['mm-vic-04']
   },
   {
     id: 'baza-mss-ob-fvg',
@@ -282,7 +282,7 @@ export const analyticsQuestions = [
       'Ордер‑блок осмыслен как зона в контексте старшего ТФ и ликвидности, не как случайная свеча.',
       'FVG описывает неэффективность; связка структуры, блоков и FVG даёт цельную карту.'
     ],
-    sourceRefs: ['chunk-smc-triangle']
+    sourceRefs: ['abu-ruf-14']
   },
   {
     id: 'baza-crowd-short',
@@ -293,7 +293,7 @@ export const analyticsQuestions = [
       'Рынок не обязан сразу развернуться, но такие фазы заслуживают повышенной осторожности.',
       'Часто разумнее ждать ясности, чем быть частью толпы в точке ликвидаций.'
     ],
-    sourceRefs: ['chunk-crowd-liquidity']
+    sourceRefs: ['abu-ruf-07']
   },
   {
     id: 'baza-liq-reversal-faq',
@@ -304,7 +304,7 @@ export const analyticsQuestions = [
       'Точка входа после события может иметь более прозрачную инвалидизацию.',
       'Зоны вроде OTE после снятия ликвидности используют как фильтр в рамках своей системы.'
     ],
-    sourceRefs: ['chunk-liq-reversal-ote']
+    sourceRefs: ['abu-ruf-14']
   },
   {
     id: 'baza-cancel-thesis',
@@ -315,7 +315,7 @@ export const analyticsQuestions = [
       'Подгонка фактов под желаемый вход повышает долю случайных потерь.',
       'Отказ от сделки при размытой логике сохраняет капитал для более ясного момента.'
     ],
-    sourceRefs: ['chunk-scenario-cancel']
+    sourceRefs: ['abu-ruf-05']
   },
   {
     id: 'baza-ludoman-faq',
@@ -327,7 +327,7 @@ export const analyticsQuestions = [
       'Отсутствие журнала и аргумента «уже слишком улетело / упало» вместо правил входа.',
       'Системный трейдер ищет подтверждение сценария, а не азарт.'
     ],
-    sourceRefs: ['chunk-gambling-markers']
+    sourceRefs: ['abu-ruf-04', 'abu-ruf-07']
   },
   {
     id: 'baza-missed-profit-faq',
@@ -338,7 +338,7 @@ export const analyticsQuestions = [
       'Рынок даёт новые ситуации; важнее не войти «на удачу» без критериев.',
       'Пропуск из‑за отсутствия сигнала — про дисциплину, а не про ошибку исполнения.'
     ],
-    sourceRefs: ['chunk-fomo-discipline']
+    sourceRefs: ['mm-vic-06']
   },
   {
     id: 'baza-limit-vs-market-faq',
@@ -349,7 +349,7 @@ export const analyticsQuestions = [
       'Просмотр контекста после уведомления позволяет не входить против сломанного тезиса.',
       'Выбор зависит от стратегии, времени у экрана и правил управления риском.'
     ],
-    sourceRefs: ['chunk-limit-market-tradeoff']
+    sourceRefs: ['abu-ruf-05']
   },
   {
     id: 'baza-greed-fear-faq',
@@ -360,7 +360,7 @@ export const analyticsQuestions = [
       'Опора — заранее записанный план и ограничение просмотра PnL во время формирования сетапа.',
       'Один качественный вход по алгоритму лучше серии импульсивных.'
     ],
-    sourceRefs: ['chunk-greed-fear-mgmt']
+    sourceRefs: ['abu-ruf-06', 'abu-ruf-13']
   },
   {
     id: 'baza-body-state-faq',
@@ -371,7 +371,7 @@ export const analyticsQuestions = [
       'Если режим дня улучшает концентрацию, это часть торгового процесса.',
       'Имеет смысл отделять ошибки методики от ошибок состояния в журнале.'
     ],
-    sourceRefs: ['chunk-body-readiness']
+    sourceRefs: ['mm-vic-07']
   },
   {
     id: 'baza-regime-faq',
@@ -382,7 +382,7 @@ export const analyticsQuestions = [
       'Учёт текущих условий снижает входы «не в свой час».',
       'Терпение до совпадения и метода — часть системности.'
     ],
-    sourceRefs: ['chunk-regime-tool-fit']
+    sourceRefs: ['mm-vic-05', 'abu-ruf-14']
   },
   {
     id: 'baza-news-catalyst-faq',
@@ -393,7 +393,7 @@ export const analyticsQuestions = [
       'Торговать сам факт новости — высокая доля случайности.',
       'Полезно думать о функции повода в контексте ликвидности, а не только о тексте заголовка.'
     ],
-    sourceRefs: ['chunk-news-as-catalyst', 'chunk-selective-trading']
+    sourceRefs: ['abu-ruf-01', 'abu-ruf-07']
   },
   {
     id: 'baza-screen-burnout-faq',
@@ -404,7 +404,7 @@ export const analyticsQuestions = [
       'Алерты и перерывы помогают не торговать скуку.',
       'Качество решений важнее времени у монитора.'
     ],
-    sourceRefs: ['chunk-chart-fatigue']
+    sourceRefs: ['mm-vic-07', 'abu-ruf-11']
   },
   {
     id: 'baza-sunday-reset-faq',
@@ -415,7 +415,7 @@ export const analyticsQuestions = [
       'Физическая активность помогает сбросить напряжение от рынка.',
       'Дисциплина включает восстановление, а не только анализ.'
     ],
-    sourceRefs: ['chunk-week-reset-sport', 'chunk-offline-recovery']
+    sourceRefs: ['mm-vic-07']
   },
   {
     id: 'baza-info-filter-faq',
@@ -426,7 +426,7 @@ export const analyticsQuestions = [
       'Смотреть на риск‑менеджмент автора, а не только на скрины прибыли.',
       'Понимать, что многие поводы адресованы массовой аудитории.'
     ],
-    sourceRefs: ['chunk-trusted-sources', 'chunk-news-as-catalyst']
+    sourceRefs: ['abu-ruf-08', 'abu-ruf-01']
   },
   {
     id: 'baza-trading-life-balance',
@@ -437,7 +437,7 @@ export const analyticsQuestions = [
       'Рынок — инструмент с контролируемым риском, а не мера самооценки.',
       'Спокойный расчёт и приемлемый размер риска стабильнее героизма в каждой точке.'
     ],
-    sourceRefs: ['chunk-work-life-balance']
+    sourceRefs: ['mm-vic-02', 'abu-ruf-09']
   },
   {
     id: 'baza-less-activity-pro',
@@ -448,7 +448,7 @@ export const analyticsQuestions = [
       'Сохранение депозита и ожидание читаемой картины часто важнее количества сделок.',
       'Качество входов на дистанции перевешивает активность ради активности.'
     ],
-    sourceRefs: ['chunk-selective-trading', 'chunk-uncertain-regime']
+    sourceRefs: ['abu-ruf-07', 'mm-vic-06']
   }
 ];
 
