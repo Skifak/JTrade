@@ -10,7 +10,11 @@ import {
   getDisciplineScore,
   getStatsByBiasAlignment,
   getOpenRisk,
-  evaluateTradeRules
+  evaluateTradeRules,
+  getCurrentRiskScale,
+  hasMaterialRuleViolations,
+  getEquityCurve,
+  POST_CLOSE_CHART_VIOLATION_CODE
 } from './risk.js';
 
 const profilePct = {
@@ -68,6 +72,47 @@ describe('calculateTradeRisk', () => {
   });
 });
 
+describe('getCurrentRiskScale — сетка anti-martingale', () => {
+  const loss = (i) => ({
+    status: 'closed',
+    profit: -10,
+    dateClose: `2026-05-${String(i + 1).padStart(2, '0')} 10:00:00`
+  });
+
+  it('выкл → 1', () => {
+    expect(
+      getCurrentRiskScale([loss(0), loss(1)], {
+        streakScalingEnabled: false,
+        streakScalingMultipliers: [0.5]
+      })
+    ).toBe(1);
+  });
+
+  it('дефолтная сетка: 2 уб. → ×0.5, 3 → ×0.25, 4+ → ×0.125', () => {
+    const prof = {
+      streakScalingEnabled: true,
+      streakScalingApplyFromLossCount: 2,
+      streakScalingMultipliers: [0.5, 0.25, 0.125]
+    };
+    expect(getCurrentRiskScale([loss(0), loss(1)], prof)).toBeCloseTo(0.5, 5);
+    expect(getCurrentRiskScale([loss(0), loss(1), loss(2)], prof)).toBeCloseTo(0.25, 5);
+    expect(getCurrentRiskScale([loss(0), loss(1), loss(2), loss(3)], prof)).toBeCloseTo(0.125, 5);
+    expect(getCurrentRiskScale([loss(0), loss(1), loss(2), loss(3), loss(4)], prof)).toBeCloseTo(0.125, 5);
+  });
+
+  it('кастом: с 3 убытков и сеткой [0.7, 0.4]', () => {
+    const prof = {
+      streakScalingEnabled: true,
+      streakScalingApplyFromLossCount: 3,
+      streakScalingMultipliers: [0.7, 0.4]
+    };
+    expect(getCurrentRiskScale([loss(0), loss(1)], prof)).toBe(1);
+    expect(getCurrentRiskScale([loss(0), loss(1), loss(2)], prof)).toBeCloseTo(0.7, 5);
+    expect(getCurrentRiskScale([loss(0), loss(1), loss(2), loss(3)], prof)).toBeCloseTo(0.4, 5);
+    expect(getCurrentRiskScale([loss(0), loss(1), loss(2), loss(3), loss(4)], prof)).toBeCloseTo(0.4, 5);
+  });
+});
+
 describe('suggestVolumeForRisk', () => {
   it('подбирает объём под лимит риска', () => {
     const trade = {
@@ -93,7 +138,7 @@ describe('getDisciplineScore', () => {
     expect(getDisciplineScore([]).score).toBe(100);
   });
 
-  it('учитывает ruleViolations', () => {
+  it('взвешивает warn без severity как WARN', () => {
     const trades = [
       { status: 'closed', profit: 1 },
       { status: 'closed', profit: -1, ruleViolations: [{ code: 'x' }] }
@@ -101,7 +146,63 @@ describe('getDisciplineScore', () => {
     const d = getDisciplineScore(trades);
     expect(d.total).toBe(2);
     expect(d.clean).toBe(1);
-    expect(d.score).toBe(50);
+    expect(d.warnViolationItems).toBe(1);
+    expect(d.blockViolationItems).toBe(0);
+    expect(d.score).toBeCloseTo((100 + (100 - 12)) / 2, 5);
+  });
+
+  it('block сильнее warn за запись', () => {
+    const a = getDisciplineScore([
+      { status: 'closed', profit: 1, ruleViolations: [{ severity: 'warn', code: 'w' }] }
+    ]).score;
+    const b = getDisciplineScore([
+      { status: 'closed', profit: 1, ruleViolations: [{ severity: 'block', code: 'b' }] }
+    ]).score;
+    expect(b).toBeLessThan(a);
+  });
+});
+
+describe('hasMaterialRuleViolations + equity disciplined', () => {
+  const t1 = {
+    status: 'closed',
+    profit: 100,
+    dateClose: '2026-05-01 10:00:00',
+    ruleViolations: [{ severity: 'warn', code: POST_CLOSE_CHART_VIOLATION_CODE }]
+  };
+  const t2 = {
+    status: 'closed',
+    profit: 50,
+    dateClose: '2026-05-02 10:00:00',
+    ruleViolations: [{ severity: 'block', code: 'risk-cap' }]
+  };
+
+  it('только post-close → не материальное', () => {
+    expect(hasMaterialRuleViolations(t1)).toBe(false);
+  });
+
+  it('post-close + block → материальное', () => {
+    expect(
+      hasMaterialRuleViolations({
+        ruleViolations: [
+          { code: POST_CLOSE_CHART_VIOLATION_CODE },
+          { severity: 'block', code: 'x' }
+        ]
+      })
+    ).toBe(true);
+  });
+
+  it('пунктир equity считает PnL при одном мягком нарушении', () => {
+    const curve = getEquityCurve([t1], 1000);
+    const last = curve[curve.length - 1];
+    expect(last.real).toBe(1100);
+    expect(last.disciplined).toBe(1100);
+  });
+
+  it('пунктир отстает при материальном нарушении', () => {
+    const curve = getEquityCurve([t2], 1000);
+    const last = curve[curve.length - 1];
+    expect(last.real).toBe(1050);
+    expect(last.disciplined).toBe(1000);
   });
 });
 

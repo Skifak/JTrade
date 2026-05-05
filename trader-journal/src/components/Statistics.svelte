@@ -6,7 +6,8 @@
     getPnLByWeekday,
     getStatsByTag,
     getStatsByPlay,
-    getStatsByBiasAlignment
+    getStatsByBiasAlignment,
+    hasMaterialRuleViolations
   } from '../lib/risk';
   import { getPnLByKillzone, primaryKillzone, killzoneLabel } from '../lib/killzones';
   import { journalSettings } from '../lib/journalSettings';
@@ -95,7 +96,7 @@
         const id = t.killzone || primaryKillzone(t.dateOpen) || '_OUT';
         if (id !== kzFilter) return false;
       }
-      if (disciplinedOnly && Array.isArray(t.ruleViolations) && t.ruleViolations.length > 0) return false;
+      if (disciplinedOnly && hasMaterialRuleViolations(t)) return false;
       return true;
     });
   })();

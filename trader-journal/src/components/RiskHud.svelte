@@ -267,7 +267,7 @@
     </div>
     <div class="hud-sub muted">
       {discipline.violationsCount > 0
-        ? `${discipline.violationsCount} наруш. в ${discipline.total - discipline.clean} сделках`
+        ? `${discipline.violationsCount} записей · block ${discipline.blockViolationItems} / warn ${discipline.warnViolationItems} · ${discipline.total - discipline.clean} сделок`
         : `${discipline.total} сделок без нарушений`}
     </div>
   </div>

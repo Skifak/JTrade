@@ -33,7 +33,8 @@ export const BEACON_TAG_TO_ADVICE = {
   journal_gap: ['journal', 'discipline'],
   momentum: ['general'],
   steady: ['general'],
-  manual_no_attachments: ['journal', 'discipline']
+  manual_no_attachments: ['journal', 'discipline'],
+  post_close_chart: ['journal', 'discipline', 'edge']
 };
 
 /** Ключ состояния аналитики → темы советов (если уровень не «Норма»). */
@@ -80,6 +81,19 @@ export const advicePosts = [
       'Переоценивать серии и закономерности, а не каждый тик.'
     ],
     sourceRefs: ['mm-vic-02', 'abu-ruf-13']
+  },
+  {
+    id: 'mix-post-close-chart',
+    tags: ['journal', 'discipline', 'edge'],
+    title: 'Снимок графика после сделки',
+    takeaway:
+      'Цифра PnL не хранит то, что ты видел на экране: расположение стопа относительно структуры, характер входной свечи, совпадение с killzone и планом play.',
+    directions: [
+      'Сразу после закрытия сделай скрин с разметкой (хотя бы линии зоны и отметка выхода) — через сутки память уже «дорисует» выгодную версию.',
+      'На дистанции скрины связывают результат с визуальным edge: видно, был ли set-up похож на учебный или ты подменил процесс оправданием.',
+      'Это не «красота журнала», а страховка от самообмана при разборе серии.'
+    ],
+    sourceRefs: ['mm-vic-02']
   },
   {
     id: 'vic-risk-accept',

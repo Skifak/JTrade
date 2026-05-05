@@ -1,5 +1,5 @@
 <script>
-  import { tick, onDestroy } from 'svelte';
+  import { createEventDispatcher } from 'svelte';
   import dayjs from 'dayjs';
   import { createNewTrade, closeTrade, calculateProfit, isBrokerImportedTrade, formatNumber, snapshotTradeTemplateFields, normalizeStoredTradeTemplate } from '../lib/utils';
   import { trades, userProfile, templates } from '../lib/stores';
@@ -22,10 +22,13 @@
     calculateTradeRisk,
     suggestVolumeForRisk,
     evaluateTradeRules,
+    evaluatePostCloseTradeRules,
     computeMaxRiskAmount,
     getCurrentRiskScale,
     parseNotesChecklist,
-    countClosedTradesOnDay
+    countClosedTradesOnDay,
+    tradeHasChartAttachment,
+    stripPostCloseChartViolations
   } from '../lib/risk';
   import { cooldown } from '../lib/cooldown';
   import { tickClock, livePrices, formPairs } from '../lib/livePrices';
@@ -41,6 +44,7 @@
   import BiasModal from './BiasModal.svelte';
   import { toasts } from '../lib/toasts';
 
+  const dispatch = createEventDispatcher();
   export let open = false;
   export let trade = null;
   export let mode = 'add';
@@ -415,21 +419,24 @@
   $: cooldownRemainingMs = ($tickClock, $cooldown?.until ? Math.max(0, $cooldown.until - Date.now()) : 0);
 
   // Реактивный preview нарушений — юзер видит проблемы ДО нажатия "Сохранить".
-  $: liveViolations = (mode === 'add' || mode === 'edit') && open
-    ? evaluateTradeRules(formData, $userProfile, {
-        openTrades: openTradesAll,
-        closedTrades: closedTradesAll,
-        isEditing: mode === 'edit',
-        cooldownRemainingMs,
-        acknowledgedChecklist,
-        play: selectedPlay,
-        acknowledgedPlayRules,
-        currentKillzone: kzId,
-        bias: activeBias,
-        biasAligned,
-        biasLabel: biasLabelText
-      })
-    : [];
+  $: liveViolations =
+    open && (mode === 'add' || mode === 'edit')
+      ? evaluateTradeRules(formData, $userProfile, {
+          openTrades: openTradesAll,
+          closedTrades: closedTradesAll,
+          isEditing: mode === 'edit',
+          cooldownRemainingMs,
+          acknowledgedChecklist,
+          play: selectedPlay,
+          acknowledgedPlayRules,
+          currentKillzone: kzId,
+          bias: activeBias,
+          biasAligned,
+          biasLabel: biasLabelText
+        })
+      : open && mode === 'edit-closed'
+        ? evaluatePostCloseTradeRules(formData, $userProfile)
+        : [];
   $: hasBlockingViolation = liveViolations.some((v) => v.severity === 'block');
 
   function applySuggestedVolume() {
@@ -448,26 +455,52 @@
       const closed = closeTrade(base, Number(closePrice));
       trades.updateTrade(trade.id, closed);
 
+      if ($userProfile?.postCloseChartReminderEnabled !== false) {
+        toasts.info(
+          'Сделка закрыта. Пока свежий контекст — приложи скрин графика к записи: разметка до/после и таймфрейм помогут честно разобрать вход на следующей неделе.',
+          { ttl: 9000 }
+        );
+        dispatch('postCloseChartPrompt', { tradeId: trade.id, pair: closed.pair });
+      }
+
       // Anti-revenge: после убыточной сделки запускаем cooldown.
       const cdMin = Number($userProfile?.cooldownAfterLossMin) || 0;
       if (cdMin > 0 && Number(closed.profit) < 0) {
         cooldown.startAfterLoss(cdMin);
       }
     } else if (mode === 'edit-closed') {
+      const mergedForAttach = { ...trade, ...formData, status: 'closed' };
+      let rv = Array.isArray(formData.ruleViolations)
+        ? [...formData.ruleViolations]
+        : Array.isArray(trade.ruleViolations)
+          ? [...trade.ruleViolations]
+          : [];
+      if (Array.isArray(extra.appendRuleViolations) && extra.appendRuleViolations.length) {
+        const codes = new Set(rv.map((x) => x?.code).filter(Boolean));
+        for (const x of extra.appendRuleViolations) {
+          if (x?.code && codes.has(x.code)) continue;
+          rv.push(x);
+          if (x?.code) codes.add(x.code);
+        }
+      }
+      if (tradeHasChartAttachment(mergedForAttach)) {
+        rv = stripPostCloseChartViolations(rv);
+      }
       const updatedClosed = {
         ...trade,
         ...formData,
         status: 'closed',
         priceClose: Number(formData.priceClose) || 0,
         commission: Number(formData.commission) || 0,
-        swap: Number(formData.swap) || 0
+        swap: Number(formData.swap) || 0,
+        ruleViolations: rv
       };
       updatedClosed.profit =
         isBrokerImportedTrade(trade) && !tradeFieldsEdited(trade, updatedClosed)
           ? Number(formData.profit) || 0
           : calculateProfit(updatedClosed);
       trades.updateTrade(trade.id, updatedClosed);
-    } else {
+    } else if (mode === 'add' || mode === 'edit') {
       if (!useCurrentTime && !formData.dateOpen) {
         formData.dateOpen = new Date().toISOString().slice(0, 19).replace('T', ' ');
       }
@@ -513,13 +546,29 @@
       commitTrade({ ruleViolations: [], ...extra });
       return;
     }
+    if (mode === 'edit-closed') {
+      const violations = evaluatePostCloseTradeRules(formData, $userProfile);
+      if (violations.length > 0) {
+        pendingViolations = violations;
+        pendingMode = 'edit-closed';
+        pendingExtra = {};
+        showRiskConfirm = true;
+        return;
+      }
+      commitTrade();
+      return;
+    }
     commitTrade();
   }
   let pendingExtra = {};
 
   function onRiskConfirmed() {
     showRiskConfirm = false;
-    commitTrade({ ruleViolations: pendingViolations, ...pendingExtra });
+    if (pendingMode === 'edit-closed') {
+      commitTrade({ appendRuleViolations: pendingViolations });
+    } else {
+      commitTrade({ ruleViolations: pendingViolations, ...pendingExtra });
+    }
     pendingViolations = [];
     pendingMode = null;
     pendingExtra = {};
@@ -745,6 +794,33 @@
           </span>
         </p>
       </div>
+
+      {#if liveViolations.length > 0}
+        <div class="violations-preview">
+          <div class="trade-section-kicker violations-preview-kicker">
+            {hasBlockingViolation ? '⛔ Нарушения правил' : '⚠️ Предупреждения'}
+          </div>
+          <ul class="violations-preview-list">
+            {#each liveViolations as v}
+              <li class="violation severity-{v.severity}">
+                <span class="violation-badge">{v.severity === 'block' ? 'BLOCK' : 'WARN'}</span>
+                <span class="violation-text">{v.message}</span>
+              </li>
+            {/each}
+          </ul>
+          <div class="violations-preview-hint">
+            {hasBlockingViolation
+              ? 'При сохранении потребуется явное подтверждение.'
+              : 'Можно сохранить с предупреждением — оно попадёт в ruleViolations и учтётся в метрике дисциплины (warn легче block).'}
+          </div>
+        </div>
+      {/if}
+
+      {#if $userProfile?.postCloseChartReminderEnabled !== false && !tradeHasChartAttachment(formData)}
+        <p class="edit-closed-photo-hint">
+          Без скрина графика разбор позже опирается на память. Включи напоминание в профиле или прикрепи изображение через таблицу закрытых (📎) / здесь после сохранения.
+        </p>
+      {/if}
     {:else}
       <div class="form-group">
         <label for="pair">Инструмент</label>
@@ -1428,6 +1504,16 @@
     font-size: 11px;
     color: var(--text-muted);
     line-height: 1.4;
+  }
+  .edit-closed-photo-hint {
+    margin: 10px 0 0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px dashed color-mix(in srgb, var(--accent) 28%, var(--border));
+    background: color-mix(in srgb, var(--bg-2) 70%, var(--bg));
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-muted);
   }
 
   .notes-checklist {

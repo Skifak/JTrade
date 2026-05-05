@@ -5,6 +5,7 @@
 
 :root,
 [data-theme='light'] {
+  color-scheme: light;
   --bg: #ffffff;
   --bg-2: #eef2f8;
   --bg-3: #e4e9f2;
@@ -35,6 +36,7 @@
 }
 
 [data-theme='beige'] {
+  color-scheme: light;
   --bg: #f5efdf;
   --bg-2: #e9dfc6;
   --bg-3: #ddd2b8;
@@ -65,6 +67,7 @@
 }
 
 [data-theme='dark'] {
+  color-scheme: dark;
   --bg: #1a1d22;
   --bg-2: #21252b;
   --bg-3: #2a2f36;
@@ -96,6 +99,7 @@
 
 /* Неон: глубокий чёрный, лайм #B3FF50 */
 [data-theme='neon'] {
+  color-scheme: dark;
   --bg: #0b0b0b;
   --bg-2: #111111;
   --bg-3: #1a1a1a;
@@ -666,6 +670,53 @@ body {
   width: auto;
   height: auto;
   margin-right: 6px;
+}
+
+/*
+ * Нативные контролы: accent, стрелки числа, выпадающие списки.
+ */
+input[type='number'],
+input[type='text'],
+input[type='search'],
+input[type='email'],
+input[type='password'],
+input[type='date'],
+input[type='time'],
+input[type='datetime-local'] {
+  accent-color: var(--accent);
+}
+
+.form-group input[type='number']::-webkit-inner-spin-button,
+.form-group input[type='number']::-webkit-outer-spin-button,
+input[type='number'].pr-control::-webkit-inner-spin-button,
+input[type='number'].pr-control::-webkit-outer-spin-button,
+.table-toolbar input[type='number']::-webkit-inner-spin-button,
+.table-toolbar input[type='number']::-webkit-outer-spin-button {
+  height: 1.35rem;
+  margin: 0;
+  opacity: 1;
+  cursor: pointer;
+  -webkit-appearance: inner-spin-button;
+}
+
+.form-group select,
+.table-toolbar select {
+  accent-color: var(--accent);
+  background-color: var(--bg);
+  color: var(--text-strong);
+  cursor: pointer;
+}
+
+.form-group select option,
+.table-toolbar select option {
+  background: var(--bg);
+  color: var(--text-strong);
+}
+
+.form-group select option:checked,
+.table-toolbar select option:checked {
+  background: var(--accent-bg);
+  color: var(--text-strong);
 }
 
 .form-row {

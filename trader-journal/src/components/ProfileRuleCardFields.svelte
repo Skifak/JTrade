@@ -1,7 +1,36 @@
 <script>
+  import { DEFAULT_STREAK_SCALING_MULTIPLIERS } from '../lib/streakScaling.js';
+
   /** Поля профиля, прикреплённые к карточке правила по её `id` из profileRulesRegistry. */
   export let ruleId = '';
   export let formData = {};
+
+  function ensureStreakMultipliers() {
+    if (!Array.isArray(formData.streakScalingMultipliers) || formData.streakScalingMultipliers.length === 0) {
+      formData.streakScalingMultipliers = [...DEFAULT_STREAK_SCALING_MULTIPLIERS];
+    }
+  }
+
+  function addStreakStep() {
+    ensureStreakMultipliers();
+    const arr = formData.streakScalingMultipliers;
+    const last = Number(arr[arr.length - 1]);
+    const base = Number.isFinite(last) && last > 0 ? last : 0.5;
+    const next = Math.max(0.01, Math.min(1, Math.round(base * 0.5 * 10_000) / 10_000));
+    formData.streakScalingMultipliers = [...arr, next];
+  }
+
+  function removeStreakStep() {
+    ensureStreakMultipliers();
+    if (formData.streakScalingMultipliers.length <= 1) return;
+    formData.streakScalingMultipliers = formData.streakScalingMultipliers.slice(0, -1);
+  }
+
+  $: if (ruleId === 'anti-martingale' && formData?.streakScalingEnabled) {
+    if (!Array.isArray(formData.streakScalingMultipliers) || formData.streakScalingMultipliers.length === 0) {
+      formData.streakScalingMultipliers = [...DEFAULT_STREAK_SCALING_MULTIPLIERS];
+    }
+  }
 
   const FIELD_RULE_IDS = new Set([
     'risk-per-trade',
@@ -15,6 +44,7 @@
     'anti-martingale',
     'goal-day-popup',
     'journal-day-reminder',
+    'post-close-chart',
     'weekly-loss-stop',
     'daily-profit-lock',
     'after-hours-cutoff',
@@ -105,9 +135,56 @@
     {:else if ruleId === 'anti-martingale'}
       <label class="pr-check">
         <input type="checkbox" bind:checked={formData.streakScalingEnabled} />
-        <span>Включить: после 2+ убытков подряд резать риск ×½</span>
+        <span>Включить урезание лимита риска после серии убытков (сетка множителей)</span>
       </label>
-      <p class="pr-card-hint">Влияет на лимит риска и бюджет экспозиции (см. карточки выше).</p>
+      <div class="pr-streak-panel">
+        <div class="form-row pr-row-tight">
+          <div class="form-group">
+            <label class="pr-label" for="pcf-streak-from">С какого убытка подряд</label>
+            <input
+              id="pcf-streak-from"
+              class="pr-control pr-control--narrow"
+              type="number"
+              min="1"
+              max="99"
+              step="1"
+              bind:value={formData.streakScalingApplyFromLossCount}
+              disabled={!formData.streakScalingEnabled}
+            />
+            <p class="pr-field-hint">1 — с первого убытка; 2 — как раньше (первый «полный» шанс без штрафа).</p>
+          </div>
+        </div>
+        <p class="pr-label pr-label--row">Множители по шагам</p>
+        <ul class="pr-streak-grid" aria-label="Сетка anti-martingale">
+          {#each formData.streakScalingMultipliers ?? [] as mult, i (i)}
+            <li class="pr-streak-row">
+              <span class="pr-streak-row-label">
+                {Number(formData.streakScalingApplyFromLossCount) >= 1
+                  ? Math.floor(Number(formData.streakScalingApplyFromLossCount)) + i
+                  : 2 + i} уб.
+              </span>
+              <input
+                class="pr-control pr-streak-mult-input"
+                type="number"
+                min="0.01"
+                max="1"
+                step="0.05"
+                bind:value={formData.streakScalingMultipliers[i]}
+                disabled={!formData.streakScalingEnabled}
+              />
+            </li>
+          {/each}
+        </ul>
+        <div class="pr-streak-actions">
+          <button type="button" class="btn btn-sm btn-primary" disabled={!formData.streakScalingEnabled} on:click={addStreakStep}>
+            + шаг
+          </button>
+          <button type="button" class="btn btn-sm" disabled={!formData.streakScalingEnabled || (formData.streakScalingMultipliers?.length || 0) <= 1} on:click={removeStreakStep}>
+            − шаг
+          </button>
+        </div>
+      </div>
+      <p class="pr-card-hint">Влияет на лимит риска и бюджет экспозиции. Последний множитель не снимается при длинной серии.</p>
     {:else if ruleId === 'goal-day-popup'}
       <label class="pr-check">
         <input type="checkbox" bind:checked={formData.dailyReviewEnabled} />
@@ -134,6 +211,14 @@
           />
         </div>
       </div>
+    {:else if ruleId === 'post-close-chart'}
+      <label class="pr-check">
+        <input type="checkbox" bind:checked={formData.postCloseChartReminderEnabled} />
+        <span>Скрин графика после закрытия</span>
+      </label>
+      <p class="pr-card-hint">
+        После закрытия сделки — тост и баннер под шапкой с предложением прикрепить изображение. В форме редактирования закрытой сделки без фото — мягкое предупреждение гейта (можно подтвердить); после добавления скрина запись «без скрина» снимается с метрики дисциплины.
+      </p>
     {:else if ruleId === 'weekly-loss-stop'}
       <label class="pr-check">
         <input type="checkbox" bind:checked={formData.weeklyLossLimitEnabled} />
@@ -298,6 +383,50 @@
   }
   .pr-row-tight {
     margin-top: 4px;
+  }
+  .pr-label--row {
+    margin-top: 10px;
+    margin-bottom: 6px;
+  }
+  .pr-field-hint {
+    margin: 6px 0 0;
+    font-size: 10.5px;
+    line-height: 1.35;
+    color: var(--text-muted);
+  }
+  .pr-streak-panel {
+    margin-top: 8px;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+    background: color-mix(in srgb, var(--bg-2) 65%, var(--bg));
+  }
+  .pr-streak-grid {
+    list-style: none;
+    margin: 0 0 10px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .pr-streak-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .pr-streak-row-label {
+    min-width: 4.25rem;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+  .pr-streak-mult-input {
+    max-width: 7rem;
+  }
+  .pr-streak-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
   }
   .profile-rule-card-fields :global(.form-row) {
     margin-bottom: 6px;

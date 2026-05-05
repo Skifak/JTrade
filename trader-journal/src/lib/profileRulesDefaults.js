@@ -34,9 +34,12 @@ export function getRulesTabDefaults() {
     maxConsecutiveLosses: 3,
     cooldownAfterLossMin: 0,
     streakScalingEnabled: false,
+    streakScalingApplyFromLossCount: 2,
+    streakScalingMultipliers: [0.5, 0.25, 0.125],
     dailyReviewEnabled: true,
     journalDayReminderEnabled: true,
     journalDayReminderHourLocal: 21,
+    postCloseChartReminderEnabled: true,
     profileNotesChecklistEnabled: true,
     notes: ''
   };

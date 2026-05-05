@@ -13,6 +13,7 @@
     parseNotesChecklist,
     checkDailyStop
   } from '../lib/risk';
+  import { normalizeStreakScalingMultipliers } from '../lib/streakScaling.js';
   import { formatNumber } from '../lib/utils';
 
   const dispatch = createEventDispatcher();
@@ -80,6 +81,12 @@
   $: streak     = getCurrentStreak(closedTrades);
   $: discipline = getDisciplineScore($trades);
   $: riskScale  = getCurrentRiskScale(closedTrades, $userProfile);
+  $: amStreakFrom =
+    Number.isFinite(Number($userProfile?.streakScalingApplyFromLossCount)) &&
+    Number($userProfile.streakScalingApplyFromLossCount) >= 1
+      ? Math.min(99, Math.floor(Number($userProfile.streakScalingApplyFromLossCount)))
+      : 2;
+  $: amGridPreview = normalizeStreakScalingMultipliers($userProfile?.streakScalingMultipliers);
   $: dailyStop  = checkDailyStop(closedTrades, $userProfile);
   $: notesItems = parseNotesChecklist($userProfile?.notes);
   $: cooldownActive = !!($cooldown?.until && $cooldown.until > Date.now());
@@ -238,7 +245,7 @@
           <h4>Поведенческие ограничения</h4>
           <ul>
             <li><strong>Cooldown</strong> — пауза после убыточной сделки.</li>
-            <li><strong>Anti-martingale</strong> — режет риск ×½ после 2+ убытков.</li>
+            <li><strong>Anti-martingale</strong> — сетка множителей лимита риска после N убытков подряд (в профиле: порог и шаги).</li>
             <li><strong>Daily review</strong> — напоминание закрыть терминал при цели.</li>
           </ul>
         </div>
@@ -605,15 +612,21 @@
         <div class="info-card big">
           <h4>↘ Anti-martingale (опционально)</h4>
           <p>
-            Когда серия убытков ≥&nbsp;2, предлагаемый объём режется по геометрической прогрессии:
+            Включается в профиле: задаёшь <strong>с какого убытка подряд</strong> начинать и список <strong>множителей по шагам</strong>.
+            До порога коэффициент ×1. Каждый следующий убыток в серии сдвигает на следующий множитель; последний в списке держится и при длинной серии.
+            Дефолт без настройки: с 2-го убытка ×0.5 → ×0.25 → ×0.125.
           </p>
           <table class="mini-table">
-            <thead><tr><th>Серия</th><th>Множитель риска</th></tr></thead>
+            <thead><tr><th>Серия (твои настройки)</th><th>Множитель</th></tr></thead>
             <tbody>
-              <tr><td>0 / 1 убыток</td><td>×1.0</td></tr>
-              <tr><td>2 подряд</td><td>×0.5</td></tr>
-              <tr><td>3 подряд</td><td>×0.25</td></tr>
-              <tr><td>4+ подряд</td><td>×0.125 (минимум)</td></tr>
+              <tr><td>меньше {amStreakFrom} уб. подряд</td><td>×1</td></tr>
+              {#each amGridPreview as m, i}
+                <tr>
+                  <td>{amStreakFrom + i} уб.</td>
+                  <td>×{m}</td>
+                </tr>
+              {/each}
+              <tr><td colspan="2"><em>Ещё длиннее серия — снова ×{amGridPreview[amGridPreview.length - 1] ?? '…'}</em></td></tr>
             </tbody>
           </table>
           <div class="status-line">
@@ -744,7 +757,7 @@ Risk:Reward ≥ 1:2
           <li><strong>Период</strong> — Всё / День / Неделя / Месяц / 3 мес / Год. Урезает выборку по дате закрытия.</li>
           <li><strong>Направление</strong> — Long / Short / Все. Удобно проверять, на чём именно у тебя edge.</li>
           <li><strong>Тег</strong> — выбирай конкретный сетап и смотри его статистику отдельно.</li>
-          <li><strong>«Только без нарушений правил»</strong> — оставляет только disciplined-сделки. Это твой «эталонный я».</li>
+          <li><strong>«Только без нарушений правил»</strong> — оставляет сделки без материальных нарушений (как пунктирная equity: не скрин после закрытия и прочие «мягкие» флаги не отсеивают).</li>
           <li><strong>× Сбросить</strong> — снимает все фильтры одним кликом.</li>
           <li>Справа в шапке — live-сводка: <code>N сделок · ±сумма · WR % · W/L</code>.</li>
         </ul>
@@ -779,7 +792,8 @@ Risk:Reward ≥ 1:2
           <h4>Что показывает</h4>
           <ul>
             <li><strong>Реальная</strong> (сплошная) — фактический баланс по факту закрытий.</li>
-            <li><strong>Disciplined</strong> (пунктирная) — баланс, если бы не учитывались сделки с отмеченными нарушениями правил из pre-trade.</li>
+            <li><strong>Disciplined</strong> (пунктирная) — баланс, если не учитывать сделки с материальными нарушениями гейтов (вход, риск, план до/во время). Мягкое «нет скрина после закрытия» в ruleViolations пунктир не ломает — оно влияет на % дисциплины в HUD.</li>
+            <li><strong>% дисциплины в HUD</strong> — другая величина: средний «балл» по закрытым, где BLOCK штрафует сильнее WARN; не путай с пунктирной equity.</li>
             <li><strong>Gap</strong> = Disciplined − Real. Если положительный — правила бы тебя спасли.</li>
             <li>Заливка под линией реальной — для визуального якоря.</li>
             <li>Пунктирная горизонталь — стартовый капитал.</li>
@@ -946,7 +960,7 @@ Risk:Reward ≥ 1:2
 
       <details class="faq-item">
         <summary>Почему рекомендуемый объём (🎯) меньше моих ожиданий?</summary>
-        <p>Скорее всего активен <em>anti-martingale</em> после серии убытков (см. HUD-карточку Anti-revenge). Множ·итель ×0.5 / ×0.25 — это <strong>фича</strong>, не баг.</p>
+        <p>Скорее всего активен <em>anti-martingale</em> после серии убытков (см. HUD-карточку Anti-revenge). Коэффициент из <strong>твоей сетки в профиле</strong> — это не баг.</p>
       </details>
 
       <details class="faq-item">

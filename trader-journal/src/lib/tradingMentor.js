@@ -4,7 +4,7 @@
 import dayjs from 'dayjs';
 import { pickAdviceForBeaconsAndStances } from './adviceCorpus.js';
 import { getTradeSource } from './utils.js';
-import { getDisciplineScore, getOpenRisk, getPeriodPnL } from './risk.js';
+import { getDisciplineScore, getOpenRisk, getPeriodPnL, tradeHasChartAttachment } from './risk.js';
 
 /** Закрытые ручные сделки за окно: всего и сколько с хотя бы одним вложением. */
 function manualAttachmentWindow(closedTrades, days) {
@@ -21,6 +21,21 @@ function manualAttachmentWindow(closedTrades, days) {
     if (n > 0) withAny += 1;
   }
   return { manual, withAny, missing: manual - withAny };
+}
+
+/** Закрытые за N дней: сколько без картинки графика во вложениях. */
+function chartImageMissingWindow(closedTrades, days) {
+  if (!Array.isArray(closedTrades) || days < 1) return { n: 0, missing: 0 };
+  const start = dayjs().subtract(days - 1, 'day').startOf('day');
+  let n = 0;
+  let missing = 0;
+  for (const t of closedTrades) {
+    if (t?.status !== 'closed' || !t?.dateClose) continue;
+    if (dayjs(t.dateClose).isBefore(start)) continue;
+    n += 1;
+    if (!tradeHasChartAttachment(t)) missing += 1;
+  }
+  return { n, missing };
 }
 
 /** День считается «с дневником», если есть содержательная запись. */
@@ -559,10 +574,28 @@ export function buildMentorPack(input) {
       priority: 52,
       tone: 'warn',
       tag: 'discipline',
-      title: 'Много сделок с нарушениями плейбука',
+      title: 'Много сделок с нарушениями гейта',
       body: [
-        `Около ${(100 - discipline.score).toFixed(0)}% сделок помечены нарушениями — стратегия и исполнение расходятся.`,
+        `Средний балл дисциплины ~${discipline.score.toFixed(0)}% — блокировки (BLOCK) сильнее тянут метрику вниз, чем предупреждения (WARN).`,
         'Выбери одно правило недели и отмечай только его; упрощение повышает соблюдение.'
+      ]
+    });
+  }
+
+  const ch14 = chartImageMissingWindow(closed, 14);
+  if (
+    profile.postCloseChartReminderEnabled !== false &&
+    ch14.n >= 5 &&
+    ch14.missing / ch14.n >= 0.55
+  ) {
+    beacons.push({
+      priority: 43,
+      tone: 'calm',
+      tag: 'post_close_chart',
+      title: 'Много закрытых без скрина графика (14 дн.)',
+      body: [
+        `Около ${((100 * ch14.missing) / ch14.n).toFixed(0)}% закрытых за две недели без изображения — визуальный контекст теряется быстрее памяти.`,
+        'Скрин сразу после выхода фиксирует то, что было на экране: зона, структура, таймфрейм. Без него пост-анализ легко превращается в рационализацию цифры PnL.'
       ]
     });
   }

@@ -4,6 +4,7 @@
   import { get } from 'svelte/store';
   import { convertAmount, formatNumber, getConversionQuote } from '../lib/utils';
   import { getDisciplineScore, getDisciplinedPnL } from '../lib/risk';
+  import { normalizeStreakScalingMultipliers } from '../lib/streakScaling.js';
   import Modal from './Modal.svelte';
   import ProfileAccountsTab from './ProfileAccountsTab.svelte';
   import ProfileRulesTab from './ProfileRulesTab.svelte';
@@ -43,9 +44,12 @@
     notes: '',
     cooldownAfterLossMin: 0,
     streakScalingEnabled: false,
+    streakScalingApplyFromLossCount: 2,
+    streakScalingMultipliers: [0.5, 0.25, 0.125],
     dailyReviewEnabled: true,
     journalDayReminderEnabled: true,
     journalDayReminderHourLocal: 21,
+    postCloseChartReminderEnabled: true,
     weeklyLossLimitMode: 'percent',
     weeklyLossLimitPercent: 0,
     weeklyLossLimitAmount: 0,
@@ -177,13 +181,20 @@
       commissionPerLot: Number(formData.commissionPerLot) || 0,
       cooldownAfterLossMin: Number(formData.cooldownAfterLossMin) || 0,
       streakScalingEnabled: !!formData.streakScalingEnabled,
+      streakScalingApplyFromLossCount: (() => {
+        const h = Number(formData.streakScalingApplyFromLossCount);
+        const x = Number.isFinite(h) ? Math.floor(h) : 2;
+        return Math.max(1, Math.min(99, x));
+      })(),
+      streakScalingMultipliers: normalizeStreakScalingMultipliers(formData.streakScalingMultipliers),
       dailyReviewEnabled: !!formData.dailyReviewEnabled,
       journalDayReminderEnabled: !!formData.journalDayReminderEnabled,
       journalDayReminderHourLocal: (() => {
         const h = Number(formData.journalDayReminderHourLocal);
         const x = Number.isFinite(h) ? Math.floor(h) : 21;
         return Math.max(0, Math.min(23, x));
-      })()
+      })(),
+      postCloseChartReminderEnabled: !!formData.postCloseChartReminderEnabled
     });
     closeModal();
   }
@@ -322,7 +333,10 @@
         </div>
         <div class="profile-metric-sub">
           {#if discipline.violationsCount > 0}
-            {discipline.violationsCount} нарушений в {discipline.total - discipline.clean} сделках
+            {discipline.violationsCount} записей в {discipline.total - discipline.clean} сделках
+            {#if discipline.blockViolationItems > 0 || discipline.warnViolationItems > 0}
+              · block {discipline.blockViolationItems} / warn {discipline.warnViolationItems}
+            {/if}
             {#if pnlGap !== 0}
               · разрыв PnL <span class={pnlGap >= 0 ? 'loss' : 'profit'}>{formatNumber(pnlGap, 2)}</span>
             {/if}

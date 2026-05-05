@@ -19,6 +19,7 @@ import isoWeek from 'dayjs/plugin/isoWeek.js';
 import { get } from 'svelte/store';
 import { getContractSize, calculateProfit, isMt5DepositCurrencyProfit } from './utils';
 import { fxRate, convertUsd, tradeProfitDisplayUnits } from './fxRate';
+import { normalizeStreakScalingMultipliers } from './streakScaling.js';
 
 dayjs.extend(isoWeek);
 
@@ -26,37 +27,127 @@ dayjs.extend(isoWeek);
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
-/** Сделка с зарегистрированными нарушениями плейбука (не учитывается в disciplined PnL). */
-function hasRuleViolations(t) {
-  return Array.isArray(t?.ruleViolations) && t.ruleViolations.length > 0;
+/** Код мягкого правила «нет скрина графика после закрытия». */
+export const POST_CLOSE_CHART_VIOLATION_CODE = 'post-close-no-chart';
+
+/**
+ * Нарушения, из-за которых сделка исключается из disciplined PnL / equity «disciplined».
+ * Код post-close-no-chart — мягкое напоминание про скрин; на пунктирную эквити не влияет.
+ */
+export function hasMaterialRuleViolations(t) {
+  const arr = t?.ruleViolations;
+  if (!Array.isArray(arr) || !arr.length) return false;
+  return arr.some((x) => x?.code !== POST_CLOSE_CHART_VIOLATION_CODE);
+}
+
+/**
+ * Есть ли у закрытой сделки вложение-изображение (путь в хранилище).
+ */
+export function tradeHasChartAttachment(trade) {
+  const arr = trade?.attachments;
+  if (!Array.isArray(arr) || !arr.length) return false;
+  return arr.some((p) => /\.(webp|png|jpe?g|gif|avif|bmp)$/i.test(String(p)));
+}
+
+/** Убрать нарушения «нет скрина», если скрин уже прикрепили. */
+export function stripPostCloseChartViolations(ruleViolations) {
+  if (!Array.isArray(ruleViolations)) return [];
+  return ruleViolations.filter((x) => x?.code !== POST_CLOSE_CHART_VIOLATION_CODE);
+}
+
+/**
+ * Мягкое правило для закрытой сделки: напоминание прикрепить скрин графика (ревью контекста).
+ * @returns {Array<{severity:'block'|'warn', code:string, message:string}>}
+ */
+export function evaluatePostCloseTradeRules(trade, profile) {
+  const v = [];
+  if (!trade || !profile) return v;
+  if (profile.postCloseChartReminderEnabled === false) return v;
+  if (trade?.status !== 'closed') return v;
+  if (tradeHasChartAttachment(trade)) return v;
+  v.push({
+    severity: 'warn',
+    code: POST_CLOSE_CHART_VIOLATION_CODE,
+    message:
+      'Нет снимка графика после закрытия. Прикрепи скрин терминала с разметкой зоны входа/выхода и таймфрейма — так при разборе видно, совпал ли факт с планом (структура, liquidity, timing), а не только сухие числа PnL.'
+  });
+  return v;
+}
+
+/** Штраф к «очкам дисциплины» сделки (0–100) за одно нарушение. */
+export const DISCIPLINE_PENALTY_BLOCK = 36;
+export const DISCIPLINE_PENALTY_WARN = 12;
+const DEFAULT_SEVERITY = 'warn';
+
+/**
+ * Балл дисциплины одной закрытой сделки: 100 минус взвешенные штрафы (block тяжелее warn).
+ */
+export function closedTradeDisciplinePoints(trade) {
+  if (trade?.status !== 'closed') return null;
+  const arr = trade?.ruleViolations;
+  if (!Array.isArray(arr) || !arr.length) return 100;
+  let penalty = 0;
+  for (const x of arr) {
+    const sev = x?.severity === 'block' ? 'block' : DEFAULT_SEVERITY;
+    penalty += sev === 'block' ? DISCIPLINE_PENALTY_BLOCK : DISCIPLINE_PENALTY_WARN;
+  }
+  return Math.max(0, 100 - penalty);
 }
 
 /**
  * Метрика дисциплины по закрытым сделкам (UI: RiskHud, Profile, Guide).
- *  - score: % сделок без ruleViolations (0–100)
- *  - violationsCount: сумма длин ruleViolations по «грязным» сделкам
+ *  - score: средневзвешенные «очки» 0–100 (block режет сильнее warn)
+ *  - clean: число сделок вообще без ruleViolations
+ *  - violationsCount: суммарное число записей нарушений
+ *  - blockViolationItems / warnViolationItems: сколько записей каждого типа
  */
 export function getDisciplineScore(trades) {
-  const base = { score: 100, total: 0, clean: 0, violationsCount: 0 };
+  const base = {
+    score: 100,
+    total: 0,
+    clean: 0,
+    violationsCount: 0,
+    blockViolationItems: 0,
+    warnViolationItems: 0
+  };
   if (!Array.isArray(trades) || !trades.length) return { ...base };
   const closed = trades.filter((t) => t?.status === 'closed');
   if (!closed.length) return { ...base };
+  let sumPoints = 0;
   let clean = 0;
   let violationsCount = 0;
+  let blockViolationItems = 0;
+  let warnViolationItems = 0;
   for (const t of closed) {
-    if (!hasRuleViolations(t)) {
+    const arr = t?.ruleViolations;
+    const has = Array.isArray(arr) && arr.length;
+    if (!has) {
       clean += 1;
-    } else {
-      violationsCount += t.ruleViolations.length;
+      sumPoints += 100;
+      continue;
     }
+    for (const x of arr) {
+      violationsCount += 1;
+      if (x?.severity === 'block') blockViolationItems += 1;
+      else warnViolationItems += 1;
+    }
+    const pts = closedTradeDisciplinePoints(t);
+    sumPoints += pts != null ? pts : 0;
   }
   const total = closed.length;
-  const score = total ? (clean / total) * 100 : 100;
-  return { score, total, clean, violationsCount };
+  const score = total ? sumPoints / total : 100;
+  return {
+    score,
+    total,
+    clean,
+    violationsCount,
+    blockViolationItems,
+    warnViolationItems
+  };
 }
 
 /**
- * Суммарный PnL только по сделкам без ruleViolations.
+ * Суммарный PnL только по сделкам без материальных нарушений (см. hasMaterialRuleViolations).
  */
 export function getDisciplinedPnL(closedTrades) {
   if (!Array.isArray(closedTrades)) return 0;
@@ -64,7 +155,7 @@ export function getDisciplinedPnL(closedTrades) {
   let sum = 0;
   for (const t of closedTrades) {
     if (t?.status !== 'closed') continue;
-    if (hasRuleViolations(t)) continue;
+    if (hasMaterialRuleViolations(t)) continue;
     sum += tradeProfitDisplayUnits(t, rs);
   }
   return sum;
@@ -85,19 +176,23 @@ function unitsPerPriceUnit(trade) {
 /* ----------------- streak scaling ----------------- */
 
 /**
- * Anti-martingale: после серии убытков предлагаемый объём режется в N раз.
- *  - 0 убытков подряд          → 1.0
- *  - 1 убыток                  → 1.0 (даём шанс)
- *  - 2 подряд                  → 0.5
- *  - 3 подряд                  → 0.25
- *  - 4+                        → 0.125 (минимум)
+ * Anti-martingale: после серии убытков лимит риска умножается на значение из сетки.
+ * Порог «с какого убытка подряд» — `streakScalingApplyFromLossCount` (деф. 2).
+ * Для длины серии L: индекс min(L − порог, len−1) в `streakScalingMultipliers`.
  */
 export function getCurrentRiskScale(closedTrades, profile) {
   if (!profile?.streakScalingEnabled) return 1;
   const streak = getCurrentStreak(closedTrades);
-  if (streak.kind !== 'loss' || streak.length < 2) return 1;
-  const factor = 0.5 ** (streak.length - 1);
-  return Math.max(0.125, factor);
+  const start =
+    Number.isFinite(Number(profile?.streakScalingApplyFromLossCount)) &&
+    Number(profile.streakScalingApplyFromLossCount) >= 1
+      ? Math.min(99, Math.floor(Number(profile.streakScalingApplyFromLossCount)))
+      : 2;
+  if (streak.kind !== 'loss' || streak.length < start) return 1;
+  const multipliers = normalizeStreakScalingMultipliers(profile.streakScalingMultipliers);
+  const idx = streak.length - start;
+  const clampedIdx = Math.min(Math.max(0, idx), multipliers.length - 1);
+  return multipliers[clampedIdx];
 }
 
 /* ------------------ risk per trade ---------------- */
@@ -674,7 +769,8 @@ export function checkAfterHoursCutoff(profile, now = new Date()) {
 /**
  * Equity-кривая по закрытым сделкам (по dateClose, по возрастанию).
  *  - real: initialCapital + Σ profit
- *  - disciplined: то же, но сделки с непустым ruleViolations не меняют баланс
+ *  - disciplined: то же, но сделки с материальными нарушениями не меняют баланс
+ *    (post-close-no-chart на пунктир не влияет).
  *    («что было бы, если не входил в нарушающие сделки»).
  */
 export function getEquityCurve(closedTrades, initialCapital = 0) {
@@ -695,7 +791,7 @@ export function getEquityCurve(closedTrades, initialCapital = 0) {
   for (const t of sorted) {
     const p = num(t.profit);
     real += p;
-    if (!hasRuleViolations(t)) disciplined += p;
+    if (!hasMaterialRuleViolations(t)) disciplined += p;
     out.push({ ts: new Date(t.dateClose).getTime(), real, disciplined });
   }
   return out;

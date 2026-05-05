@@ -5,6 +5,7 @@ import { removeScopeDir } from './attachmentApi';
 import { loadAccountData, saveAccountData } from './accountStorage.js';
 import { activeJournalAccountId } from './accounts.js';
 import { migrateTemplatesList } from './utils.js';
+import { normalizeStreakScalingMultipliers } from './streakScaling.js';
 
 function loadData(key, defaultValue) {
   return loadAccountData(key, defaultValue);
@@ -52,11 +53,17 @@ const DEFAULT_USER_PROFILE = {
   notes: '',
   cooldownAfterLossMin: 0,
   streakScalingEnabled: false,
+  /** С какого количества убытков подряд применять первый множитель (≥1). */
+  streakScalingApplyFromLossCount: 2,
+  /** Множители лимита риска по шагам; последний повторяется при длинной серии. */
+  streakScalingMultipliers: [0.5, 0.25, 0.125],
   dailyReviewEnabled: true,
   /** Напоминание закрыть день в дневнике (после локального часа, если запись за сегодня пустая). */
   journalDayReminderEnabled: true,
   /** 0–23, локальное время */
   journalDayReminderHourLocal: 21,
+  /** Напоминание / мягкое правило: скрин графика после закрытия сделки */
+  postCloseChartReminderEnabled: true,
   lastDailyReviewDate: null,
   /** 0 — без лимита */
   maxTradesPerDay: 0,
@@ -225,6 +232,13 @@ function migrateProfile(raw) {
   if (typeof next.profileNotesChecklistEnabled !== 'boolean') {
     next.profileNotesChecklistEnabled = true;
   }
+  if (typeof next.postCloseChartReminderEnabled !== 'boolean') {
+    next.postCloseChartReminderEnabled = true;
+  }
+  const startRaw = Math.floor(num(next.streakScalingApplyFromLossCount));
+  next.streakScalingApplyFromLossCount =
+    Number.isFinite(startRaw) && startRaw >= 1 ? Math.min(99, startRaw) : 2;
+  next.streakScalingMultipliers = normalizeStreakScalingMultipliers(next.streakScalingMultipliers);
   return next;
 }
 

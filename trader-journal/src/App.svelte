@@ -23,7 +23,15 @@
   import { fxRate, formatAccountMoney, tradeProfitDisplayUnits, convertUsd } from './lib/fxRate';
   import { normalizeSymbolKey } from './lib/constants';
   import { cooldown } from './lib/cooldown';
-  import { checkDailyStop, checkWeeklyStop, checkDailyProfitLock, checkAfterHoursCutoff, computeGoalAmount, getDailyPnL } from './lib/risk';
+  import {
+    checkDailyStop,
+    checkWeeklyStop,
+    checkDailyProfitLock,
+    checkAfterHoursCutoff,
+    computeGoalAmount,
+    getDailyPnL,
+    tradeHasChartAttachment
+  } from './lib/risk';
   import { primaryKillzone, killzoneLabel } from './lib/killzones';
   import { journalSettings } from './lib/journalSettings';
   import { strategies, findPlay } from './lib/playbooks';
@@ -70,6 +78,32 @@
 
   let journalReminderDismissed = false;
   const JREM_DISMISS_PREFIX = 'journalDayReminderDismissed_';
+
+  /** Напоминание прикрепить скрин после закрытия сделки */
+  let postCloseChartTradeId = null;
+  const PC_CHART_DISMISS_PREFIX = 'postCloseChartDismissed_';
+
+  function onPostCloseChartPrompt(/** @type {CustomEvent<{ tradeId?: string }>} */ e) {
+    const id = e.detail?.tradeId;
+    if (!id) return;
+    if ($userProfile?.postCloseChartReminderEnabled === false) return;
+    try {
+      if (sessionStorage.getItem(PC_CHART_DISMISS_PREFIX + id) === '1') return;
+    } catch {
+      /* ignore */
+    }
+    postCloseChartTradeId = id;
+  }
+
+  function dismissPostCloseChartBanner() {
+    if (!postCloseChartTradeId) return;
+    try {
+      sessionStorage.setItem(PC_CHART_DISMISS_PREFIX + postCloseChartTradeId, '1');
+    } catch {
+      /* ignore */
+    }
+    postCloseChartTradeId = null;
+  }
 
   $: openTrades = $trades.filter((t) => t.status === 'open');
   $: closedTrades = $trades.filter((t) => t.status === 'closed');
@@ -168,6 +202,12 @@
   });
 
   $: journalSnap = $journalSettings;
+
+  $: showPostCloseChartBanner =
+    !!postCloseChartTradeId &&
+    $userProfile?.postCloseChartReminderEnabled !== false &&
+    $trades.some((t) => t.id === postCloseChartTradeId) &&
+    !tradeHasChartAttachment($trades.find((t) => t.id === postCloseChartTradeId) || {});
 
   function sortTrades(list, { key, dir }) {
     const mul = dir === 'asc' ? 1 : -1;
@@ -425,6 +465,9 @@
     if (newRels.length) {
       trades.updateTrade(id, { attachments: [...(t?.attachments || []), ...newRels] });
     }
+    if (newRels.length && id === postCloseChartTradeId) {
+      postCloseChartTradeId = null;
+    }
     tradeAddImgOpen = false;
     tradeAddForId = null;
   }
@@ -539,6 +582,31 @@
             activeTab = 'journal';
           }}>Открыть дневник</button>
         <button type="button" class="btn btn-sm" on:click={dismissJournalDayReminder}>Не сегодня</button>
+      </div>
+    </div>
+  {/if}
+
+  {#if showPostCloseChartBanner}
+    <div class="journal-day-reminder post-close-chart-reminder" role="status">
+      <div class="journal-day-reminder-text">
+        <strong>Скрин графика после сделки.</strong>
+        Пока контекст свежий, прикрепи снимок терминала с разметкой (HTF/зона входа/выхода, таймфрейм) —
+        на ревью это то, что отличает честный разбор от голого PnL и помогает тренировать глаз на структуру, а не оправдывать исход.
+      </div>
+      <div class="journal-day-reminder-actions">
+        <button
+          type="button"
+          class="btn btn-sm btn-primary"
+          on:click={() => requestAddTradePhoto(postCloseChartTradeId)}
+        >Прикрепить фото</button>
+        <button
+          type="button"
+          class="btn btn-sm"
+          on:click={() => {
+            activeTab = 'closed';
+            dismissPostCloseChartBanner();
+          }}>К закрытым</button>
+        <button type="button" class="btn btn-sm" on:click={dismissPostCloseChartBanner}>Скрыть</button>
       </div>
     </div>
   {/if}
@@ -925,7 +993,12 @@
     <GuideView on:openProfile={() => showProfile = true} />
   {/if}
 
-  <TradeForm bind:open={showForm} trade={currentTrade} mode={formMode} />
+  <TradeForm
+    bind:open={showForm}
+    trade={currentTrade}
+    mode={formMode}
+    on:postCloseChartPrompt={onPostCloseChartPrompt}
+  />
   <ProfileModal bind:open={showProfile} {closedTrades} />
   <BiasModal bind:open={showBias} />
   <JournalSettingsModal bind:open={showJournalSettings} />
@@ -995,6 +1068,9 @@
     font-size: 13px;
     line-height: 1.4;
     color: var(--text);
+  }
+  .post-close-chart-reminder {
+    border-left: 3px solid color-mix(in srgb, var(--accent) 75%, var(--border));
   }
   .journal-day-reminder-text {
     flex: 1 1 220px;
