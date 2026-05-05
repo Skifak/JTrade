@@ -1,5 +1,6 @@
 <script>
   import JournalSourceHint from './JournalSourceHint.svelte';
+  import ProfileRuleCardFields from './ProfileRuleCardFields.svelte';
   import {
     PROFILE_RULE_ENTRIES,
     getProfileRuleLayerLabel,
@@ -15,9 +16,6 @@
   export let shellTitle = 'Твои правила в приложении';
   export let shellLede =
     'Только то, что реально влияет на HUD, окна и сохранение сделки. Условия виджетов аналитики здесь не перечислены.';
-
-  /** После карточки с этим индексом (0-based) — раздел подгрупп; −1 не показывать. */
-  export let dividerAfterIndex = -1;
 
   let expandedIds = new Set();
 
@@ -36,9 +34,12 @@
     <p class="profile-rules-shell-lede">
       {shellLede}
     </p>
+    <div class="profile-rules-head-actions">
+      <slot name="headActions" />
+    </div>
   </div>
   <div class="profile-rules-list">
-    {#each entries as entry, i (entry.id)}
+    {#each entries as entry (entry.id)}
       <article class="profile-rule-card">
         <div class="profile-rule-top">
           <div class="profile-rule-titles">
@@ -66,6 +67,7 @@
           </button>
         </div>
         <p class="profile-rule-summary">{entry.summary(formData)}</p>
+        <ProfileRuleCardFields ruleId={entry.id} {formData} />
         {#if expandedIds.has(entry.id)}
           <div class="profile-rule-body">
             {#each entry.paragraphs as para}
@@ -81,18 +83,18 @@
           </div>
         {/if}
       </article>
-      {#if dividerAfterIndex >= 0 && i === dividerAfterIndex}
-        <div class="profile-rules-mid-divider" role="separator">
-          <span class="profile-rules-mid-divider-line" aria-hidden="true"></span>
-          <span class="profile-rules-mid-divider-label">Дальше — лимиты из профиля (числа в форме ниже)</span>
-          <span class="profile-rules-mid-divider-line" aria-hidden="true"></span>
-        </div>
-      {/if}
     {/each}
   </div>
 </div>
 
 <style>
+  .profile-rules-head-actions {
+    margin-top: 10px;
+  }
+  .profile-rules-head-actions:empty {
+    display: none;
+    margin: 0;
+  }
   .profile-rules-shell {
     margin: 12px 0 14px;
     padding: 14px 14px 12px;
@@ -121,29 +123,6 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-  }
-  .profile-rules-mid-divider {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 2px 0;
-  }
-  .profile-rules-mid-divider-line {
-    flex: 1;
-    height: 1px;
-    background: color-mix(in srgb, var(--accent) 22%, var(--border));
-    min-width: 12px;
-  }
-  .profile-rules-mid-divider-label {
-    flex-shrink: 0;
-    font-size: 10.5px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    max-width: 70%;
-    text-align: center;
-    line-height: 1.3;
   }
   .profile-rule-card {
     padding: 10px 11px;

@@ -1,11 +1,7 @@
 <script>
   import ProfileRulesBlock from './ProfileRulesBlock.svelte';
   import ProfileLimitsForm from './ProfileLimitsForm.svelte';
-  import {
-    PROFILE_RULE_ENTRIES_MAIN,
-    PROFILE_RULE_ENTRIES_CORE,
-    PROFILE_RULE_ENTRIES_REFERENCE
-  } from '../lib/profileRulesRegistry';
+  import { PROFILE_RULE_ENTRIES_TAB } from '../lib/profileRulesRegistry';
   import { getRulesTabDefaults } from '../lib/profileRulesDefaults';
   import { formatNumber } from '../lib/utils';
   import { activeJournalAccount } from '../lib/accounts';
@@ -29,12 +25,6 @@
       formData[k] = d[k];
     }
   }
-
-  /** Между «встроенными» и «числовыми лимитами» в общем списке карточек */
-  $: profileRulesDividerAfter =
-    PROFILE_RULE_ENTRIES_CORE.length > 0 && PROFILE_RULE_ENTRIES_REFERENCE.length > 0
-      ? PROFILE_RULE_ENTRIES_CORE.length - 1
-      : -1;
 </script>
 
 <div class="profile-rules-tab">
@@ -61,24 +51,16 @@
 
   <ProfileRulesBlock
     formData={formData}
-    entries={PROFILE_RULE_ENTRIES_MAIN}
-    dividerAfterIndex={profileRulesDividerAfter}
-    shellTitle="Основные правила"
-    shellLede="В одном списке: сверху — проверки без переключателя «вкл» (часть журнала); ниже — лимиты из профиля, которые задаются числами (риск, дневной стоп, лимит позиций, серия, cooldown). Опции с отдельным вкл/выкл — чекбоксами в форме под этим блоком."
-  />
-
-  <div class="profile-section profile-section--rules-divider">
-    <div class="profile-section-title">Настраиваемые лимиты и напоминания</div>
-    <p class="profile-rules-tab-section-hint">
-      Пороги и чекбоксы ниже сразу меняют гейт и баннеры. Справка по ним — в карточках блока «Основные правила» выше.
-    </p>
-  </div>
-
-  <div class="profile-rules-reference-toolbar">
-    <button type="button" class="btn btn-sm profile-rules-defaults-btn" on:click={applyRulesTabDefaults}>
-      Установить по умолчанию
-    </button>
-  </div>
+    entries={PROFILE_RULE_ENTRIES_TAB}
+    shellTitle="Правила и ограничения"
+    shellLede="Каждая карточка — краткое резюме, при необходимости поля настройки прямо в карточке и текст «Подробнее». Цели (числа D/W/M/Y) и текст заметок — в отдельных блоках ниже без дублирования полей."
+  >
+    <div slot="headActions">
+      <button type="button" class="btn btn-sm profile-rules-defaults-btn" on:click={applyRulesTabDefaults}>
+        Установить по умолчанию
+      </button>
+    </div>
+  </ProfileRulesBlock>
 
   <ProfileLimitsForm {formData} />
 
@@ -157,26 +139,6 @@
     border-top: 1px solid color-mix(in srgb, var(--warning, #b45309) 22%, var(--border));
     font-weight: 500;
     color: var(--text-strong);
-  }
-  .profile-rules-tab-intro {
-    margin: 0 0 16px;
-    font-size: 12px;
-    line-height: 1.48;
-    color: var(--text-muted);
-  }
-  .profile-section--rules-divider {
-    margin-top: 8px;
-    padding-top: 4px;
-    border-top: 1px solid var(--border);
-  }
-  .profile-rules-tab-section-hint {
-    margin: 6px 0 0;
-    font-size: 11.5px;
-    line-height: 1.4;
-    color: var(--text-muted);
-  }
-  .profile-rules-reference-toolbar {
-    margin: 10px 0 6px;
   }
   .profile-rules-defaults-btn {
     font-size: 11.5px;

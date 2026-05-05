@@ -218,7 +218,7 @@ export const PROFILE_RULE_ENTRIES = [
       'Иначе — предупреждение при сохранении. Блокировки нет, но дисциплина фиксируется.'
     ],
     summary: (fd) => {
-      if (fd.profileNotesChecklistEnabled === false) return 'Проверка по заметкам выключена (чекбокс у блока заметок).';
+      if (fd.profileNotesChecklistEnabled === false) return 'Проверка по заметкам выключена (галочка в этой карточке).';
       const items = parseNotesChecklist(fd.notes);
       return items.length
         ? `${items.length} пункт(ов) в заметках — нужны галочки в форме`
@@ -379,7 +379,7 @@ export const PROFILE_RULE_ENTRIES = [
       'Если результат ≤ −лимита из профиля, новая открытая позиция блокируется (как дневной стоп). Сброс при переходе на новую неделю.'
     ],
     summary: (fd) => {
-      if (fd.weeklyLossLimitEnabled === false) return 'Выключено (чекбокс у поля).';
+      if (fd.weeklyLossLimitEnabled === false) return 'Выключено (галочка в этой карточке).';
       const lim = computeMaxWeeklyLossAmount(fd);
       return lim > 0
         ? `Стоп недели: −${lim.toFixed(2)} ${fd.accountCurrency || ''} (${fmtPctOrAmount(fd, 'weeklyLossLimitMode', 'weeklyLossLimitPercent', 'weeklyLossLimitAmount')})`.trim()
@@ -400,7 +400,7 @@ export const PROFILE_RULE_ENTRIES = [
       'Отличается от модалки «цель дня»: это жёсткий запрет на новую сделку после порога.'
     ],
     summary: (fd) => {
-      if (fd.dailyProfitLockEnabled === false) return 'Выключено (чекбокс у поля).';
+      if (fd.dailyProfitLockEnabled === false) return 'Выключено (галочка в этой карточке).';
       const lim = computeDailyProfitLockAmount(fd);
       return lim > 0
         ? `Потолок: +${lim.toFixed(2)} ${fd.accountCurrency || ''} (${fmtPctOrAmount(fd, 'dailyProfitLockMode', 'dailyProfitLockPercent', 'dailyProfitLockAmount')})`.trim()
@@ -421,7 +421,7 @@ export const PROFILE_RULE_ENTRIES = [
       '0 в профиле — правило выключено.'
     ],
     summary: (fd) => {
-      if (fd.afterHoursCutoffEnabled === false) return 'Выключено (чекбокс у поля).';
+      if (fd.afterHoursCutoffEnabled === false) return 'Выключено (галочка в этой карточке).';
       const h = Math.floor(n(fd.noNewTradesAfterHourLocal));
       return h >= 1 && h <= 23 ? `С ${h}:00 локально новые входы закрыты` : 'Выключено (0).';
     }
@@ -441,7 +441,7 @@ export const PROFILE_RULE_ENTRIES = [
     ],
     summary: (fd) =>
       fd.minTradeIntervalEnabled === false
-        ? 'Выключено (чекбокс у поля).'
+        ? 'Выключено (галочка в этой карточке).'
         : n(fd.minMinutesBetweenTrades) > 0
         ? `Не раньше чем через ${n(fd.minMinutesBetweenTrades)} мин после закрытия`
         : 'Выключено.'
@@ -475,8 +475,11 @@ export const PROFILE_RULE_ENTRIES_TUNABLE = PROFILE_RULE_ENTRIES.filter((e) => e
 /** Карточки справки только для порогов без отдельного чекбокса в форме */
 export const PROFILE_RULE_ENTRIES_REFERENCE = PROFILE_RULE_ENTRIES_TUNABLE.filter((e) => !e.inlineOnly);
 
-/** Вкладка «Правила»: единый список — встроенные проверки + настраиваемые числовые лимиты (без inlineOnly). */
-export const PROFILE_RULE_ENTRIES_MAIN = [...PROFILE_RULE_ENTRIES_CORE, ...PROFILE_RULE_ENTRIES_REFERENCE];
+/** Полный справочник по порядку объявления — для вкладки «Правила» (карточка + поле в одном месте). */
+export const PROFILE_RULE_ENTRIES_TAB = PROFILE_RULE_ENTRIES;
+
+/** @deprecated см. PROFILE_RULE_ENTRIES_TAB — оба совпадают с полным списком */
+export const PROFILE_RULE_ENTRIES_MAIN = PROFILE_RULE_ENTRIES;
 
 /** @param {string} id */
 export function getProfileRuleById(id) {
