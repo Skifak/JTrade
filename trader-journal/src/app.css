@@ -861,6 +861,33 @@ input[type='number'].pr-control::-webkit-outer-spin-button,
   border-radius: 0 0 6px 6px;
 }
 
+.profile-modal .profile-modal-footer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.profile-modal .profile-modal-footer-row--split {
+  justify-content: space-between;
+}
+
+.profile-modal .profile-modal-footer-start {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.profile-modal .profile-modal-footer-row:not(.profile-modal-footer-row--split) .profile-modal-footer-start {
+  margin-left: auto;
+}
+
+.profile-modal .profile-achievement-toast-toggle {
+  flex-shrink: 0;
+}
+
 /* ---------- Профиль ---------- */
 .profile-summary-grid {
   display: grid;

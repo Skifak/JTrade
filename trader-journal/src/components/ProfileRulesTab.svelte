@@ -1,6 +1,6 @@
 <script>
   import ProfileRulesBlock from './ProfileRulesBlock.svelte';
-  import ProfileLimitsForm from './ProfileLimitsForm.svelte';
+  import ProfileOwnRulesSection from './ProfileOwnRulesSection.svelte';
   import { PROFILE_RULE_ENTRIES_TAB } from '../lib/profileRulesRegistry';
   import { getRulesTabDefaults } from '../lib/profileRulesDefaults';
   import { formatNumber } from '../lib/utils';
@@ -49,11 +49,13 @@
     </p>
   </div>
 
+  <ProfileOwnRulesSection {formData} />
+
   <ProfileRulesBlock
     formData={formData}
     entries={PROFILE_RULE_ENTRIES_TAB}
     shellTitle="Правила и ограничения"
-    shellLede="Каждая карточка — краткое резюме, при необходимости поля настройки прямо в карточке и текст «Подробнее». Цели (числа D/W/M/Y) и текст заметок — в отдельных блоках ниже без дублирования полей."
+    shellLede="Каждая карточка — краткое резюме, при необходимости поля в карточке и «Подробнее». Блок «Свои правила» выше; числовые цели D/W/M/Y — на вкладке «Торговые цели»."
   >
     <div slot="headActions">
       <button type="button" class="btn btn-sm profile-rules-defaults-btn" on:click={applyRulesTabDefaults}>
@@ -61,8 +63,6 @@
       </button>
     </div>
   </ProfileRulesBlock>
-
-  <ProfileLimitsForm {formData} />
 
   <div class="profile-hint profile-hint--compact">
     {#if hideBasicsSection}
@@ -78,7 +78,7 @@
     {:else}
       Live-курс может быть недоступен.
     {/if}
-    Лимиты и цели в {formData.accountCurrency}: риск {formatNumber(maxRiskAmount, 2)}, дневной стоп {formatNumber(maxDailyLossAmount, 2)}, D/W/M/Y {formatNumber(goalDayAmount, 2)} / {formatNumber(goalWeekAmount, 2)} / {formatNumber(goalMonthAmount, 2)} / {formatNumber(goalYearAmount, 2)}.
+    Лимиты в {formData.accountCurrency}: риск {formatNumber(maxRiskAmount, 2)}, дневной стоп {formatNumber(maxDailyLossAmount, 2)}. Суммы целей см. вкладку «Торговые цели» (сейчас D/W/M/Y {formatNumber(goalDayAmount, 2)} / {formatNumber(goalWeekAmount, 2)} / {formatNumber(goalMonthAmount, 2)} / {formatNumber(goalYearAmount, 2)}).
   </div>
 
   {#if fxMessage}

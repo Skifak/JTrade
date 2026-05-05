@@ -14,7 +14,8 @@ export const ACCOUNT_SCOPED_STORAGE_KEYS = [
   'dayJournalSectionLabels_v1',
   'strategies',
   'htfBiasLog',
-  'cooldownUntil'
+  'cooldownUntil',
+  'achievementProgress_v1'
 ];
 
 export function purgeAccountLocalStorage(accountId) {

@@ -190,7 +190,7 @@
         <input type="checkbox" bind:checked={formData.dailyReviewEnabled} />
         <span>Напоминание «закрой день при цели»</span>
       </label>
-      <p class="pr-card-hint">Числовые цели D/W/M/Y — в блоке «Цели (Prop Plan)» ниже.</p>
+      <p class="pr-card-hint">Числовые цели D/W/M/Y — вкладка «Торговые цели» в профиле.</p>
     {:else if ruleId === 'journal-day-reminder'}
       <label class="pr-check">
         <input type="checkbox" bind:checked={formData.journalDayReminderEnabled} />

@@ -235,7 +235,7 @@
           </ul>
         </div>
         <div class="info-card">
-          <h4>Цели Prop Plan</h4>
+          <h4>Торговые цели</h4>
           <ul>
             <li>День / Неделя / Месяц / Год — % или сумма.</li>
             <li>Цель дня запускает <strong>Daily Review</strong> модалку.</li>

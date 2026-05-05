@@ -64,6 +64,8 @@ const DEFAULT_USER_PROFILE = {
   journalDayReminderHourLocal: 21,
   /** Напоминание / мягкое правило: скрин графика после закрытия сделки */
   postCloseChartReminderEnabled: true,
+  /** Всплывающий баннер при получении достижения */
+  achievementUnlockToastEnabled: true,
   lastDailyReviewDate: null,
   /** 0 — без лимита */
   maxTradesPerDay: 0,
@@ -87,7 +89,7 @@ const DEFAULT_USER_PROFILE = {
   dailyProfitLockEnabled: false,
   afterHoursCutoffEnabled: false,
   minTradeIntervalEnabled: false,
-  /** Галочки в форме сделки по строкам из «Заметки к профилю» */
+  /** Галочки в форме сделки по строкам из «Свои правила» */
   profileNotesChecklistEnabled: true,
   nextWeekFocus: '',
   nextMonthFocus: ''
@@ -234,6 +236,9 @@ function migrateProfile(raw) {
   }
   if (typeof next.postCloseChartReminderEnabled !== 'boolean') {
     next.postCloseChartReminderEnabled = true;
+  }
+  if (typeof next.achievementUnlockToastEnabled !== 'boolean') {
+    next.achievementUnlockToastEnabled = true;
   }
   const startRaw = Math.floor(num(next.streakScalingApplyFromLossCount));
   next.streakScalingApplyFromLossCount =

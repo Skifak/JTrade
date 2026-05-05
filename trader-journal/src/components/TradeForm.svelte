@@ -1,5 +1,5 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
   import dayjs from 'dayjs';
   import { createNewTrade, closeTrade, calculateProfit, isBrokerImportedTrade, formatNumber, snapshotTradeTemplateFields, normalizeStoredTradeTemplate } from '../lib/utils';
   import { trades, userProfile, templates } from '../lib/stores';
@@ -1095,7 +1095,7 @@
 
       {#if notesChecklist.length > 0}
         <div class="notes-checklist">
-          <div class="trade-section-kicker notes-checklist-kicker">📋 Чек-лист из заметок профиля</div>
+          <div class="trade-section-kicker notes-checklist-kicker">📋 Чек-лист «Свои правила»</div>
           {#each notesChecklist as item}
             <label class="notes-checklist-item">
               <input

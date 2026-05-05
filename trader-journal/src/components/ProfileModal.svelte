@@ -8,9 +8,15 @@
   import Modal from './Modal.svelte';
   import ProfileAccountsTab from './ProfileAccountsTab.svelte';
   import ProfileRulesTab from './ProfileRulesTab.svelte';
+  import ProfileGoalsTab from './ProfileGoalsTab.svelte';
+  import ProfileAchievementsTab from './ProfileAchievementsTab.svelte';
 
   export let open = false;
   export let closedTrades = [];
+  /** При открытии модалки перейти сразу на эту вкладку (setup | rules | goals | achievements | create). */
+  export let startTab = 'setup';
+
+  const PROFILE_TAB_IDS = new Set(['setup', 'rules', 'goals', 'achievements', 'create']);
 
   /** Счёт из импорта — блок «Основное» не показываем. */
   $: hideBasicsSection = $activeJournalAccount?.createdFrom === 'import';
@@ -64,7 +70,8 @@
     dailyProfitLockEnabled: false,
     afterHoursCutoffEnabled: false,
     minTradeIntervalEnabled: false,
-    profileNotesChecklistEnabled: true
+    profileNotesChecklistEnabled: true,
+    achievementUnlockToastEnabled: true
   };
   let wasOpen = false;
   /** id счёта, под который синхронизирован formData — защита от записи профиля A в ключ счёта B */
@@ -80,7 +87,7 @@
   $: if (open) {
     const aid = String($activeJournalAccountId || '').trim();
     if (!wasOpen) {
-      profileTab = 'setup';
+      profileTab = PROFILE_TAB_IDS.has(startTab) ? startTab : 'setup';
       formData = { ...$userProfile };
       previousCurrency = formData.accountCurrency || 'USD';
       wasOpen = true;
@@ -194,9 +201,16 @@
         const x = Number.isFinite(h) ? Math.floor(h) : 21;
         return Math.max(0, Math.min(23, x));
       })(),
-      postCloseChartReminderEnabled: !!formData.postCloseChartReminderEnabled
+      postCloseChartReminderEnabled: !!formData.postCloseChartReminderEnabled,
+      achievementUnlockToastEnabled: !!formData.achievementUnlockToastEnabled
     });
     closeModal();
+  }
+
+  function toggleAchievementUnlockToasts() {
+    const next = !(formData.achievementUnlockToastEnabled !== false);
+    formData = { ...formData, achievementUnlockToastEnabled: next };
+    userProfile.updateProfile({ achievementUnlockToastEnabled: next });
   }
 
   async function refreshPnlConversionRate(targetCurrency) {
@@ -283,6 +297,26 @@
           on:click={() => (profileTab = 'rules')}
         >
           Правила и ограничения
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="profile-modal-tab"
+          class:active={profileTab === 'goals'}
+          aria-selected={profileTab === 'goals'}
+          on:click={() => (profileTab = 'goals')}
+        >
+          Торговые цели
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="profile-modal-tab"
+          class:active={profileTab === 'achievements'}
+          aria-selected={profileTab === 'achievements'}
+          on:click={() => (profileTab = 'achievements')}
+        >
+          Достижения
         </button>
         <button
           type="button"
@@ -416,7 +450,7 @@
       {:else}
         Live-курс для пересчёта может быть недоступен.
       {/if}
-      Лимиты и цели настраиваются во вкладке «Правила и ограничения».
+      Лимиты — вкладка «Правила и ограничения»; цели D/W/M/Y — «Торговые цели».
     </div>
 
     {#if fxMessage}
@@ -436,22 +470,46 @@
       {goalYearAmount}
       {fxMessage}
     />
-  {:else}
+  {:else if profileTab === 'goals'}
+    <ProfileGoalsTab {formData} />
+  {:else if profileTab === 'achievements'}
+    <ProfileAchievementsTab />
+  {:else if profileTab === 'create'}
         <ProfileAccountsTab
           variant="full"
           profileSplit="create"
           on:account-profile-seeded={syncFormAfterAccountMutation}
         />
-      {/if}
+  {/if}
     </div>
   </div>
 
   <div slot="footer">
-    <button type="button" on:click={closeModal}>
-      {profileTab === 'setup' || profileTab === 'rules' ? 'Отмена' : 'Закрыть'}
-    </button>
-    {#if profileTab === 'setup' || profileTab === 'rules'}
-      <button type="button" class="btn btn-primary" on:click={saveProfile}>Сохранить профиль</button>
-    {/if}
+    <div
+      class="profile-modal-footer-row"
+      class:profile-modal-footer-row--split={profileTab === 'achievements'}
+    >
+      <div class="profile-modal-footer-start">
+        <button type="button" on:click={closeModal}>
+          {profileTab === 'setup' || profileTab === 'rules' || profileTab === 'goals' ? 'Отмена' : 'Закрыть'}
+        </button>
+        {#if profileTab === 'setup' || profileTab === 'rules' || profileTab === 'goals'}
+          <button type="button" class="btn btn-primary" on:click={saveProfile}>Сохранить профиль</button>
+        {/if}
+      </div>
+      {#if profileTab === 'achievements'}
+        <button
+          type="button"
+          class="btn btn-sm profile-achievement-toast-toggle"
+          on:click={toggleAchievementUnlockToasts}
+        >
+          {#if formData.achievementUnlockToastEnabled !== false}
+            Не уведомлять о достижениях
+          {:else}
+            Уведомлять о достижениях
+          {/if}
+        </button>
+      {/if}
+    </div>
   </div>
 </Modal>

@@ -1,5 +1,5 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import dayjs from 'dayjs';
   import { trades, userProfile } from './lib/stores';
   import { glossary } from './lib/glossary';
@@ -30,7 +30,8 @@
     checkAfterHoursCutoff,
     computeGoalAmount,
     getDailyPnL,
-    tradeHasChartAttachment
+    tradeHasChartAttachment,
+    getLastClosedTradeCloseTimeMs
   } from './lib/risk';
   import { primaryKillzone, killzoneLabel } from './lib/killzones';
   import { journalSettings } from './lib/journalSettings';
@@ -39,6 +40,7 @@
   import TemplatesPanel from './components/TemplatesPanel.svelte';
   import Statistics from './components/Statistics.svelte';
   import ProfileModal from './components/ProfileModal.svelte';
+  import AchievementUnlockBanner from './components/AchievementUnlockBanner.svelte';
   import Toasts from './components/Toasts.svelte';
   import RiskHud from './components/RiskHud.svelte';
   import DailyReviewModal from './components/DailyReviewModal.svelte';
@@ -54,9 +56,15 @@
   import OnboardingJournalModal from './components/OnboardingJournalModal.svelte';
   import { dayJournal } from './lib/dayJournal';
   import { dayJournalHasContent } from './lib/tradingMentor';
+  import { achievementProgress } from './lib/achievements';
 
   let showForm = false;
   let showProfile = false;
+  /** Стартовая вкладка профиля при открытии из баннера достижений. */
+  let profileModalStartTab = 'setup';
+  /** @type {Array<{ id: string, title: string, body: string }>} */
+  let achievementUnlockQueue = [];
+  let achievementsBootSuppress = true;
   let showBias = false;
   let showJournalSettings = false;
   let currentTrade = null;
@@ -183,6 +191,9 @@
     } catch {
       journalReminderDismissed = false;
     }
+    setTimeout(() => {
+      achievementsBootSuppress = false;
+    }, 850);
   });
   onDestroy(() => livePrices.stop());
 
@@ -208,6 +219,39 @@
     $userProfile?.postCloseChartReminderEnabled !== false &&
     $trades.some((t) => t.id === postCloseChartTradeId) &&
     !tradeHasChartAttachment($trades.find((t) => t.id === postCloseChartTradeId) || {});
+
+  function dismissAchievementBanner() {
+    achievementUnlockQueue = achievementUnlockQueue.slice(1);
+  }
+
+  async function openProfileModal(tab = 'setup') {
+    profileModalStartTab = tab;
+    showProfile = true;
+    await tick();
+    profileModalStartTab = 'setup';
+  }
+
+  $: journalAchievementSig = Object.keys($dayJournal)
+    .filter((k) => dayJournalHasContent($dayJournal[k]))
+    .sort()
+    .join(',');
+
+  $: achievementSig = `${closedTrades.length}:${getLastClosedTradeCloseTimeMs(closedTrades) ?? 0}:${journalAchievementSig}`;
+
+  $: {
+    achievementSig;
+    $userProfile;
+    $fxRate;
+    const profitOf = (t) => tradeProfitDisplayUnits(t, $fxRate);
+    const unlocked = achievementProgress.tick($trades, $dayJournal, $userProfile, profitOf);
+    if (
+      !achievementsBootSuppress &&
+      unlocked.length &&
+      $userProfile?.achievementUnlockToastEnabled !== false
+    ) {
+      achievementUnlockQueue = [...achievementUnlockQueue, ...unlocked];
+    }
+  }
 
   function sortTrades(list, { key, dir }) {
     const mul = dir === 'asc' ? 1 : -1;
@@ -549,7 +593,7 @@
           on:click={() => showJournalSettings = true}
           title="Killzones, часовой пояс, приоритет KZ"
         >Параметры</button>
-        <button class="btn" on:click={() => showProfile = true} title="Профиль">Профиль</button>
+        <button class="btn" on:click={() => openProfileModal('setup')} title="Профиль">Профиль</button>
       </div>
     </div>
   </div>
@@ -990,7 +1034,7 @@
   {:else if activeTab === 'playbooks'}
     <PlaybookView />
   {:else if activeTab === 'guide'}
-    <GuideView on:openProfile={() => showProfile = true} />
+    <GuideView on:openProfile={() => openProfileModal('setup')} />
   {/if}
 
   <TradeForm
@@ -999,7 +1043,15 @@
     mode={formMode}
     on:postCloseChartPrompt={onPostCloseChartPrompt}
   />
-  <ProfileModal bind:open={showProfile} {closedTrades} />
+  <ProfileModal bind:open={showProfile} {closedTrades} startTab={profileModalStartTab} />
+  <AchievementUnlockBanner
+    queue={achievementUnlockQueue}
+    on:dismiss={dismissAchievementBanner}
+    on:openAchievements={() => {
+      openProfileModal('achievements');
+      dismissAchievementBanner();
+    }}
+  />
   <BiasModal bind:open={showBias} />
   <JournalSettingsModal bind:open={showJournalSettings} />
   <DailyReviewModal
