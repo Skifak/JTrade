@@ -60,6 +60,28 @@ const DEFAULT_USER_PROFILE = {
   lastDailyReviewDate: null,
   /** 0 — без лимита */
   maxTradesPerDay: 0,
+  /** ISO-неделя: лимит убытка, % или сумма; 0 — выкл */
+  weeklyLossLimitMode: 'percent',
+  weeklyLossLimitPercent: 0,
+  weeklyLossLimitAmount: 0,
+  /** Потолок дневной прибыли: при достижении блок новых входов; 0 — выкл */
+  dailyProfitLockMode: 'percent',
+  dailyProfitLockPercent: 0,
+  dailyProfitLockAmount: 0,
+  /** 0 — выкл; 1–23 локальный час: с этого часа новые сделки не оформляются */
+  noNewTradesAfterHourLocal: 0,
+  /** Минимум минут между закрытием и новым входом; 0 — выкл */
+  minMinutesBetweenTrades: 0,
+  /** Жёсткий блок сделок с R:R ниже порога (если SL и TP заданы) */
+  minRiskRewardHardBlock: false,
+  minRiskRewardRatio: 1.5,
+  /** Явное включение опциональных лимитов (чекбоксы у полей на вкладке правил) */
+  weeklyLossLimitEnabled: false,
+  dailyProfitLockEnabled: false,
+  afterHoursCutoffEnabled: false,
+  minTradeIntervalEnabled: false,
+  /** Галочки в форме сделки по строкам из «Заметки к профилю» */
+  profileNotesChecklistEnabled: true,
   nextWeekFocus: '',
   nextMonthFocus: ''
 };
@@ -169,11 +191,39 @@ const SUPPORTED_ACCOUNT_CURRENCIES = new Set([
 
 function migrateProfile(raw) {
   const next = { ...DEFAULT_USER_PROFILE, ...(raw || {}) };
+  const num = (v) => {
+    const x = Number(v);
+    return Number.isFinite(x) ? x : 0;
+  };
   const ccy = String(next.accountCurrency || '').toUpperCase();
   if (!SUPPORTED_ACCOUNT_CURRENCIES.has(ccy)) {
     next.accountCurrency = 'USD';
   } else {
     next.accountCurrency = ccy;
+  }
+  delete next.archivedProfileRuleIds;
+
+  if (typeof next.weeklyLossLimitEnabled !== 'boolean') {
+    next.weeklyLossLimitEnabled =
+      next.weeklyLossLimitMode === 'amount'
+        ? num(next.weeklyLossLimitAmount) > 0
+        : num(next.weeklyLossLimitPercent) > 0;
+  }
+  if (typeof next.dailyProfitLockEnabled !== 'boolean') {
+    next.dailyProfitLockEnabled =
+      next.dailyProfitLockMode === 'amount'
+        ? num(next.dailyProfitLockAmount) > 0
+        : num(next.dailyProfitLockPercent) > 0;
+  }
+  if (typeof next.afterHoursCutoffEnabled !== 'boolean') {
+    const h = Math.floor(num(next.noNewTradesAfterHourLocal));
+    next.afterHoursCutoffEnabled = h >= 1 && h <= 23;
+  }
+  if (typeof next.minTradeIntervalEnabled !== 'boolean') {
+    next.minTradeIntervalEnabled = num(next.minMinutesBetweenTrades) > 0;
+  }
+  if (typeof next.profileNotesChecklistEnabled !== 'boolean') {
+    next.profileNotesChecklistEnabled = true;
   }
   return next;
 }

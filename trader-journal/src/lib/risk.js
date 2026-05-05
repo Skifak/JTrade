@@ -15,9 +15,12 @@
  * Функции чистые, без сторов — стор тянет их сверху.
  */
 import dayjs from 'dayjs';
+import isoWeek from 'dayjs/plugin/isoWeek.js';
 import { get } from 'svelte/store';
 import { getContractSize, calculateProfit, isMt5DepositCurrencyProfit } from './utils';
 import { fxRate, convertUsd, tradeProfitDisplayUnits } from './fxRate';
+
+dayjs.extend(isoWeek);
 
 /* -------------------- helpers -------------------- */
 
@@ -189,6 +192,22 @@ export function computeMaxDailyLossAmount(profile) {
   return (num(profile.initialCapital) * num(profile.dailyLossLimitPercent)) / 100;
 }
 
+/** Недельный лимит убытка (ISO-неделя), 0 — выкл. */
+export function computeMaxWeeklyLossAmount(profile) {
+  if (!profile) return 0;
+  if (profile.weeklyLossLimitEnabled === false) return 0;
+  if (profile.weeklyLossLimitMode === 'amount') return num(profile.weeklyLossLimitAmount);
+  return (num(profile.initialCapital) * num(profile.weeklyLossLimitPercent)) / 100;
+}
+
+/** Потолок дневной прибыли: после достижения новые входы блокируются. 0 — выкл. */
+export function computeDailyProfitLockAmount(profile) {
+  if (!profile) return 0;
+  if (profile.dailyProfitLockEnabled === false) return 0;
+  if (profile.dailyProfitLockMode === 'amount') return num(profile.dailyProfitLockAmount);
+  return (num(profile.initialCapital) * num(profile.dailyProfitLockPercent)) / 100;
+}
+
 export function computeGoalAmount(profile, period /* 'Day'|'Week'|'Month'|'Year' */) {
   if (!profile) return 0;
   const v = num(profile[`goal${period}Value`]);
@@ -208,6 +227,35 @@ export function getDailyPnL(closedTrades, now = new Date()) {
     if (day !== today) return sum;
     return sum + tradeProfitDisplayUnits(t, rs);
   }, 0);
+}
+
+/** Закрытый PnL за текущую ISO-неделю (по dateClose), в валюте счёта. */
+export function getIsoWeekPnL(closedTrades, now = new Date()) {
+  if (!Array.isArray(closedTrades) || !closedTrades.length) return 0;
+  const rs = get(fxRate);
+  const ref = dayjs(now);
+  const ws = ref.startOf('isoWeek');
+  const we = ref.endOf('isoWeek');
+  let sum = 0;
+  for (const t of closedTrades) {
+    if (t?.status !== 'closed' || !t?.dateClose) continue;
+    const dc = dayjs(t.dateClose);
+    if (dc.isBefore(ws) || dc.isAfter(we)) continue;
+    sum += tradeProfitDisplayUnits(t, rs);
+  }
+  return sum;
+}
+
+/** Метка времени последнего закрытия (ms) или null. */
+export function getLastClosedTradeCloseTimeMs(closedTrades) {
+  if (!Array.isArray(closedTrades)) return null;
+  let max = 0;
+  for (const t of closedTrades) {
+    if (t?.status !== 'closed' || !t?.dateClose) continue;
+    const ms = new Date(t.dateClose).getTime();
+    if (Number.isFinite(ms) && ms > max) max = ms;
+  }
+  return max > 0 ? max : null;
 }
 
 /** Закрытых сделок за календарный день (по dateClose). */
@@ -296,6 +344,7 @@ export function evaluateTradeRules(trade, profile, ctx = {}) {
   const closedTrades = Array.isArray(ctx.closedTrades) ? ctx.closedTrades : [];
   const isEdit = !!ctx.isEditing;
   const editingId = trade?.id;
+  const now = ctx.now instanceof Date ? ctx.now : new Date();
 
   const otherOpen = isEdit ? openTrades.filter((t) => t.id !== editingId) : openTrades;
 
@@ -304,7 +353,7 @@ export function evaluateTradeRules(trade, profile, ctx = {}) {
   const scale = getCurrentRiskScale(closedTrades, profile);
   const maxRiskAmount = baseRiskAmount * scale;
   const maxDailyLossAmount = computeMaxDailyLossAmount(profile);
-  const dailyPnL = getDailyPnL(closedTrades);
+  const dailyPnL = getDailyPnL(closedTrades, now);
   const streak = getCurrentStreak(closedTrades);
 
   if (!risk.hasSl) {
@@ -349,12 +398,21 @@ export function evaluateTradeRules(trade, profile, ctx = {}) {
     }
   }
 
-  if (risk.hasSl && risk.hasTp && risk.rrRatio != null && risk.rrRatio < 1) {
-    violations.push({
-      severity: 'warn',
-      code: 'rr-low',
-      message: `Соотношение R:R = 1:${risk.rrRatio.toFixed(2)} (хуже 1:1).`
-    });
+  if (risk.hasSl && risk.hasTp && risk.rrRatio != null) {
+    const rrMin = num(profile.minRiskRewardRatio);
+    if (profile.minRiskRewardHardBlock && rrMin > 0 && risk.rrRatio < rrMin - 1e-9) {
+      violations.push({
+        severity: 'block',
+        code: 'rr-below-min',
+        message: `R:R ${risk.rrRatio.toFixed(2)} ниже минимума ${rrMin.toFixed(2)} (порог из профиля).`
+      });
+    } else if (risk.rrRatio < 1) {
+      violations.push({
+        severity: 'warn',
+        code: 'rr-low',
+        message: `Соотношение R:R = 1:${risk.rrRatio.toFixed(2)} (хуже 1:1).`
+      });
+    }
   }
 
   const maxOpen = num(profile.maxOpenTrades);
@@ -386,6 +444,57 @@ export function evaluateTradeRules(trade, profile, ctx = {}) {
         `Дневной лимит убытка достигнут: ${dailyPnL.toFixed(2)} ` +
         `(лимит -${maxDailyLossAmount.toFixed(2)}).`
     });
+  }
+
+  const maxWeeklyLoss = computeMaxWeeklyLossAmount(profile);
+  if (!isEdit && maxWeeklyLoss > 0) {
+    const weekPnL = getIsoWeekPnL(closedTrades, now);
+    if (weekPnL <= -maxWeeklyLoss) {
+      violations.push({
+        severity: 'block',
+        code: 'weekly-stop',
+        message:
+          `Недельный лимит убытка (ISO-неделя): ${weekPnL.toFixed(2)} ` +
+          `(лимит −${maxWeeklyLoss.toFixed(2)}).`
+      });
+    }
+  }
+
+  const profitCap = computeDailyProfitLockAmount(profile);
+  if (!isEdit && profitCap > 0) {
+    const dp = getDailyPnL(closedTrades, now);
+    if (dp >= profitCap - 1e-9) {
+      violations.push({
+        severity: 'block',
+        code: 'daily-profit-lock',
+        message:
+          `Достигнут потолок дневной прибыли: +${dp.toFixed(2)} ` +
+          `(лимит +${profitCap.toFixed(2)}). Новые входы отключены.`
+      });
+    }
+  }
+
+  const cutoffHr = Math.floor(num(profile.noNewTradesAfterHourLocal));
+  const afterHoursOn = profile.afterHoursCutoffEnabled !== false;
+  if (!isEdit && afterHoursOn && cutoffHr >= 1 && cutoffHr <= 23 && dayjs(now).hour() >= cutoffHr) {
+    violations.push({
+      severity: 'block',
+      code: 'after-hours-cutoff',
+      message: `После ${cutoffHr}:00 локально новые сделки не оформляются (настройка профиля).`
+    });
+  }
+
+  const gapMin = Math.max(0, Math.floor(num(profile.minMinutesBetweenTrades)));
+  const intervalOn = profile.minTradeIntervalEnabled !== false;
+  if (!isEdit && intervalOn && gapMin > 0) {
+    const lastMs = getLastClosedTradeCloseTimeMs(closedTrades);
+    if (lastMs != null && now.getTime() - lastMs < gapMin * 60000) {
+      violations.push({
+        severity: 'block',
+        code: 'trade-interval',
+        message: `С последнего закрытия прошло меньше ${gapMin} мин (пауза между сделками).`
+      });
+    }
   }
 
   const maxStreak = num(profile.maxConsecutiveLosses);
@@ -432,7 +541,11 @@ export function evaluateTradeRules(trade, profile, ctx = {}) {
   const checklist = parseNotesChecklist(profile?.notes);
   const acked = Array.isArray(ctx.acknowledgedChecklist) ? ctx.acknowledgedChecklist : [];
   const missed = checklist.filter((item) => !acked.includes(item));
-  if (checklist.length > 0 && missed.length > 0) {
+  if (
+    profile.profileNotesChecklistEnabled !== false &&
+    checklist.length > 0 &&
+    missed.length > 0
+  ) {
     violations.push({
       severity: 'warn',
       code: 'notes-checklist',
@@ -516,14 +629,44 @@ export function evaluateTradeRules(trade, profile, ctx = {}) {
  * Дневной стоп пробит — для kill-switch UI.
  * Возвращает { hit: bool, pnl: number, limit: number }.
  */
-export function checkDailyStop(closedTrades, profile) {
+export function checkDailyStop(closedTrades, profile, now = new Date()) {
   const limit = computeMaxDailyLossAmount(profile);
-  const pnl = getDailyPnL(closedTrades);
+  const pnl = getDailyPnL(closedTrades, now);
   return {
     hit: limit > 0 && pnl <= -limit,
     pnl,
     limit
   };
+}
+
+/** Недельный стоп (ISO-неделя) — для kill-switch UI. */
+export function checkWeeklyStop(closedTrades, profile, now = new Date()) {
+  const limit = computeMaxWeeklyLossAmount(profile);
+  const pnl = getIsoWeekPnL(closedTrades, now);
+  return {
+    hit: limit > 0 && pnl <= -limit,
+    pnl,
+    limit
+  };
+}
+
+/** Потолок дневной прибыли — для kill-switch UI. */
+export function checkDailyProfitLock(closedTrades, profile, now = new Date()) {
+  const cap = computeDailyProfitLockAmount(profile);
+  const pnl = getDailyPnL(closedTrades, now);
+  return {
+    hit: cap > 0 && pnl >= cap - 1e-9,
+    pnl,
+    cap
+  };
+}
+
+/** Окно по локальному часу: hit если новые входы запрещены. */
+export function checkAfterHoursCutoff(profile, now = new Date()) {
+  if (profile?.afterHoursCutoffEnabled === false) return { hit: false, cutoff: 0 };
+  const c = Math.floor(num(profile.noNewTradesAfterHourLocal));
+  if (c < 1 || c > 23) return { hit: false, cutoff: 0 };
+  return { hit: dayjs(now).hour() >= c, cutoff: c };
 }
 
 /* ------------------- equity curve ------------------- */

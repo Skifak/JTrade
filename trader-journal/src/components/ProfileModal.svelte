@@ -6,7 +6,7 @@
   import { getDisciplineScore, getDisciplinedPnL } from '../lib/risk';
   import Modal from './Modal.svelte';
   import ProfileAccountsTab from './ProfileAccountsTab.svelte';
-  import ProfileRulesBlock from './ProfileRulesBlock.svelte';
+  import ProfileRulesTab from './ProfileRulesTab.svelte';
 
   export let open = false;
   export let closedTrades = [];
@@ -45,7 +45,22 @@
     streakScalingEnabled: false,
     dailyReviewEnabled: true,
     journalDayReminderEnabled: true,
-    journalDayReminderHourLocal: 21
+    journalDayReminderHourLocal: 21,
+    weeklyLossLimitMode: 'percent',
+    weeklyLossLimitPercent: 0,
+    weeklyLossLimitAmount: 0,
+    dailyProfitLockMode: 'percent',
+    dailyProfitLockPercent: 0,
+    dailyProfitLockAmount: 0,
+    noNewTradesAfterHourLocal: 0,
+    minMinutesBetweenTrades: 0,
+    minRiskRewardHardBlock: false,
+    minRiskRewardRatio: 1.5,
+    weeklyLossLimitEnabled: false,
+    dailyProfitLockEnabled: false,
+    afterHoursCutoffEnabled: false,
+    minTradeIntervalEnabled: false,
+    profileNotesChecklistEnabled: true
   };
   let wasOpen = false;
   /** id счёта, под который синхронизирован formData — защита от записи профиля A в ключ счёта B */
@@ -133,6 +148,25 @@
       riskPerTradePercent: Number(formData.riskPerTradePercent) || 0,
       dailyLossLimitAmount: Number(formData.dailyLossLimitAmount) || 0,
       dailyLossLimitPercent: Number(formData.dailyLossLimitPercent) || 0,
+      weeklyLossLimitAmount: Number(formData.weeklyLossLimitAmount) || 0,
+      weeklyLossLimitPercent: Number(formData.weeklyLossLimitPercent) || 0,
+      weeklyLossLimitMode: formData.weeklyLossLimitMode === 'amount' ? 'amount' : 'percent',
+      dailyProfitLockAmount: Number(formData.dailyProfitLockAmount) || 0,
+      dailyProfitLockPercent: Number(formData.dailyProfitLockPercent) || 0,
+      dailyProfitLockMode: formData.dailyProfitLockMode === 'amount' ? 'amount' : 'percent',
+      noNewTradesAfterHourLocal: (() => {
+        const h = Number(formData.noNewTradesAfterHourLocal);
+        const x = Number.isFinite(h) ? Math.floor(h) : 0;
+        return Math.max(0, Math.min(23, x));
+      })(),
+      minMinutesBetweenTrades: Math.max(0, Number(formData.minMinutesBetweenTrades) || 0),
+      minRiskRewardHardBlock: !!formData.minRiskRewardHardBlock,
+      minRiskRewardRatio: Math.max(0, Number(formData.minRiskRewardRatio) || 0),
+      weeklyLossLimitEnabled: !!formData.weeklyLossLimitEnabled,
+      dailyProfitLockEnabled: !!formData.dailyProfitLockEnabled,
+      afterHoursCutoffEnabled: !!formData.afterHoursCutoffEnabled,
+      minTradeIntervalEnabled: !!formData.minTradeIntervalEnabled,
+      profileNotesChecklistEnabled: !!formData.profileNotesChecklistEnabled,
       goalDayValue: Number(formData.goalDayValue) || 0,
       goalWeekValue: Number(formData.goalWeekValue) || 0,
       goalMonthValue: Number(formData.goalMonthValue) || 0,
@@ -190,6 +224,14 @@
       initialCapital: convertAmount(formData.initialCapital, rate, 2),
       riskPerTradeAmount: convertAmount(formData.riskPerTradeAmount, rate, 2),
       dailyLossLimitAmount: convertAmount(formData.dailyLossLimitAmount, rate, 2),
+      weeklyLossLimitAmount:
+        formData.weeklyLossLimitMode === 'amount'
+          ? convertAmount(formData.weeklyLossLimitAmount, rate, 2)
+          : formData.weeklyLossLimitAmount,
+      dailyProfitLockAmount:
+        formData.dailyProfitLockMode === 'amount'
+          ? convertAmount(formData.dailyProfitLockAmount, rate, 2)
+          : formData.dailyProfitLockAmount,
       goalDayValue: formData.goalMode === 'amount' ? convertAmount(formData.goalDayValue, rate, 2) : formData.goalDayValue,
       goalWeekValue: formData.goalMode === 'amount' ? convertAmount(formData.goalWeekValue, rate, 2) : formData.goalWeekValue,
       goalMonthValue: formData.goalMode === 'amount' ? convertAmount(formData.goalMonthValue, rate, 2) : formData.goalMonthValue,
@@ -220,6 +262,16 @@
           on:click={() => (profileTab = 'setup')}
         >
           Настройка счёта
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="profile-modal-tab"
+          class:active={profileTab === 'rules'}
+          aria-selected={profileTab === 'rules'}
+          on:click={() => (profileTab = 'rules')}
+        >
+          Правила и ограничения
         </button>
         <button
           type="button"
@@ -336,131 +388,7 @@
       </div>
     {/if}
 
-    <div class="profile-section">
-      <div class="profile-section-title">Риск и ограничения</div>
-      <div class="form-row">
-        <div class="form-group">
-          <label for="risk-mode">Риск на сделку</label>
-          <div class="value-mode-row">
-            <select id="risk-mode" bind:value={formData.riskMode}>
-              <option value="percent">В процентах</option>
-              <option value="amount">Фикс. сумма</option>
-            </select>
-            {#if formData.riskMode === 'amount'}
-              <input type="number" min="0" step="1" bind:value={formData.riskPerTradeAmount} placeholder={`Сумма (${formData.accountCurrency})`} />
-            {:else}
-              <input id="risk-per-trade" type="number" min="0" max="100" step="0.1" bind:value={formData.riskPerTradePercent} placeholder="% от капитала" />
-            {/if}
-          </div>
-        </div>
-        <div class="form-group">
-          <label for="daily-loss-mode">Дневной лимит убытка</label>
-          <div class="value-mode-row">
-            <select id="daily-loss-mode" bind:value={formData.dailyLossLimitMode}>
-              <option value="percent">В процентах</option>
-              <option value="amount">Фикс. сумма</option>
-            </select>
-            {#if formData.dailyLossLimitMode === 'amount'}
-              <input type="number" min="0" step="1" bind:value={formData.dailyLossLimitAmount} placeholder={`Сумма (${formData.accountCurrency})`} />
-            {:else}
-              <input id="daily-loss-limit" type="number" min="0" max="100" step="0.1" bind:value={formData.dailyLossLimitPercent} placeholder="% от капитала" />
-            {/if}
-          </div>
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label for="max-open-trades">Макс. открытых позиций</label>
-          <input id="max-open-trades" type="number" min="1" step="1" bind:value={formData.maxOpenTrades} />
-        </div>
-        <div class="form-group">
-          <label for="max-trades-per-day">
-            Макс. сделок за день (закрытых)
-            <span class="hint-inline">0 — без лимита</span>
-          </label>
-          <input id="max-trades-per-day" type="number" min="0" step="1" bind:value={formData.maxTradesPerDay} />
-        </div>
-        <div class="form-group">
-          <label for="max-consecutive-losses">Макс. убыточных подряд</label>
-          <input id="max-consecutive-losses" type="number" min="1" step="1" bind:value={formData.maxConsecutiveLosses} />
-        </div>
-      </div>
-    </div>
-
-    <div class="profile-section">
-      <div class="profile-section-title">Поведенческие ограничения</div>
-      <div class="form-row">
-        <div class="form-group">
-          <label for="cooldown-after-loss">
-            Cooldown после убытка (мин)
-            <span class="hint-inline">0 — выкл</span>
-          </label>
-          <input id="cooldown-after-loss" type="number" min="0" max="240" step="1" bind:value={formData.cooldownAfterLossMin} />
-        </div>
-        <div class="form-group">
-          <label class="checkbox-row">
-            <input type="checkbox" bind:checked={formData.streakScalingEnabled} />
-            <span>Anti-martingale (после 2+ убытков подряд резать риск ×½)</span>
-          </label>
-          <label class="checkbox-row">
-            <input type="checkbox" bind:checked={formData.dailyReviewEnabled} />
-            <span>Напоминание «закрой день при цели»</span>
-          </label>
-          <label class="checkbox-row">
-            <input type="checkbox" bind:checked={formData.journalDayReminderEnabled} />
-            <span>Напоминание закрыть день в дневнике</span>
-          </label>
-          <div class="form-group">
-            <label for="journal-reminder-hour">
-              Час напоминания (локально, 0–23)
-              <span class="hint-inline">если запись за сегодня пустая</span>
-            </label>
-            <input
-              id="journal-reminder-hour"
-              type="number"
-              min="0"
-              max="23"
-              step="1"
-              bind:value={formData.journalDayReminderHourLocal}
-              disabled={!formData.journalDayReminderEnabled}
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="profile-section">
-      <div class="profile-section-title">Цели (Prop Plan)</div>
-      <div class="form-group">
-        <label for="goal-mode">Формат целей</label>
-        <select id="goal-mode" bind:value={formData.goalMode}>
-          <option value="percent">В процентах</option>
-          <option value="amount">В сумме</option>
-        </select>
-      </div>
-      <div class="goal-grid">
-        <div class="form-group">
-          <label for="goal-day">Цель на день</label>
-          <input id="goal-day" type="number" min="0" step="0.1" bind:value={formData.goalDayValue} placeholder={formData.goalMode === 'amount' ? formData.accountCurrency : '%'} />
-        </div>
-        <div class="form-group">
-          <label for="goal-week">Цель на неделю</label>
-          <input id="goal-week" type="number" min="0" step="0.1" bind:value={formData.goalWeekValue} placeholder={formData.goalMode === 'amount' ? formData.accountCurrency : '%'} />
-        </div>
-        <div class="form-group">
-          <label for="goal-month">Цель на месяц</label>
-          <input id="goal-month" type="number" min="0" step="0.1" bind:value={formData.goalMonthValue} placeholder={formData.goalMode === 'amount' ? formData.accountCurrency : '%'} />
-        </div>
-        <div class="form-group">
-          <label for="goal-year">Цель на год</label>
-          <input id="goal-year" type="number" min="0" step="0.1" bind:value={formData.goalYearValue} placeholder={formData.goalMode === 'amount' ? formData.accountCurrency : '%'} />
-        </div>
-      </div>
-    </div>
-
-    <ProfileRulesBlock formData={formData} />
-
-    <div class="profile-hint profile-hint--compact">
+    <div class="profile-hint profile-hint--compact profile-hint--after-basics">
       {#if hideBasicsSection}
         Импорт-счёт: имя, валюта и стартовый капитал задаются данными импорта и мастером счёта — блок «Основное» скрыт.
       {:else if !currencySelectableInProfile}
@@ -474,18 +402,27 @@
       {:else}
         Live-курс для пересчёта может быть недоступен.
       {/if}
-      Лимиты и цели в {formData.accountCurrency}: риск {formatNumber(maxRiskAmount, 2)}, дневной стоп {formatNumber(maxDailyLossAmount, 2)}, D/W/M/Y {formatNumber(goalDayAmount, 2)} / {formatNumber(goalWeekAmount, 2)} / {formatNumber(goalMonthAmount, 2)} / {formatNumber(goalYearAmount, 2)}.
+      Лимиты и цели настраиваются во вкладке «Правила и ограничения».
     </div>
 
     {#if fxMessage}
       <div class="profile-fx-message">{fxMessage}</div>
     {/if}
-
-    <div class="form-group profile-notes-wrap">
-      <label for="profile-notes">Заметки к профилю</label>
-      <textarea id="profile-notes" rows="3" bind:value={formData.notes} placeholder="Правила, ограничения, checklist перед входом"></textarea>
-    </div>
-      {:else}
+  {:else if profileTab === 'rules'}
+    <ProfileRulesTab
+      {formData}
+      {hideBasicsSection}
+      {currencySelectableInProfile}
+      {conversionSource}
+      {maxRiskAmount}
+      {maxDailyLossAmount}
+      {goalDayAmount}
+      {goalWeekAmount}
+      {goalMonthAmount}
+      {goalYearAmount}
+      {fxMessage}
+    />
+  {:else}
         <ProfileAccountsTab
           variant="full"
           profileSplit="create"
@@ -496,8 +433,10 @@
   </div>
 
   <div slot="footer">
-    <button type="button" on:click={closeModal}>{profileTab === 'setup' ? 'Отмена' : 'Закрыть'}</button>
-    {#if profileTab === 'setup'}
+    <button type="button" on:click={closeModal}>
+      {profileTab === 'setup' || profileTab === 'rules' ? 'Отмена' : 'Закрыть'}
+    </button>
+    {#if profileTab === 'setup' || profileTab === 'rules'}
       <button type="button" class="btn btn-primary" on:click={saveProfile}>Сохранить профиль</button>
     {/if}
   </div>

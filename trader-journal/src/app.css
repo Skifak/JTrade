@@ -859,6 +859,10 @@ body {
   margin-bottom: 10px;
 }
 
+.profile-hint--after-basics {
+  margin-top: 12px;
+}
+
 .currency-readonly {
   font-family: var(--mono);
   font-weight: 600;

@@ -23,7 +23,7 @@
   import { fxRate, formatAccountMoney, tradeProfitDisplayUnits, convertUsd } from './lib/fxRate';
   import { normalizeSymbolKey } from './lib/constants';
   import { cooldown } from './lib/cooldown';
-  import { checkDailyStop, computeGoalAmount, getDailyPnL } from './lib/risk';
+  import { checkDailyStop, checkWeeklyStop, checkDailyProfitLock, checkAfterHoursCutoff, computeGoalAmount, getDailyPnL } from './lib/risk';
   import { primaryKillzone, killzoneLabel } from './lib/killzones';
   import { journalSettings } from './lib/journalSettings';
   import { strategies, findPlay } from './lib/playbooks';
@@ -83,15 +83,35 @@
   $: livePrices.setPairs(subscribedPairs);
 
   // Kill-switch: дневной лимит убытка пробит (для блокировки "Новая сделка")
-  $: dailyStop = checkDailyStop(closedTrades, $userProfile);
+  $: dailyStop = ($tickClock, checkDailyStop(closedTrades, $userProfile, new Date()));
+  $: weeklyStop = ($tickClock, checkWeeklyStop(closedTrades, $userProfile, new Date()));
+  $: profitLockHit = ($tickClock, checkDailyProfitLock(closedTrades, $userProfile, new Date()));
+  $: afterHoursHit = ($tickClock, checkAfterHoursCutoff($userProfile, new Date()));
   // Cooldown остаток — реактив на сам cooldown store + tickClock (для тика)
   $: cooldownLeftMs = ($tickClock, $cooldown?.until ? Math.max(0, $cooldown.until - Date.now()) : 0);
-  $: tradingBlocked = dailyStop.hit || cooldownLeftMs > 0;
+  $: tradingBlocked =
+    dailyStop.hit ||
+    weeklyStop.hit ||
+    profitLockHit.hit ||
+    afterHoursHit.hit ||
+    cooldownLeftMs > 0;
   $: tradingBlockedReason = dailyStop.hit
     ? `Дневной лимит убытка пробит (${dailyStop.pnl.toFixed(2)} ≤ −${dailyStop.limit.toFixed(2)}). Торговля закрыта до полуночи.`
-    : cooldownLeftMs > 0
-      ? `Cooldown после убытка: ещё ${Math.ceil(cooldownLeftMs / 60000)} мин. Не входи в revenge-trade.`
-      : '';
+    : weeklyStop.hit
+      ? `Недельный лимит убытка пробит (${weeklyStop.pnl.toFixed(2)} ≤ −${weeklyStop.limit.toFixed(2)}).`
+      : profitLockHit.hit
+        ? `Потолок дневной прибыли достигнут (+${profitLockHit.pnl.toFixed(2)}). Новые входы отключены.`
+        : afterHoursHit.hit
+          ? `Окно по времени: после ${afterHoursHit.cutoff}:00 локально новые сделки не оформляются.`
+          : cooldownLeftMs > 0
+            ? `Cooldown после убытка: ещё ${Math.ceil(cooldownLeftMs / 60000)} мин. Не входи в revenge-trade.`
+            : '';
+  $: killSwitchSevere = dailyStop.hit || weeklyStop.hit;
+  $: killSwitchTitle = killSwitchSevere
+    ? 'Торговля заблокирована'
+    : profitLockHit.hit || afterHoursHit.hit
+      ? 'Новые входы ограничены'
+      : 'Cooldown активен';
 
   // Daily review prompt: если цель дня достигнута и сегодня ещё не показывали
   $: goalDayAmount = computeGoalAmount($userProfile, 'Day');
@@ -494,13 +514,13 @@
   <RiskHud />
 
   {#if tradingBlocked}
-    <div class="kill-switch {dailyStop.hit ? 'severe' : 'warn'}">
-      <div class="kill-switch-icon">{dailyStop.hit ? '⛔' : '⏸'}</div>
+    <div class="kill-switch {killSwitchSevere ? 'severe' : 'warn'}">
+      <div class="kill-switch-icon">{killSwitchSevere ? '⛔' : '⏸'}</div>
       <div class="kill-switch-body">
-        <strong>{dailyStop.hit ? 'Торговля заблокирована' : 'Cooldown активен'}</strong>
+        <strong>{killSwitchTitle}</strong>
         <span>{tradingBlockedReason}</span>
       </div>
-      {#if cooldownLeftMs > 0 && !dailyStop.hit}
+      {#if cooldownLeftMs > 0 && !killSwitchSevere && !profitLockHit.hit && !afterHoursHit.hit}
         <button class="btn btn-sm" on:click={cancelCooldown}>Отменить cooldown</button>
       {/if}
     </div>

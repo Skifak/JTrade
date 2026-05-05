@@ -3,6 +3,7 @@ import {
   calculateTradeRisk,
   computeMaxRiskAmount,
   computeMaxDailyLossAmount,
+  computeMaxWeeklyLossAmount,
   computeGoalAmount,
   suggestVolumeForRisk,
   parseNotesChecklist,
@@ -171,6 +172,30 @@ describe('getOpenRisk', () => {
     expect(x.withSlCount).toBe(1);
     expect(x.withoutSlCount).toBe(1);
     expect(x.totalRisk).toBeCloseTo(10, 4);
+  });
+});
+
+describe('computeMaxWeeklyLossAmount + флаг weeklyLossLimitEnabled', () => {
+  it('выключен явно → 0 даже при ненулевых полях', () => {
+    expect(
+      computeMaxWeeklyLossAmount({
+        weeklyLossLimitEnabled: false,
+        weeklyLossLimitMode: 'percent',
+        weeklyLossLimitPercent: 5,
+        initialCapital: 10_000
+      })
+    ).toBe(0);
+  });
+
+  it('включён → считается как раньше', () => {
+    expect(
+      computeMaxWeeklyLossAmount({
+        weeklyLossLimitEnabled: true,
+        weeklyLossLimitMode: 'percent',
+        weeklyLossLimitPercent: 2,
+        initialCapital: 10_000
+      })
+    ).toBe(200);
   });
 });
 
