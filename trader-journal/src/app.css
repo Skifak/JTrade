@@ -761,7 +761,8 @@ input[type='number'].pr-control::-webkit-outer-spin-button,
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  /* Ниже панели обучения тура (JournalTourOverlay .tour-panel 13660) */
+  z-index: 13500;
   backdrop-filter: blur(2px);
 }
 
@@ -1163,4 +1164,24 @@ input[type='number'].pr-control::-webkit-outer-spin-button,
     width: 98%;
     min-height: auto;
   }
+}
+
+/* Поле шага тура профиля: свечение без затемнения экрана */
+.journal-tour-glow-field {
+  outline: none !important;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent) 75%, var(--border)),
+    0 0 0 5px color-mix(in srgb, var(--accent) 18%, transparent),
+    0 0 26px color-mix(in srgb, var(--accent) 40%, transparent);
+  transition: box-shadow 0.2s ease;
+}
+
+input.journal-tour-glow-field,
+select.journal-tour-glow-field,
+textarea.journal-tour-glow-field {
+  border-radius: 6px;
+}
+
+button.journal-tour-glow-field {
+  border-radius: 8px;
 }

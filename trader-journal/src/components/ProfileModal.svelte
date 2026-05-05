@@ -1,10 +1,19 @@
 <script>
-  import { trades, userProfile } from '../lib/stores';
+  import {
+    trades,
+    userProfile,
+    journalTourProfileSubIndex,
+    journalTourProfileSubNextBus
+  } from '../lib/stores';
   import { activeJournalAccount, activeJournalAccountId } from '../lib/accounts';
   import { get } from 'svelte/store';
+  import { tick, createEventDispatcher } from 'svelte';
   import { convertAmount, formatNumber, getConversionQuote } from '../lib/utils';
   import { getDisciplineScore, getDisciplinedPnL } from '../lib/risk';
   import { normalizeStreakScalingMultipliers } from '../lib/streakScaling.js';
+  import { getProfileTourSubsteps } from '../lib/journalTourProfileSubsteps.js';
+  import { JOURNAL_TOUR_PROFILE_MODAL_SPOT } from '../lib/journalTour.js';
+  import { toasts } from '../lib/toasts';
   import Modal from './Modal.svelte';
   import ProfileAccountsTab from './ProfileAccountsTab.svelte';
   import ProfileRulesTab from './ProfileRulesTab.svelte';
@@ -15,6 +24,10 @@
   export let closedTrades = [];
   /** При открытии модалки перейти сразу на эту вкладку (setup | rules | goals | achievements | create). */
   export let startTab = 'setup';
+  /** Внешний тур журнала на шаге «профиль» — подшаги внутри модалки и сохранение. */
+  export let journalTourProfileActive = false;
+
+  const dispatch = createEventDispatcher();
 
   const PROFILE_TAB_IDS = new Set(['setup', 'rules', 'goals', 'achievements', 'create']);
 
@@ -83,6 +96,108 @@
   let conversionSource = 'identity';
   let isConvertingCurrency = false;
   let fxMessage = '';
+
+  $: profileTourSteps = getProfileTourSubsteps({
+    hideBasicsSection,
+    currencySelectableInProfile
+  });
+
+  /** @param {import('../lib/journalTourProfileSubsteps.js').ProfileTourSubstep | undefined} sub */
+  function getProfileTourFocusSelector(sub) {
+    if (!sub) return null;
+    if (sub.isSavePrompt) return sub.focusSelector ?? null;
+    if (typeof sub.resolveFocus === 'function') return sub.resolveFocus(formData);
+    return sub.focusSelector;
+  }
+
+  function clearProfileModalTourSpot() {
+    if (typeof document === 'undefined') return;
+    document
+      .querySelectorAll(`[data-tour="${JOURNAL_TOUR_PROFILE_MODAL_SPOT}"]`)
+      .forEach((n) => n.removeAttribute('data-tour'));
+  }
+
+  function focusProfileTourField() {
+    if (!journalTourProfileActive || !open) return;
+    clearProfileModalTourSpot();
+    const idx = Math.min(Math.max(0, $journalTourProfileSubIndex), Math.max(0, profileTourSteps.length - 1));
+    const sub = profileTourSteps[idx];
+    if (!sub) return;
+    const sel = getProfileTourFocusSelector(sub);
+    if (!sel) return;
+    const el = document.querySelector(sel);
+    if (el instanceof HTMLElement) {
+      el.setAttribute('data-tour', JOURNAL_TOUR_PROFILE_MODAL_SPOT);
+      el.focus();
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }
+
+  let profileSubNextSynced = 0;
+  $: if (journalTourProfileActive && open) {
+    const v = $journalTourProfileSubNextBus;
+    if (v > profileSubNextSynced) {
+      profileSubNextSynced = v;
+      tick().then(() => advanceProfileTourSub());
+    }
+  } else {
+    profileSubNextSynced = $journalTourProfileSubNextBus;
+  }
+
+  $: if (!journalTourProfileActive || !open) {
+    clearProfileModalTourSpot();
+  }
+
+  $: if (journalTourProfileActive && open && profileTourSteps.length) {
+    const idx = Math.min(Math.max(0, $journalTourProfileSubIndex), profileTourSteps.length - 1);
+    const sub = profileTourSteps[idx];
+    if (sub?.tab && profileTab !== sub.tab) profileTab = sub.tab;
+  }
+
+  $: tourRailKey =
+    journalTourProfileActive && open
+      ? `${$journalTourProfileSubIndex}:${profileTab}:${formData.dailyLossLimitMode}`
+      : '';
+  $: if (tourRailKey) {
+    tick().then(() => requestAnimationFrame(() => focusProfileTourField()));
+  }
+
+  function advanceProfileTourSub() {
+    if (!journalTourProfileActive || !open) return;
+    const steps = profileTourSteps;
+    const idx = $journalTourProfileSubIndex;
+    const sub = steps[idx];
+    if (!sub || sub.isSavePrompt) return;
+    if (sub.validate && !sub.validate(formData)) {
+      toasts.warn('Проверь значение в поле.', { ttl: 4000 });
+      return;
+    }
+    journalTourProfileSubIndex.update((n) => Math.min(n + 1, steps.length - 1));
+  }
+
+  /** @param {KeyboardEvent} e */
+  function onJournalTourProfileKeydown(e) {
+    if (!journalTourProfileActive || !open) return;
+    if (e.key !== 'Enter') return;
+    const steps = profileTourSteps;
+    const idx = $journalTourProfileSubIndex;
+    const sub = steps[idx];
+    if (!sub || sub.isSavePrompt) return;
+
+    const sel = getProfileTourFocusSelector(sub);
+    if (!sel) return;
+    const focusEl = document.querySelector(sel);
+    const t = e.target;
+    if (!(t instanceof Node) || !focusEl || (t !== focusEl && !focusEl.contains(t))) return;
+
+    if (sub.validate && !sub.validate(formData)) {
+      toasts.warn('Проверь значение в поле.', { ttl: 4000 });
+      e.preventDefault();
+      return;
+    }
+    e.preventDefault();
+    journalTourProfileSubIndex.update((n) => Math.min(n + 1, steps.length - 1));
+  }
 
   $: if (open) {
     const aid = String($activeJournalAccountId || '').trim();
@@ -204,6 +319,9 @@
       postCloseChartReminderEnabled: !!formData.postCloseChartReminderEnabled,
       achievementUnlockToastEnabled: !!formData.achievementUnlockToastEnabled
     });
+    if (journalTourProfileActive) {
+      dispatch('journalTourProfileSaved');
+    }
     closeModal();
   }
 
@@ -269,6 +387,8 @@
     isConvertingCurrency = false;
   }
 </script>
+
+<svelte:window on:keydown={onJournalTourProfileKeydown} />
 
 <Modal {open} modalClass="profile-modal" on:close={closeModal}>
   <div slot="header">
@@ -494,7 +614,14 @@
           {profileTab === 'setup' || profileTab === 'rules' || profileTab === 'goals' ? 'Отмена' : 'Закрыть'}
         </button>
         {#if profileTab === 'setup' || profileTab === 'rules' || profileTab === 'goals'}
-          <button type="button" class="btn btn-primary" on:click={saveProfile}>Сохранить профиль</button>
+          <button
+            type="button"
+            id="profile-modal-save-btn"
+            class="btn btn-primary"
+            on:click={saveProfile}
+          >
+            Сохранить профиль
+          </button>
         {/if}
       </div>
       {#if profileTab === 'achievements'}

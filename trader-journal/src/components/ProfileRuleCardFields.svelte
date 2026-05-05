@@ -88,7 +88,15 @@
               <option value="amount">Фикс. сумма</option>
             </select>
             {#if formData.dailyLossLimitMode === 'amount'}
-              <input class="pr-control" type="number" min="0" step="1" bind:value={formData.dailyLossLimitAmount} placeholder={`Сумма (${formData.accountCurrency})`} />
+              <input
+                id="pcf-daily-loss-amt"
+                class="pr-control"
+                type="number"
+                min="0"
+                step="1"
+                bind:value={formData.dailyLossLimitAmount}
+                placeholder={`Сумма (${formData.accountCurrency})`}
+              />
             {:else}
               <input id="pcf-daily-loss-pct" class="pr-control" type="number" min="0" max="100" step="0.1" bind:value={formData.dailyLossLimitPercent} placeholder="% от капитала" />
             {/if}

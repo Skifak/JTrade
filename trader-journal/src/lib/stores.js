@@ -347,6 +347,15 @@ export const trades = createTradesStore();
 export const templates = createTemplatesStore();
 export const setupSnippets = createSetupSnippetsStore();
 export const userProfile = createUserProfileStore();
+/** Подшаг обучения внутри модалки профиля (см. journalTourProfileSubsteps). */
+export const journalTourProfileSubIndex = writable(0);
+
+/** Счётчик: панель тура «Далее по полю» → ProfileModal один раз вызывает advance. */
+export const journalTourProfileSubNextBus = writable(0);
+
+export function requestJournalTourProfileSubNext() {
+  journalTourProfileSubNextBus.update((n) => n + 1);
+}
 
 activeJournalAccountId.subscribe(() => {
   trades.rehydrate();
