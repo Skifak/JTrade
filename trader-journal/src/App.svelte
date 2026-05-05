@@ -343,13 +343,6 @@
     }
   }
 
-  function clearClosedTrades() {
-    if (closedTrades.length === 0) return;
-    if (confirm(`Удалить все закрытые сделки (${closedTrades.length})?`)) {
-      trades.deleteClosedTrades();
-    }
-  }
-
   function duplicateAsOpen(trade) {
     currentTrade = {
       ...trade,
@@ -765,7 +758,6 @@
             Поиск:
             <input type="search" bind:value={closedTradeSearch} placeholder="Пара, коммент, setup…" autocomplete="off" />
           </label>
-          <button class="btn btn-danger" on:click={clearClosedTrades}>🧹 Удалить все закрытые</button>
         </div>
         {#if filteredClosedTrades.length === 0}
           <div class="empty-state">Ничего не подходит под фильтры / поиск.</div>

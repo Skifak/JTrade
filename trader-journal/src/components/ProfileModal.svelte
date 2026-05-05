@@ -6,6 +6,7 @@
   import { getDisciplineScore, getDisciplinedPnL } from '../lib/risk';
   import Modal from './Modal.svelte';
   import ProfileAccountsTab from './ProfileAccountsTab.svelte';
+  import ProfileRulesBlock from './ProfileRulesBlock.svelte';
 
   export let open = false;
   export let closedTrades = [];
@@ -456,6 +457,8 @@
         </div>
       </div>
     </div>
+
+    <ProfileRulesBlock formData={formData} />
 
     <div class="profile-hint profile-hint--compact">
       {#if hideBasicsSection}

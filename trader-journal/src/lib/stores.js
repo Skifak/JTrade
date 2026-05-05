@@ -98,16 +98,6 @@ function createTradesStore() {
       saveData('trades', newTrades);
       return newTrades;
     }),
-    deleteClosedTrades: () => update((trades) => {
-      for (const t of trades) {
-        if (t.status === 'closed' && t.id) {
-          void removeScopeDir('trades', String(t.id));
-        }
-      }
-      const newTrades = trades.filter((t) => t.status !== 'closed');
-      saveData('trades', newTrades);
-      return newTrades;
-    }),
     importTrades: (trades) => {
       const normalizedTrades = Array.isArray(trades) ? trades.map(normalizeTrade) : [];
       set(normalizedTrades);

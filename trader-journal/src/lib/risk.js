@@ -10,6 +10,7 @@
  *   - getCurrentStreak(closedTrades)       : текущая серия выигрышей/проигрышей
  *   - getOpenRisk(openTrades)              : Σ потенциальных убытков по открытым
  *   - evaluateTradeRules(trade, profile, ctx) : массив нарушений pre-trade
+ *     (+ суммарный риск по открытым с SL × новая сделка ≤ maxOpen × лимит)
  *
  * Функции чистые, без сторов — стор тянет их сверху.
  */
@@ -323,6 +324,29 @@ export function evaluateTradeRules(trade, profile, ctx = {}) {
         `${maxRiskAmount.toFixed(2)}${scaleNote}.` +
         (suggestion ? ` Рекомендуемый объём: ${suggestion} лот.` : '')
     });
+  }
+
+  const maxOpenForExposure = num(profile.maxOpenTrades);
+  if (
+    maxOpenForExposure > 0 &&
+    maxRiskAmount > 0 &&
+    risk.hasSl &&
+    risk.riskAmount != null
+  ) {
+    const openRiskAgg = getOpenRisk(otherOpen, profile);
+    const exposureBudget = maxRiskAmount * maxOpenForExposure;
+    const totalExposure = openRiskAgg.totalRisk + risk.riskAmount;
+    if (totalExposure > exposureBudget + 0.005) {
+      violations.push({
+        severity: 'block',
+        code: 'exposure-cap',
+        message:
+          `Σ риска открытых (по SL) + эта сделка: ${totalExposure.toFixed(2)} ` +
+          `превышает бюджет ${exposureBudget.toFixed(2)} ` +
+          `(${maxOpenForExposure} × ${maxRiskAmount.toFixed(2)}). ` +
+          'Уменьши объём/риск или закрой часть позиций.'
+      });
+    }
   }
 
   if (risk.hasSl && risk.hasTp && risk.rrRatio != null && risk.rrRatio < 1) {

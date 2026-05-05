@@ -8,7 +8,8 @@ import {
   parseNotesChecklist,
   getDisciplineScore,
   getStatsByBiasAlignment,
-  getOpenRisk
+  getOpenRisk,
+  evaluateTradeRules
 } from './risk.js';
 
 const profilePct = {
@@ -111,6 +112,52 @@ describe('getStatsByBiasAlignment', () => {
     expect(b.aligned.count).toBe(1);
     expect(b.against.count).toBe(1);
     expect(b.unknown.count).toBe(1);
+  });
+});
+
+describe('evaluateTradeRules — exposure-cap', () => {
+  const prof = {
+    initialCapital: 10_000,
+    riskMode: 'percent',
+    riskPerTradePercent: 1,
+    dailyLossLimitMode: 'percent',
+    dailyLossLimitPercent: 10,
+    maxOpenTrades: 3,
+    maxTradesPerDay: 0,
+    maxConsecutiveLosses: 0,
+    streakScalingEnabled: false
+  };
+
+  it('блокирует, если Σ риска открытых + новая сделка > лимит × число позиций', () => {
+    const openTrades = [
+      { id: 'a', pair: 'EURUSD', volume: 0.015, priceOpen: 1.1, sl: 1.0, direction: 'long' }
+    ];
+    const newTrade = {
+      pair: 'GBPUSD',
+      direction: 'long',
+      volume: 0.016,
+      priceOpen: 1.25,
+      sl: 1.15
+    };
+    const v = evaluateTradeRules(newTrade, prof, { openTrades, closedTrades: [] });
+    const cap = v.find((x) => x.code === 'exposure-cap');
+    expect(cap).toBeDefined();
+    expect(cap?.severity).toBe('block');
+  });
+
+  it('пускает на границе бюджета экспозиции', () => {
+    const openTrades = [
+      { id: 'a', pair: 'EURUSD', volume: 0.01, priceOpen: 1.1, sl: 1.09, direction: 'long' }
+    ];
+    const newTrade = {
+      pair: 'GBPUSD',
+      direction: 'long',
+      volume: 0.01,
+      priceOpen: 1.25,
+      sl: 1.24
+    };
+    const v = evaluateTradeRules(newTrade, prof, { openTrades, closedTrades: [] });
+    expect(v.some((x) => x.code === 'exposure-cap')).toBe(false);
   });
 });
 
