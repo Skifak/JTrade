@@ -44,10 +44,15 @@ function normalizeState(raw) {
   const base = {
     killzoneTimezone: 'America/New_York',
     killzones: deepCloneZones(),
-    killzonePriority: [...DEFAULT_KILLZONE_PRIORITY]
+    killzonePriority: [...DEFAULT_KILLZONE_PRIORITY],
+    /** true — системное меню браузера по ПКМ; false — встроенное меню журнала */
+    useNativeBrowserContextMenu: false
   };
   if (!raw || typeof raw !== 'object') return base;
 
+  if (typeof raw.useNativeBrowserContextMenu === 'boolean') {
+    base.useNativeBrowserContextMenu = raw.useNativeBrowserContextMenu;
+  }
   if (typeof raw.killzoneTimezone === 'string' && raw.killzoneTimezone.trim()) {
     base.killzoneTimezone = raw.killzoneTimezone.trim();
   }
@@ -92,6 +97,13 @@ function createJournalSettingsStore() {
       if (!id) return;
       update((s) => {
         const next = { ...s, killzoneTimezone: id };
+        save(next);
+        return next;
+      });
+    },
+    setUseNativeBrowserContextMenu(v) {
+      update((s) => {
+        const next = { ...s, useNativeBrowserContextMenu: !!v };
         save(next);
         return next;
       });

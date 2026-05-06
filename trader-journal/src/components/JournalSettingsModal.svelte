@@ -35,6 +35,22 @@
   <h2 slot="header" class="jsm-title">Настройки журнала</h2>
 
   <div slot="body">
+    <div class="form-block jsm-ctx-block">
+      <label class="jsm-check">
+        <input
+          type="checkbox"
+          checked={$journalSettings.useNativeBrowserContextMenu}
+          on:change={(e) =>
+            journalSettings.setUseNativeBrowserContextMenu(/** @type {HTMLInputElement} */ (e.currentTarget).checked)}
+        />
+        <span>Системное меню по правому клику (как в браузере)</span>
+      </label>
+      <span class="jsm-hint">
+        Выкл — своё меню: при выделении текста — копирование и т.д.; по пустому месту — быстрые действия
+        журнала.
+      </span>
+    </div>
+
     <p class="jsm-lead">
       Часовой пояс и окна killzone влияют на авто-определение KZ у сделок, фильтры в статистике и проверки плейбуков.
       ID окон должны совпадать с теми, что выбраны в стратегиях (например <code>SB</code>, <code>LO</code>).
@@ -164,6 +180,29 @@
     color: var(--text-strong);
     border: 0;
     padding: 0;
+  }
+  .jsm-ctx-block {
+    margin-bottom: 16px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .jsm-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 13px;
+    line-height: 1.45;
+    font-weight: 500;
+    color: var(--text-strong);
+    cursor: pointer;
+    user-select: none;
+  }
+  .jsm-check input {
+    margin: 3px 0 0 0;
+    flex-shrink: 0;
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
   }
   .jsm-lead {
     margin: 0 0 14px;

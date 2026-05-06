@@ -51,6 +51,7 @@
   import BiasModal from './components/BiasModal.svelte';
   import PlaybookView from './components/PlaybookView.svelte';
   import JournalSettingsModal from './components/JournalSettingsModal.svelte';
+  import GlobalContextMenu from './components/GlobalContextMenu.svelte';
   import DayJournalView from './components/DayJournalView.svelte';
   import TraderReferenceView from './components/TraderReferenceView.svelte';
   import GlossaryView from './components/GlossaryView.svelte';
@@ -1104,6 +1105,22 @@
   />
   <BiasModal bind:open={showBias} />
   <JournalSettingsModal bind:open={showJournalSettings} />
+  <GlobalContextMenu
+    tradeAddDisabled={tradingBlocked}
+    on:journalSettings={() => (showJournalSettings = true)}
+    on:newTrade={addNew}
+    on:navigateTab={(e) => {
+      const tab = e.detail?.tab;
+      if (typeof tab === 'string' && tab) activeTab = tab;
+    }}
+    on:reload={() => {
+      try {
+        window.location.reload();
+      } catch {
+        /* ignore */
+      }
+    }}
+  />
   <DailyReviewModal
     open={showDailyReview}
     {dailyPnL}
