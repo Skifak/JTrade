@@ -38,16 +38,26 @@
   import { journalSettings } from '../lib/journalSettings';
   import { ICT_GROUPS, isIctTag, prettyTag } from '../lib/ictTaxonomy';
   import { htfBias, findActiveBias, isAlignedWithBias, biasLabel } from '../lib/htfBias';
+  import { glossary } from '../lib/glossary';
   import Modal from './Modal.svelte';
   import PairPicker from './PairPicker.svelte';
   import RiskConfirmModal from './RiskConfirmModal.svelte';
   import BiasModal from './BiasModal.svelte';
+  import GlossaryTermPopover from './GlossaryTermPopover.svelte';
   import { toasts } from '../lib/toasts';
 
   const dispatch = createEventDispatcher();
   export let open = false;
   export let trade = null;
   export let mode = 'add';
+
+  $: glossaryCatNameById = Object.fromEntries(
+    (($glossary && $glossary.categories) || []).map((c) => [c.id, c.name])
+  );
+  $: glossaryFavorites = (($glossary && $glossary.terms) || [])
+    .filter((t) => t.favorite)
+    .slice()
+    .sort((a, b) => a.title.localeCompare(b.title, 'ru'));
 
   let formData = {};
   let useCurrentTime = true;
@@ -655,28 +665,103 @@
   }
 </script>
 
-<Modal {open} showAside={mode === 'add' || mode === 'edit'} modalClass="trade-form-modal" on:close={closeModal}>
+<Modal
+  {open}
+  showAside={mode === 'add' || mode === 'edit'}
+  showDock={mode === 'add' || mode === 'edit'}
+  modalClass="trade-form-modal"
+  on:close={closeModal}
+>
   <div slot="aside" class="trade-modal-templates-rail">
     <div class="trade-modal-templates-rail-inner">
-      <div class="trade-section-kicker">Шаблоны</div>
-      <p class="trade-templates-hint">Пара, направление, объём, теги, стратегия/setup, комментарий. Цена входа, SL и TP — заново.</p>
-      <ul class="trade-templates-list">
-        {#each $templates as tpl (tpl.id)}
-          <li class="trade-templates-item">
-            <button type="button" class="trade-templates-apply btn btn-sm" on:click={() => applyUserTemplate(tpl)}>
-              {tpl.name}
-            </button>
-            <button
-              type="button"
-              class="trade-templates-remove"
-              title="Удалить шаблон"
-              aria-label="Удалить шаблон"
-              on:click={(e) => removeTemplate(tpl.id, e)}
-            >×</button>
-          </li>
-        {/each}
-      </ul>
+      <div class="trade-modal-rail-split">
+        <section class="trade-modal-rail-pane trade-rail-pane--templates" aria-labelledby="trade-rail-tpl-heading">
+          <div id="trade-rail-tpl-heading" class="trade-section-kicker trade-rail-kicker">Шаблоны</div>
+          <p class="trade-templates-hint">
+            Пара, направление, объём, теги, стратегия/setup, комментарий. Цена входа, SL и TP — заново.
+          </p>
+          <ul class="trade-templates-list">
+            {#each $templates as tpl (tpl.id)}
+              <li class="trade-templates-item">
+                <button type="button" class="trade-templates-apply btn btn-sm" on:click={() => applyUserTemplate(tpl)}>
+                  {tpl.name}
+                </button>
+                <button
+                  type="button"
+                  class="trade-templates-remove"
+                  title="Удалить шаблон"
+                  aria-label="Удалить шаблон"
+                  on:click={(e) => removeTemplate(tpl.id, e)}
+                  >×</button
+                >
+              </li>
+            {/each}
+          </ul>
+        </section>
+
+        <div class="trade-modal-rail-divider" role="separator" aria-hidden="true"></div>
+
+        <section class="trade-modal-rail-pane trade-rail-pane--glossary" aria-labelledby="trade-rail-gl-heading">
+          <div id="trade-rail-gl-heading" class="trade-section-kicker trade-rail-kicker">Избранное · глоссарий</div>
+         
+          {#if glossaryFavorites.length === 0}
+            <div class="trade-glossary-empty">Пока нет избранных терминов — отметь ★ в глоссарии.</div>
+          {:else}
+            <ul class="trade-glossary-fav-list">
+              {#each glossaryFavorites as term (term.id)}
+                <li class="trade-glossary-fav-item">
+                  <GlossaryTermPopover
+                    title={term.title}
+                    definition={term.definition}
+                    categoryName={glossaryCatNameById[term.categoryId] || ''}
+                  />
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </section>
+      </div>
     </div>
+  </div>
+
+  <div slot="dock" class="trade-modal-pair-dock" role="region" aria-label="Контекст по паре">
+    {#if pairCtxKey}
+      <div class="trade-modal-pair-dock-head trade-section-kicker">Контекст по паре · {formData.pair}</div>
+      <div class="trade-pair-context-grid trade-pair-context-grid--dock">
+        <div class="trade-pair-context-cell">
+          <span class="trade-pair-context-label">Открытых по паре</span>
+          <span class="trade-pair-context-value">{openSamePairExcludingEdit}</span>
+        </div>
+        <div class="trade-pair-context-cell">
+          <span class="trade-pair-context-label">Закрыто сегодня (эта пара)</span>
+          <span class="trade-pair-context-value">{closedTodayPair}</span>
+        </div>
+        <div class="trade-pair-context-cell">
+          <span class="trade-pair-context-label">Направление vs HTF</span>
+          <span class="trade-pair-context-value">
+            {#if activeBias && biasVsDirectionLabel}
+              <span class:bias-align-on={biasAligned === true} class:bias-align-off={biasAligned === false}>
+                {biasVsDirectionLabel}
+              </span>
+              <span class="trade-pair-context-muted"> · {biasLabelText}</span>
+            {:else}
+              <span class="trade-pair-context-muted">{biasLabelText || 'bias не задан'}</span>
+            {/if}
+          </span>
+        </div>
+        <div class="trade-pair-context-cell">
+          <span class="trade-pair-context-label">Закрыто сегодня (все)</span>
+          <span class="trade-pair-context-value">
+            {closedTodayAll}
+            {#if maxDayTrades > 0}
+              <span class="trade-pair-context-muted"> / лимит {maxDayTrades}</span>
+            {/if}
+          </span>
+        </div>
+      </div>
+    {:else}
+      <div class="trade-modal-pair-dock-placeholder">Выбери инструмент выше — здесь будет контекст по паре.</div>
+    {/if}
   </div>
 
   <div slot="header">
@@ -1110,7 +1195,7 @@
       </div>
 
       {#if profileGateChecklistOn && profileGateRulesList.length > 0}
-        <div class="play-rules">
+        <div class="play-rules play-rules-profile">
           <div class="trade-section-kicker play-rules-title-row">
             📋 Чек-лист «Свои правила»
           </div>
@@ -1155,44 +1240,6 @@
         <label for="comment">Комментарий</label>
         <textarea id="comment" bind:value={formData.comment} rows="3"></textarea>
       </div>
-
-      {#if pairCtxKey}
-        <div class="trade-pair-context">
-          <div class="trade-section-kicker trade-pair-context-kicker">Контекст по паре · {formData.pair}</div>
-          <div class="trade-pair-context-grid">
-            <div class="trade-pair-context-cell">
-              <span class="trade-pair-context-label">Открытых по паре</span>
-              <span class="trade-pair-context-value">{openSamePairExcludingEdit}</span>
-            </div>
-            <div class="trade-pair-context-cell">
-              <span class="trade-pair-context-label">Закрыто сегодня (эта пара)</span>
-              <span class="trade-pair-context-value">{closedTodayPair}</span>
-            </div>
-            <div class="trade-pair-context-cell">
-              <span class="trade-pair-context-label">Направление vs HTF</span>
-              <span class="trade-pair-context-value">
-                {#if activeBias && biasVsDirectionLabel}
-                  <span class:bias-align-on={biasAligned === true} class:bias-align-off={biasAligned === false}>
-                    {biasVsDirectionLabel}
-                  </span>
-                  <span class="trade-pair-context-muted"> · {biasLabelText}</span>
-                {:else}
-                  <span class="trade-pair-context-muted">{biasLabelText || 'bias не задан'}</span>
-                {/if}
-              </span>
-            </div>
-            <div class="trade-pair-context-cell">
-              <span class="trade-pair-context-label">Закрыто сегодня (все)</span>
-              <span class="trade-pair-context-value">
-                {closedTodayAll}
-                {#if maxDayTrades > 0}
-                  <span class="trade-pair-context-muted"> / лимит {maxDayTrades}</span>
-                {/if}
-              </span>
-            </div>
-          </div>
-        </div>
-      {/if}
     {/if}
   </div>
   
@@ -1280,25 +1327,51 @@
     align-items: center;
   }
 
-  .trade-pair-context {
-    margin-top: 14px;
-    padding: 10px 12px;
+  .trade-modal-pair-dock {
+    width: 100%;
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+    padding: 12px 14px;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 10px;
     background: var(--bg-2);
+    box-shadow:
+      var(--shadow),
+      inset 0 1px 0 color-mix(in srgb, var(--text) 5%, transparent);
   }
-  .trade-pair-context-kicker.trade-section-kicker {
+
+  .trade-modal-pair-dock-placeholder {
+    margin: 0;
+    padding: 6px 4px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-muted);
+    text-align: center;
+  }
+
+  .trade-modal-pair-dock-head.trade-section-kicker {
     text-transform: none;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.04em;
     font-weight: 700;
-    margin-bottom: 8px;
-    padding-bottom: 6px;
+    font-size: 11px;
+    margin: 0 0 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-strong);
   }
+
   .trade-pair-context-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     gap: 10px 14px;
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    min-width: 0;
   }
+
+  .trade-pair-context-grid--dock {
+    margin: 0;
+  }
+
   .trade-pair-context-cell {
     display: flex;
     flex-direction: column;
@@ -1355,15 +1428,19 @@
   }
 
   .trade-modal-templates-rail {
-    width: 200px;
-    flex-shrink: 0;
+    width: min(360px, 34vw);
+    min-width: 280px;
+    /* в колонке aside высота тянется; при нехватке места сжимаемся, скролл внутри */
+    flex: 1 1 auto;
     display: flex;
     flex-direction: column;
     align-self: stretch;
     border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--bg);
-    box-shadow: var(--shadow);
+    border-radius: 10px;
+    background: var(--bg-2);
+    box-shadow:
+      var(--shadow),
+      inset 0 1px 0 color-mix(in srgb, var(--text) 5%, transparent);
     overflow: hidden;
     min-height: 0;
   }
@@ -1372,13 +1449,107 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    padding: 14px 12px;
+    padding: 12px 10px;
   }
+
+  .trade-modal-rail-split {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    min-height: 0;
+    min-width: 0;
+  }
+
+  .trade-modal-rail-pane {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 0 4px;
+    overflow: hidden;
+  }
+
+  .trade-modal-rail-pane .trade-section-kicker,
+  .trade-modal-rail-pane > .trade-templates-hint {
+    flex-shrink: 0;
+  }
+
+  .trade-modal-rail-divider {
+    flex-shrink: 0;
+    height: 1px;
+    width: auto;
+    align-self: stretch;
+    margin: 10px 4px;
+    background: linear-gradient(
+      to right,
+      transparent 0%,
+      color-mix(in srgb, var(--border) 85%, transparent) 12%,
+      color-mix(in srgb, var(--border) 85%, transparent) 88%,
+      transparent 100%
+    );
+  }
+
+  .trade-rail-kicker.trade-section-kicker {
+    margin-bottom: 6px;
+    padding-bottom: 5px;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+  }
+
+  .trade-rail-pane--templates .trade-templates-hint,
+  .trade-rail-pane--glossary .trade-templates-hint {
+    margin-bottom: 10px;
+  }
+
+  .trade-glossary-fav-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .trade-glossary-fav-item {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    flex-shrink: 0;
+  }
+
+  .trade-glossary-empty {
+    font-size: 11px;
+    line-height: 1.42;
+    color: var(--text-muted);
+    padding: 12px 10px;
+    border: 1px dashed color-mix(in srgb, var(--border) 90%, transparent);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    text-align: center;
+    flex: 1;
+    min-height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   @media (max-width: 720px) {
     .trade-modal-templates-rail {
       width: 100%;
-      max-height: min(220px, 38vh);
+      min-width: 0;
+      max-height: min(280px, 42vh);
       align-self: auto;
+    }
+    .trade-modal-rail-pane {
+      padding: 0 2px;
     }
   }
 
@@ -1395,7 +1566,7 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    flex: 1;
+    flex: 1 1 0;
     min-height: 0;
     overflow-y: auto;
   }
@@ -1403,6 +1574,7 @@
     display: flex;
     align-items: center;
     gap: 4px;
+    flex-shrink: 0;
   }
   .trade-templates-apply {
     flex: 1;
@@ -1469,17 +1641,17 @@
   .warn-text { color: var(--warning); }
 
   .violations-preview {
-    margin: 0 0 12px 0;
+    margin: 0 0 12px;
     padding: 10px 12px;
     border: 1px solid var(--border);
     border-left: 3px solid var(--warning);
     background: var(--bg-2);
-    border-radius: 3px;
+    border-radius: 6px;
   }
-  .violations-preview {
+  .violations-preview-list {
     list-style: none;
     padding: 0;
-    margin: 0 0 6px 0;
+    margin: 0 0 8px;
   }
   .violation {
     display: flex;
@@ -1532,8 +1704,6 @@
     line-height: 1.4;
     color: var(--text-muted);
   }
-
-  /* .play-rules for «Свои правила» — те же классы, что у чек-листа play */
 
   /* ----- Killzone / Bias ----- */
   .ctx-row {
@@ -1613,6 +1783,56 @@
     margin-top: 10px;
     padding-top: 8px;
     border-top: 1px dashed var(--border);
+  }
+
+  /* «Свои правила»: отдельная карточка, не сырая разметка */
+  .play-rules.play-rules-profile {
+    margin-top: 14px;
+    padding: 12px 14px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-2);
+    border-left: 3px solid var(--accent-border);
+    box-shadow:
+      var(--shadow),
+      inset 0 1px 0 color-mix(in srgb, var(--text) 5%, transparent);
+    border-top: 1px solid var(--border);
+  }
+  .play-rules-profile .play-rules-title-row.trade-section-kicker {
+    margin: 0 0 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 700;
+    color: var(--text-strong);
+    letter-spacing: 0.03em;
+  }
+  .play-rules-profile .play-rule {
+    padding: 8px 10px;
+    margin: 0 0 6px;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    font-size: 12.5px;
+    line-height: 1.45;
+    transition:
+      border-color 0.12s ease,
+      background 0.12s ease;
+  }
+  .play-rules-profile .play-rule:last-child {
+    margin-bottom: 0;
+  }
+  .play-rules-profile .play-rule:hover {
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+    background: color-mix(in srgb, var(--accent) 8%, var(--bg-2));
+  }
+  .play-rules-profile .play-rule input[type='checkbox'] {
+    accent-color: var(--accent);
+    margin-top: 5px;
+  }
+  .play-rules-profile .req-tag {
+    border-radius: 4px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
   }
   .play-htf-req {
     font-size: 10.5px;
