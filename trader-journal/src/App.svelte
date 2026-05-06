@@ -51,6 +51,7 @@
   import PlaybookView from './components/PlaybookView.svelte';
   import JournalSettingsModal from './components/JournalSettingsModal.svelte';
   import DayJournalView from './components/DayJournalView.svelte';
+  import TraderReferenceView from './components/TraderReferenceView.svelte';
   import GlossaryView from './components/GlossaryView.svelte';
   import ImageLightbox from './components/ImageLightbox.svelte';
   import AddImageModal from './components/AddImageModal.svelte';
@@ -697,6 +698,12 @@
       Дневник
     </button>
     <button
+      class="tab {activeTab === 'reference' ? 'active' : ''}"
+      on:click={() => activeTab = 'reference'}
+    >
+      Справочник
+    </button>
+    <button
       class="tab {activeTab === 'glossary' ? 'active' : ''}"
       on:click={() => activeTab = 'glossary'}
     >
@@ -1061,6 +1068,8 @@
     <AnalyticsView on:openJournal={() => (activeTab = 'journal')} />
   {:else if activeTab === 'journal'}
     <DayJournalView />
+  {:else if activeTab === 'reference'}
+    <TraderReferenceView />
   {:else if activeTab === 'glossary'}
     <GlossaryView />
   {:else if activeTab === 'playbooks'}
