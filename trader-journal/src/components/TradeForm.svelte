@@ -640,7 +640,7 @@
 </script>
 
 <Modal {open} showAside={mode === 'add' || mode === 'edit'} modalClass="trade-form-modal" on:close={closeModal}>
-  <div slot="aside" class="trade-modal-templates-rail" data-tour="tour-trade-templates-rail">
+  <div slot="aside" class="trade-modal-templates-rail">
     <div class="trade-modal-templates-rail-inner">
       <div class="trade-section-kicker">Шаблоны</div>
       <p class="trade-templates-hint">Пара, направление, объём, теги, стратегия/setup, комментарий. Цена входа, SL и TP — заново.</p>
@@ -1179,14 +1179,13 @@
     <button type="button" class="btn trade-modal-cancel" on:click={closeModal}>Отмена</button>
     <div class="trade-modal-footer-actions">
       {#if mode === 'add' || mode === 'edit'}
-        <button type="button" class="btn" data-tour="tour-trade-save-template" on:click={saveAsTemplate}>
+        <button type="button" class="btn" on:click={saveAsTemplate}>
           Сохранить как шаблон
         </button>
       {/if}
       <button
         type="button"
         class="btn {hasBlockingViolation ? 'btn-danger' : liveViolations.length > 0 ? 'btn-warn' : 'btn-primary'}"
-        data-tour="tour-trade-save"
         on:click={save}
       >
         {hasBlockingViolation ? 'Сохранить (нарушает правила)' : liveViolations.length > 0 ? 'Сохранить (с предупреждением)' : 'Сохранить'}

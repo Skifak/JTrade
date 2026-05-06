@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy, tick } from 'svelte';
   import dayjs from 'dayjs';
-  import { trades, userProfile, journalTourProfileSubIndex, journalTourProfileSubNextBus, requestJournalTourProfileSubNext } from './lib/stores';
+  import { trades, userProfile } from './lib/stores';
   import { toasts } from './lib/toasts';
   import { glossary } from './lib/glossary';
   import * as att from './lib/attachmentApi';
@@ -55,21 +55,10 @@
   import ImageLightbox from './components/ImageLightbox.svelte';
   import AddImageModal from './components/AddImageModal.svelte';
   import OnboardingJournalModal from './components/OnboardingJournalModal.svelte';
-  import JournalTourOverlay from './components/JournalTourOverlay.svelte';
-  import JournalTourProgressModal from './components/JournalTourProgressModal.svelte';
-  import {
-    JOURNAL_TOUR_STEPS,
-    tourStepNeedsTradeFormOpen,
-    getJournalTourBlock,
-    JOURNAL_TOUR_PROFILE_MODAL_SPOT,
-    getFirstStepIndexForJournalTourBlock,
-    getNextJournalTourBlockFirstStepIndex
-  } from './lib/journalTour.js';
   import { activeJournalAccount } from './lib/accounts';
-  import { dayJournal, normalizeEntry } from './lib/dayJournal';
+  import { dayJournal } from './lib/dayJournal';
   import { dayJournalHasContent } from './lib/tradingMentor';
   import { achievementProgress } from './lib/achievements';
-  import { getProfileTourSubsteps } from './lib/journalTourProfileSubsteps.js';
 
   let showForm = false;
   let showProfile = false;
@@ -78,104 +67,6 @@
   /** @type {Array<{ id: string, title: string, body: string }>} */
   let achievementUnlockQueue = [];
   let achievementsBootSuppress = true;
-  let journalTourOpen = false;
-  let journalTourIndex = 0;
-  $: journalTourStep = journalTourOpen ? JOURNAL_TOUR_STEPS[journalTourIndex] ?? null : null;
-  /** На шаге «профиль»: разрешить «Далее» только после «Сохранить профиль» (или повторный визит после сохранения в этом туре). */
-  let journalTourProfileSavedFlag = false;
-  let journalTourProfileCompletedOnce = false;
-  let journalTourProgressOpen = false;
-
-  $: profileProgressCtx = {
-    hideBasicsSection: $activeJournalAccount?.createdFrom === 'import',
-    currencySelectableInProfile: $activeJournalAccount?.createdFrom === 'legacy'
-  };
-  $: journalTourBlockLabel = journalTourStep?.blockId
-    ? getJournalTourBlock(journalTourStep.blockId)?.label ?? ''
-    : '';
-
-  /** Подсветка: в модалке профиля — поле подшага, иначе якорь шага. */
-  $: journalTourSpotlightTarget =
-    journalTourStep?.id === 'profile' && showProfile
-      ? JOURNAL_TOUR_PROFILE_MODAL_SPOT
-      : journalTourStep?.target ?? null;
-
-  $: journalTourCanSkipBlock =
-    journalTourOpen && getNextJournalTourBlockFirstStepIndex(journalTourIndex) >= 0;
-
-  $: profileTourStepsForOverlay = getProfileTourSubsteps(profileProgressCtx);
-  $: journalTourProfileSubUi =
-    journalTourOpen && journalTourStep?.id === 'profile' && showProfile && profileTourStepsForOverlay.length > 0
-      ? (() => {
-          const idx = Math.min(
-            Math.max(0, $journalTourProfileSubIndex),
-            profileTourStepsForOverlay.length - 1
-          );
-          const sub = profileTourStepsForOverlay[idx];
-          if (!sub) return null;
-          return {
-            index: idx,
-            total: profileTourStepsForOverlay.length,
-            title: sub.title,
-            hint: sub.hint,
-            showAdvance: !sub.isSavePrompt
-          };
-        })()
-      : null;
-
-  /** Смена шага/подшага/модалки профиля — перепривязка свечения на `data-tour`. */
-  $: journalTourGlowKey = `${journalTourIndex}-${$journalTourProfileSubIndex}-${showProfile ? 1 : 0}`;
-
-  /** @param {number} idx @param {{ openProfileIfNeeded?: boolean }} [opts] */
-  function journalTourApplyStepIndex(idx, opts = {}) {
-    const { openProfileIfNeeded = true } = opts;
-    if (idx < 0 || idx >= JOURNAL_TOUR_STEPS.length) return;
-    journalTourIndex = idx;
-    journalTourProfileSubIndex.set(0);
-    const s = JOURNAL_TOUR_STEPS[idx];
-    if (s?.tab) activeTab = s.tab;
-    if (s?.id === 'profile') {
-      journalTourProfileSavedFlag = journalTourProfileCompletedOnce;
-      if (openProfileIfNeeded && !showProfile) openProfileModal('setup');
-    } else if (showProfile) {
-      showProfile = false;
-    }
-  }
-
-  function journalTourSkipBlock() {
-    const next = getNextJournalTourBlockFirstStepIndex(journalTourIndex);
-    if (next < 0) {
-      toasts.warn('Это последний блок тура.', { ttl: 4000 });
-      return;
-    }
-    journalTourApplyStepIndex(next);
-  }
-
-  /** Переход к первому шагу блока (из экрана прогресса). */
-  function journalTourJumpToBlockStart(blockId) {
-    const idx = getFirstStepIndexForJournalTourBlock(blockId);
-    if (idx < 0) return;
-    if (!journalTourOpen) journalTourOpen = true;
-    journalTourProgressOpen = false;
-    journalTourApplyStepIndex(idx);
-  }
-
-  /** @param {KeyboardEvent} e */
-  function onJournalTourEnterKeydown(e) {
-    if (e.key !== 'Enter' || !journalTourOpen || journalTourProgressOpen) return;
-    const t = e.target;
-    if (!(t instanceof Element)) return;
-    if (t instanceof HTMLTextAreaElement) return;
-    if (t instanceof HTMLElement && t.isContentEditable) return;
-    if (t instanceof HTMLInputElement || t instanceof HTMLSelectElement) return;
-    if (t.closest('.profile-modal-body') && journalTourStep?.id === 'profile') return;
-    if (t.closest('.tour-panel')) {
-      if (t instanceof HTMLButtonElement || t.closest('button')) return;
-    }
-
-    e.preventDefault();
-    journalTourNext();
-  }
 
   let showBias = false;
   let showJournalSettings = false;
@@ -586,79 +477,6 @@
     showForm = true;
   }
 
-  function startJournalTour() {
-    journalTourProfileSubNextBus.set(0);
-    journalTourIndex = 0;
-    journalTourOpen = true;
-    journalTourProfileSavedFlag = false;
-    journalTourProfileCompletedOnce = false;
-    journalTourProfileSubIndex.set(0);
-    const s = JOURNAL_TOUR_STEPS[0];
-    if (s?.tab) activeTab = s.tab;
-  }
-
-  function closeJournalTour() {
-    journalTourOpen = false;
-    journalTourProfileSubIndex.set(0);
-  }
-
-  function handleJournalTourProfileSaved() {
-    journalTourProfileCompletedOnce = true;
-    journalTourProfileSavedFlag = true;
-    journalTourProfileSubIndex.set(0);
-    journalTourNext();
-  }
-
-  function journalTourNext() {
-    const cur = JOURNAL_TOUR_STEPS[journalTourIndex];
-    if (cur?.id === 'profile' && !journalTourProfileSavedFlag) {
-      toasts.warn(showProfile
-        ? 'Сохрани профиль кнопкой «Сохранить профиль» внизу модалки.'
-        : 'Открой «Профиль», пройди подсказки в модалке (Enter / «Далее по полю») и в конце нажми «Сохранить профиль».',
-        { ttl: 7000 }
-      );
-      if (!showProfile && cur?.id === 'profile') openProfileModal('setup');
-      return;
-    }
-    if (cur?.id === 'tab-journal') {
-      const ent = normalizeEntry($dayJournal[journalTodayKey] || {});
-      if (!dayJournalHasContent(ent)) {
-        toasts.warn(
-          'Заполни дневник (план, итог, чек-лист или заметки), затем «Далее».',
-          { ttl: 6500 }
-        );
-        return;
-      }
-    }
-    if (journalTourIndex >= JOURNAL_TOUR_STEPS.length - 1) {
-      journalTourOpen = false;
-      return;
-    }
-    const nextStep = JOURNAL_TOUR_STEPS[journalTourIndex + 1];
-    if (tourStepNeedsTradeFormOpen(nextStep) && !showForm) {
-      toasts.warn('Сначала открой окно сделки кнопкой «+ Сделка».', { ttl: 5000 });
-      return;
-    }
-    journalTourIndex += 1;
-    const s = JOURNAL_TOUR_STEPS[journalTourIndex];
-    if (s?.tab) activeTab = s.tab;
-    if (s?.id === 'profile') {
-      journalTourProfileSavedFlag = journalTourProfileCompletedOnce;
-      if (!showProfile) openProfileModal('setup');
-    }
-  }
-
-  function journalTourPrev() {
-    if (journalTourIndex <= 0) return;
-    journalTourIndex -= 1;
-    const s = JOURNAL_TOUR_STEPS[journalTourIndex];
-    if (s?.tab) activeTab = s.tab;
-    if (s?.id === 'profile') {
-      journalTourProfileSavedFlag = journalTourProfileCompletedOnce;
-      journalTourProfileSubIndex.set(0);
-      if (!showProfile) openProfileModal('setup');
-    }
-  }
   function cancelCooldown() {
     if (!confirm('Отменить cooldown? Только если ты уверен, что не на тильте.')) return;
     cooldown.cancel();
@@ -739,8 +557,6 @@
   }
 </script>
 
-<svelte:window on:keydown={onJournalTourEnterKeydown} />
-
 <div class="trader-journal">
   <div class="journal-header">
     <div class="header-left">
@@ -755,15 +571,6 @@
       </div>
     </div>
     <div class="header-right">
-      <button
-        type="button"
-        class="btn btn-sm journal-tour-start-btn"
-        data-tour="tour-learn-cta"
-        title="Пошаговый обзор интерфейса"
-        on:click={startJournalTour}
-      >
-        Пройти обучение
-      </button>
       <div class="theme-switch">
         <label class="theme-switch-label" for="app-theme-select">Тема</label>
         <select
@@ -780,7 +587,6 @@
       <div class="btn-group">
         <button
           class="btn btn-primary"
-          data-tour="tour-new-trade"
           on:click={addNew}
           disabled={tradingBlocked}
           title={tradingBlocked ? tradingBlockedReason : 'Новая сделка'}
@@ -793,7 +599,6 @@
         >Параметры</button>
         <button
           class="btn"
-          data-tour="tour-profile"
           on:click={() => openProfileModal('setup')}
           title="Профиль"
         >Профиль</button>
@@ -860,41 +665,53 @@
 
   <TemplatesPanel on:apply={applyTemplate} />
 
-  <div class="tabs" data-tour="tour-tabs">
+  <div class="tabs">
     <button
       class="tab {activeTab === 'open' ? 'active' : ''}"
-      data-tour="tour-tab-open"
       on:click={() => activeTab = 'open'}
     >
       Открытые ({openTrades.length})
     </button>
-    <button class="tab {activeTab === 'closed' ? 'active' : ''}" on:click={() => activeTab = 'closed'}>
+    <button
+      class="tab {activeTab === 'closed' ? 'active' : ''}"
+      on:click={() => activeTab = 'closed'}
+    >
       Закрытые ({closedTrades.length})
     </button>
     <button
       class="tab {activeTab === 'stats' ? 'active' : ''}"
-      data-tour="tour-tab-stats"
       on:click={() => activeTab = 'stats'}
     >
       Статистика
     </button>
-    <button class="tab {activeTab === 'analytics' ? 'active' : ''}" on:click={() => activeTab = 'analytics'}>
+    <button
+      class="tab {activeTab === 'analytics' ? 'active' : ''}"
+      on:click={() => activeTab = 'analytics'}
+    >
       Аналитика
     </button>
     <button
       class="tab {activeTab === 'journal' ? 'active' : ''}"
-      data-tour="tour-tab-journal"
       on:click={() => activeTab = 'journal'}
     >
       Дневник
     </button>
-    <button class="tab {activeTab === 'glossary' ? 'active' : ''}" on:click={() => activeTab = 'glossary'}>
+    <button
+      class="tab {activeTab === 'glossary' ? 'active' : ''}"
+      on:click={() => activeTab = 'glossary'}
+    >
       Глоссарий
     </button>
-    <button class="tab {activeTab === 'playbooks' ? 'active' : ''}" on:click={() => activeTab = 'playbooks'}>
+    <button
+      class="tab {activeTab === 'playbooks' ? 'active' : ''}"
+      on:click={() => activeTab = 'playbooks'}
+    >
       Плейбуки
     </button>
-    <button class="tab {activeTab === 'guide' ? 'active' : ''}" on:click={() => activeTab = 'guide'}>
+    <button
+      class="tab {activeTab === 'guide' ? 'active' : ''}"
+      on:click={() => activeTab = 'guide'}
+    >
       Гайд
     </button>
   </div>
@@ -1262,8 +1079,6 @@
     bind:open={showProfile}
     {closedTrades}
     startTab={profileModalStartTab}
-    journalTourProfileActive={journalTourOpen && journalTourStep?.id === 'profile'}
-    on:journalTourProfileSaved={handleJournalTourProfileSaved}
   />
   <AchievementUnlockBanner
     queue={achievementUnlockQueue}
@@ -1292,34 +1107,7 @@
     on:remove={onTradeLightboxRemove}
   />
   <OnboardingJournalModal suppress={showProfile} />
-  <JournalTourOverlay
-    open={journalTourOpen}
-    step={journalTourStep}
-    stepIndex={journalTourIndex}
-    totalSteps={JOURNAL_TOUR_STEPS.length}
-    blockLabel={journalTourBlockLabel}
-    spotlightTarget={journalTourSpotlightTarget}
-    tourGlowKey={journalTourGlowKey}
-    profileSubstep={journalTourProfileSubUi}
-    canSkipBlock={journalTourCanSkipBlock}
-    on:next={journalTourNext}
-    on:prev={journalTourPrev}
-    on:close={closeJournalTour}
-    on:progress={() => (journalTourProgressOpen = true)}
-    on:skipBlock={journalTourSkipBlock}
-    on:profileSubNext={() => requestJournalTourProfileSubNext()}
-  />
 </div>
-
-<JournalTourProgressModal
-  bind:open={journalTourProgressOpen}
-  currentStepIndex={journalTourIndex}
-  tourOpen={journalTourOpen}
-  profileSubIndex={$journalTourProfileSubIndex}
-  profileCompletedOnce={journalTourProfileCompletedOnce}
-  profileProgressCtx={profileProgressCtx}
-  on:jumpBlock={(e) => journalTourJumpToBlockStart(e.detail.blockId)}
-/>
 
 <Toasts />
 

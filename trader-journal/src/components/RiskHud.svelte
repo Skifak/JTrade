@@ -125,7 +125,7 @@
   }
 </script>
 
-<section class="hud" aria-label="Риск-показатели" data-tour="tour-hud">
+<section class="hud" aria-label="Риск-показатели">
   <!-- Equity -->
   <div class="hud-card">
     <div class="hud-label">Equity</div>
