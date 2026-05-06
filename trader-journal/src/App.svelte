@@ -838,7 +838,7 @@
               {@const lp = $livePrices[normalizeSymbolKey(trade.pair)]}
               {@const mp = pickPrice(lp, trade)}
               {@const fp = floatingFor(lp, trade)}
-              <tr>
+              <tr class="tj-trade-row" data-tj-trade-id={trade.id}>
                 <td title={src.title}>{src.icon}</td>
                 <td>{formatDate(trade.dateOpen)}</td>
                 <td><strong>{trade.pair}</strong></td>
@@ -985,7 +985,7 @@
               {@const pips = calculatePips(trade)}
               {@const pct = calculatePricePercent(trade)}
               {@const pd = tradeProfitDisplayUnits(trade, $fxRate)}
-              <tr title={trade.comment || ''}>
+              <tr class="tj-trade-row" data-tj-trade-id={trade.id} title={trade.comment || ''}>
                 <td title={src.title}>{src.icon}</td>
                 <td>{formatDate(trade.dateOpen)}</td>
                 <td>{formatDate(trade.dateClose)}</td>
@@ -1109,17 +1109,6 @@
     tradeAddDisabled={tradingBlocked}
     on:journalSettings={() => (showJournalSettings = true)}
     on:newTrade={addNew}
-    on:navigateTab={(e) => {
-      const tab = e.detail?.tab;
-      if (typeof tab === 'string' && tab) activeTab = tab;
-    }}
-    on:reload={() => {
-      try {
-        window.location.reload();
-      } catch {
-        /* ignore */
-      }
-    }}
   />
   <DailyReviewModal
     open={showDailyReview}
