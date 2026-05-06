@@ -378,7 +378,7 @@
     <section class="analytics-section">
       <h3 class="analytics-section-title">База советов</h3>
       <p class="analytics-section-lede">
-        Подборка по темам маяков. Оригиналы постов — ⓘ у заголовка; если в карточке два автора, в панели вкладки «Руфат» и «Виктор».
+        Подборка по темам маяков. Оригиналы постов — ⓘ у заголовка;
       </p>
       <div class="analytics-advice">
         {#each pack.advicePick as item (item.id)}

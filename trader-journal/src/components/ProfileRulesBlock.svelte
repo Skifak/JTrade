@@ -10,6 +10,9 @@
   /** Профиль / форма — тот же shape, что в ProfileModal */
   export let formData = {};
 
+  /** Инкремент при любом изменении полей вкладки (см. ProfileRulesTab input/change) — чтобы summary пересчитался. */
+  export let summaryTick = 0;
+
   /** Список правил (по умолчанию все) */
   export let entries = PROFILE_RULE_ENTRIES;
 
@@ -66,7 +69,9 @@
             {expandedIds.has(entry.id) ? 'Свернуть' : 'Подробнее'}
           </button>
         </div>
-        <p class="profile-rule-summary">{entry.summary(formData)}</p>
+        <p class="profile-rule-summary">
+          {#key summaryTick}{entry.summary(formData)}{/key}
+        </p>
         <ProfileRuleCardFields ruleId={entry.id} {formData} />
         {#if expandedIds.has(entry.id)}
           <div class="profile-rule-body">

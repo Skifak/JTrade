@@ -162,8 +162,8 @@ export const PROFILE_RULE_ENTRIES = [
     ],
     summary: (fd) =>
       n(fd.cooldownAfterLossMin) > 0
-        ? `Пауза ${n(fd.cooldownAfterLossMin)} мин после убыточного закрытия`
-        : 'Выключено (0 мин).'
+        ? `Включено. Пауза ${n(fd.cooldownAfterLossMin)} мин после убыточного закрытия`
+        : 'Выключено.'
   },
   {
     id: 'no-sl',
@@ -218,11 +218,11 @@ export const PROFILE_RULE_ENTRIES = [
       'Иначе — предупреждение при сохранении. Блокировки нет, но дисциплина фиксируется.'
     ],
     summary: (fd) => {
-      if (fd.profileNotesChecklistEnabled === false) return 'Проверка по заметкам выключена (галочка в этой карточке).';
+      if (fd.profileNotesChecklistEnabled === false) return 'Выключено.';
       const items = parseNotesChecklist(fd.notes);
       return items.length
-        ? `${items.length} пункт(ов) в заметках — нужны галочки в форме`
-        : 'Строк в заметках нет — чек-лист пуст.';
+        ? `Включено. ${items.length} пункт(ов) в заметках — нужны галочки в форме`
+        : 'Включено. Строк в заметках нет — чек-лист пуст.';
     }
   },
   {
@@ -286,21 +286,8 @@ export const PROFILE_RULE_ENTRIES = [
       const parts = g.slice(0, 4).map((x) => `×${Number(x)}`);
       const chain = parts.length ? parts.join(' → ') : '×…';
       const tail = g.length > 4 ? ' → …' : '';
-      return `С ${from} уб.: ${chain}${tail}`;
+      return `Включено. С ${from} уб.: ${chain}${tail}`;
     }
-  },
-  {
-    id: 'hud-risk-bars',
-    title: 'HUD: дневной P/L, открытый риск, позиции, серия, цели, дисциплина',
-    layer: 'hud',
-    level: 'info',
-    userConfigurable: false,
-    sourceIds: ['mm-vic-03'],
-    paragraphs: [
-      'Панель над журналом дублирует ключевые пороги: расход дневного стопа, заполнение бюджета Σриска по открытым, число позиций, серия, прогресс к цели дня, качество дисциплины.',
-      'Карточка Anti-revenge показывает cooldown или текущий коэффициент anti-martingale.'
-    ],
-    summary: (fd) => `Валюта отображения: ${fd.accountCurrency || '—'} (через курс счёта).`
   },
   {
     id: 'goal-day-popup',
@@ -315,7 +302,7 @@ export const PROFILE_RULE_ENTRIES = [
     ],
     summary: (fd) =>
       fd.dailyReviewEnabled !== false && n(fd.goalDayValue) > 0
-        ? 'Включено (зависит от цели дня и профиля).'
+        ? 'Включено (есть модалка при достижении цели дня).'
         : 'Выключено или цель дня нулевая.'
   },
   {
@@ -331,7 +318,7 @@ export const PROFILE_RULE_ENTRIES = [
     ],
     summary: (fd) =>
       fd.journalDayReminderEnabled !== false
-        ? `Час (локально): ${n(fd.journalDayReminderHourLocal)}`
+        ? `Включено. Час (локально): ${n(fd.journalDayReminderHourLocal)}`
         : 'Выключено.'
   },
   {
@@ -350,47 +337,8 @@ export const PROFILE_RULE_ENTRIES = [
     ],
     summary: (fd) =>
       fd.postCloseChartReminderEnabled !== false
-        ? 'Включено: напоминание + мягкий гейт при правке закрытой без скрина.'
+        ? 'Включено: напоминание + мягкое правило при правке закрытой без скрина.'
         : 'Выключено.'
-  },
-  {
-    id: 'discipline-score',
-    title: 'Метрика «Дисциплина»',
-    layer: 'hud',
-    level: 'info',
-    userConfigurable: false,
-    sourceIds: ['mm-vic-02'],
-    paragraphs: [
-      'Средний балл по закрытым сделкам: у каждой сделки старт 100, за каждое нарушение гейта вычитается штраф — за BLOCK сильнее, чем за WARN (одинаковое число записей даёт разный вклад).',
-      'Сделки без ruleViolations дают 100 к среднему. Пунктирная «disciplined» в кривой equity и дисциплинарный PnL исключают только материальные нарушения (вход/риск/план до и во время сделки). Мягкое «нет скрина после закрытия» учитывается в этом HUD-проценте, но не выкидывает PnL сделки из пунктира.'
-    ],
-    summary: () => 'Считается по журналу, не по полям формы профиля.'
-  },
-  {
-    id: 'practice-news-flat',
-    title: 'Практика: красная зона новостей (вне кода)',
-    layer: 'practice',
-    level: 'info',
-    userConfigurable: false,
-    sourceIds: ['abu-ruf-01'],
-    paragraphs: [
-      'Журнал не подставляет экономический календарь автоматически. Имеет смысл вручную договориться «не торговать около HIGH/CPI/NFP» и вынести это в заметки профиля или чек-лист дня.',
-      'Так ты видишь нарушение в чек-листе так же, как остальные свои правила.'
-    ],
-    summary: () => 'Не блокируется автоматически — только через твой чек-лист.'
-  },
-  {
-    id: 'practice-session-capital',
-    title: 'Практика: не торговать «на последние деньги»',
-    layer: 'practice',
-    level: 'info',
-    userConfigurable: false,
-    sourceIds: ['mm-vic-03'],
-    paragraphs: [
-      'Размер позиции и дневной стоп защищают счёт, но не подменяют запас по жизни. Если стресс от размера счёта высокий — инструмент журналирования фиксирует только часть проблемы.',
-      'Часто помогает искусственно занизить «эмоциональный» капитал: в профиле держать цифру, с которой ты реально готов торговать ровно и без «отыгрыша».'
-    ],
-    summary: () => 'Рекомендация процесса, не автоматический стоп.'
   },
   {
     id: 'weekly-loss-stop',
@@ -406,11 +354,11 @@ export const PROFILE_RULE_ENTRIES = [
       'Если результат ≤ −лимита из профиля, новая открытая позиция блокируется (как дневной стоп). Сброс при переходе на новую неделю.'
     ],
     summary: (fd) => {
-      if (fd.weeklyLossLimitEnabled === false) return 'Выключено (галочка в этой карточке).';
+      if (fd.weeklyLossLimitEnabled === false) return 'Выключено.';
       const lim = computeMaxWeeklyLossAmount(fd);
       return lim > 0
-        ? `Стоп недели: −${lim.toFixed(2)} ${fd.accountCurrency || ''} (${fmtPctOrAmount(fd, 'weeklyLossLimitMode', 'weeklyLossLimitPercent', 'weeklyLossLimitAmount')})`.trim()
-        : 'Выключено (лимит 0).';
+        ? `Включено. Стоп недели: −${lim.toFixed(2)} ${fd.accountCurrency || ''} (${fmtPctOrAmount(fd, 'weeklyLossLimitMode', 'weeklyLossLimitPercent', 'weeklyLossLimitAmount')})`.trim()
+        : 'Включено, но лимит 0 — недельный стоп не задаётся.';
     }
   },
   {
@@ -427,16 +375,16 @@ export const PROFILE_RULE_ENTRIES = [
       'Отличается от модалки «цель дня»: это жёсткий запрет на новую сделку после порога.'
     ],
     summary: (fd) => {
-      if (fd.dailyProfitLockEnabled === false) return 'Выключено (галочка в этой карточке).';
+      if (fd.dailyProfitLockEnabled === false) return 'Выключено.';
       const lim = computeDailyProfitLockAmount(fd);
       return lim > 0
-        ? `Потолок: +${lim.toFixed(2)} ${fd.accountCurrency || ''} (${fmtPctOrAmount(fd, 'dailyProfitLockMode', 'dailyProfitLockPercent', 'dailyProfitLockAmount')})`.trim()
-        : 'Выключено.';
+        ? `Включено. Потолок: +${lim.toFixed(2)} ${fd.accountCurrency || ''} (${fmtPctOrAmount(fd, 'dailyProfitLockMode', 'dailyProfitLockPercent', 'dailyProfitLockAmount')})`.trim()
+        : 'Включено, но лимит 0 — потолок не действует.';
     }
   },
   {
     id: 'after-hours-cutoff',
-    title: 'Окно времени: не после заданного часа',
+    title: 'Ограничение на открытие сделок после заданного часа',
     layer: 'gate',
     level: 'block',
     userConfigurable: true,
@@ -448,9 +396,11 @@ export const PROFILE_RULE_ENTRIES = [
       '0 в профиле — правило выключено.'
     ],
     summary: (fd) => {
-      if (fd.afterHoursCutoffEnabled === false) return 'Выключено (галочка в этой карточке).';
+      if (fd.afterHoursCutoffEnabled === false) return 'Выключено.';
       const h = Math.floor(n(fd.noNewTradesAfterHourLocal));
-      return h >= 1 && h <= 23 ? `С ${h}:00 локально новые входы закрыты` : 'Выключено (0).';
+      return h >= 1 && h <= 23
+        ? `Включено. С ${h}:00 локально новые входы закрыты`
+        : 'Включено, но час 0 — правило без эффекта (задай 1–23).';
     }
   },
   {
@@ -468,10 +418,10 @@ export const PROFILE_RULE_ENTRIES = [
     ],
     summary: (fd) =>
       fd.minTradeIntervalEnabled === false
-        ? 'Выключено (галочка в этой карточке).'
+        ? 'Выключено.'
         : n(fd.minMinutesBetweenTrades) > 0
-        ? `Не раньше чем через ${n(fd.minMinutesBetweenTrades)} мин после закрытия`
-        : 'Выключено.'
+        ? `Включено. Не раньше чем через ${n(fd.minMinutesBetweenTrades)} мин после закрытия`
+        : 'Включено, но 0 мин — без эффекта.'
   },
   {
     id: 'rr-min-block',
@@ -488,8 +438,8 @@ export const PROFILE_RULE_ENTRIES = [
     ],
     summary: (fd) =>
       fd.minRiskRewardHardBlock && n(fd.minRiskRewardRatio) > 0
-        ? `Блок при R:R < ${n(fd.minRiskRewardRatio).toFixed(2)}`
-        : 'Жёсткий порог выключен (только предупр. ниже 1:1).'
+        ? `Включено. Блок при R:R < ${n(fd.minRiskRewardRatio).toFixed(2)}`
+        : 'Выключено (только предупр. ниже 1:1).'
   }
 ];
 
@@ -517,9 +467,9 @@ export function getProfileRuleById(id) {
 export function getProfileRuleLayerLabel(layer) {
   switch (layer) {
     case 'gate':
-      return 'Гейт сделки';
+      return 'Проверка при сохранении';
     case 'hud':
-      return 'HUD';
+      return 'Интерфейс';
     case 'shell':
       return 'Окно / напоминание';
     case 'practice':

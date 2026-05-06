@@ -19,15 +19,30 @@
   export let goalYearAmount = 0;
   export let fxMessage = '';
 
+  /** Сбрасывает «замороженные» саммари карточек: bind к полям мутирует formData in-place без смены ссылки. */
+  let profileRulesSummaryTick = 0;
+
+  function scheduleSummaryRefresh() {
+    queueMicrotask(() => {
+      profileRulesSummaryTick++;
+    });
+  }
+
   function applyRulesTabDefaults() {
     const d = getRulesTabDefaults();
     for (const k of Object.keys(d)) {
       formData[k] = d[k];
     }
+    scheduleSummaryRefresh();
   }
 </script>
 
-<div class="profile-rules-tab">
+<div
+  class="profile-rules-tab"
+  on:input={scheduleSummaryRefresh}
+  on:change={scheduleSummaryRefresh}
+  on:click={scheduleSummaryRefresh}
+>
   <p class="profile-rules-tab-account-line">
     {#if $activeJournalAccount}
       Правила и лимиты для счёта <strong class="profile-rules-tab-account-name">{$activeJournalAccount.name}</strong>
@@ -53,6 +68,7 @@
 
   <ProfileRulesBlock
     formData={formData}
+    summaryTick={profileRulesSummaryTick}
     entries={PROFILE_RULE_ENTRIES_TAB}
     shellTitle="Правила и ограничения"
     shellLede="Каждая карточка — краткое резюме, при необходимости поля в карточке и «Подробнее». Блок «Свои правила» выше; числовые цели D/W/M/Y — на вкладке «Торговые цели»."
