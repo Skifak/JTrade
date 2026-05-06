@@ -13,10 +13,21 @@
   /** Инкремент при любом изменении полей вкладки (см. ProfileRulesTab input/change) — чтобы summary пересчитался. */
   export let summaryTick = 0;
 
-  /** Список правил (по умолчанию все) */
+  /**
+   * Секции вкладки: [{ title?: string|null, entries }].
+   * Если null — один список из `entries`.
+   */
+  export let sections = null;
+
+  /** Список правил (если без sections). */
   export let entries = PROFILE_RULE_ENTRIES;
 
   export let shellTitle = 'Твои правила в приложении';
+
+  $: resolvedSections =
+    sections && Array.isArray(sections) && sections.some((s) => s.entries?.length)
+      ? sections
+      : [{ title: null, entries: entries ?? [] }];
   export let shellLede =
     'Только то, что реально влияет на HUD, окна и сохранение сделки. Условия виджетов аналитики здесь не перечислены.';
 
@@ -42,7 +53,11 @@
     </div>
   </div>
   <div class="profile-rules-list">
-    {#each entries as entry (entry.id)}
+    {#each resolvedSections as sec, si (`sec-${si}-${sec.title ?? 'rest'}`)}
+      {#if sec.title}
+        <h4 class="profile-rules-group-title">{sec.title}</h4>
+      {/if}
+      {#each sec.entries as entry (entry.id)}
       <article class="profile-rule-card">
         <div class="profile-rule-top">
           <div class="profile-rule-titles">
@@ -88,6 +103,7 @@
           </div>
         {/if}
       </article>
+      {/each}
     {/each}
   </div>
 </div>
@@ -128,6 +144,17 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+  }
+  .profile-rules-group-title {
+    margin: 14px 0 4px;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: color-mix(in srgb, var(--accent) 78%, var(--text-muted));
+  }
+  .profile-rules-group-title:first-of-type {
+    margin-top: 4px;
   }
   .profile-rule-card {
     padding: 10px 11px;

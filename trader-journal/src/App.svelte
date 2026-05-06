@@ -27,6 +27,7 @@
   import {
     checkDailyStop,
     checkWeeklyStop,
+    checkMonthlyStop,
     checkDailyProfitLock,
     checkAfterHoursCutoff,
     computeGoalAmount,
@@ -131,6 +132,7 @@
   // Kill-switch: дневной лимит убытка пробит (для блокировки "Новая сделка")
   $: dailyStop = ($tickClock, checkDailyStop(closedTrades, $userProfile, new Date()));
   $: weeklyStop = ($tickClock, checkWeeklyStop(closedTrades, $userProfile, new Date()));
+  $: monthlyStop = ($tickClock, checkMonthlyStop(closedTrades, $userProfile, new Date()));
   $: profitLockHit = ($tickClock, checkDailyProfitLock(closedTrades, $userProfile, new Date()));
   $: afterHoursHit = ($tickClock, checkAfterHoursCutoff($userProfile, new Date()));
   // Cooldown остаток — реактив на сам cooldown store + tickClock (для тика)
@@ -138,6 +140,7 @@
   $: tradingBlocked =
     dailyStop.hit ||
     weeklyStop.hit ||
+    monthlyStop.hit ||
     profitLockHit.hit ||
     afterHoursHit.hit ||
     cooldownLeftMs > 0;
@@ -145,14 +148,16 @@
     ? `Дневной лимит убытка пробит (${dailyStop.pnl.toFixed(2)} ≤ −${dailyStop.limit.toFixed(2)}). Торговля закрыта до полуночи.`
     : weeklyStop.hit
       ? `Недельный лимит убытка пробит (${weeklyStop.pnl.toFixed(2)} ≤ −${weeklyStop.limit.toFixed(2)}).`
-      : profitLockHit.hit
+      : monthlyStop.hit
+        ? `Месячный лимит убытка пробит (${monthlyStop.pnl.toFixed(2)} ≤ −${monthlyStop.limit.toFixed(2)}).`
+        : profitLockHit.hit
         ? `Потолок дневной прибыли достигнут (+${profitLockHit.pnl.toFixed(2)}). Новые входы отключены.`
         : afterHoursHit.hit
           ? `Окно по времени: после ${afterHoursHit.cutoff}:00 локально новые сделки не оформляются.`
           : cooldownLeftMs > 0
             ? `Cooldown после убытка: ещё ${Math.ceil(cooldownLeftMs / 60000)} мин. Не входи в revenge-trade.`
             : '';
-  $: killSwitchSevere = dailyStop.hit || weeklyStop.hit;
+  $: killSwitchSevere = dailyStop.hit || weeklyStop.hit || monthlyStop.hit;
   $: killSwitchTitle = killSwitchSevere
     ? 'Торговля заблокирована'
     : profitLockHit.hit || afterHoursHit.hit

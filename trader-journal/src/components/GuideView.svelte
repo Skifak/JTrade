@@ -10,7 +10,7 @@
     getCurrentStreak,
     getDisciplineScore,
     getCurrentRiskScale,
-    parseNotesChecklist,
+    normalizeProfileGateRules,
     checkDailyStop
   } from '../lib/risk';
   import { normalizeStreakScalingMultipliers } from '../lib/streakScaling.js';
@@ -33,7 +33,7 @@
     { id: 'anti-revenge',  icon: '⏸',  title: 'Anti-revenge' },
     { id: 'kill-switch',   icon: '⛔', title: 'Kill-switch' },
     { id: 'daily-review',  icon: '🎯', title: 'Daily review' },
-    { id: 'notes',         icon: '☑',  title: 'Notes-чек-лист' },
+    { id: 'notes',         icon: '☑',  title: 'Свои правила' },
     { id: 'live-prices',   icon: '⚡', title: 'Live-цены' },
     { id: 'statistics',    icon: '∑',  title: 'Статистика' },
     { id: 'analytics',     icon: '📈', title: 'Аналитика' },
@@ -88,7 +88,7 @@
       : 2;
   $: amGridPreview = normalizeStreakScalingMultipliers($userProfile?.streakScalingMultipliers);
   $: dailyStop  = checkDailyStop(closedTrades, $userProfile);
-  $: notesItems = parseNotesChecklist($userProfile?.notes);
+  $: notesItems = normalizeProfileGateRules($userProfile);
   $: cooldownActive = !!($cooldown?.until && $cooldown.until > Date.now());
   $: livePairsCount = Object.keys($livePrices || {}).length;
   $: pingMs = $pingInfo?.ms ?? null;
@@ -100,7 +100,7 @@
     { ok: maxDailyLossAmount > 0,                    label: 'Дневной лимит убытка' },
     { ok: goalDayAmount > 0,                         label: 'Цель дня' },
     { ok: Number($userProfile?.maxOpenTrades) > 0,   label: 'Лимит открытых позиций' },
-    { ok: notesItems.length > 0,                     label: 'Чек-лист в заметках' }
+    { ok: notesItems.length > 0, label: 'Свои правила (pre-trade)' }
   ];
   $: profileScore = Math.round((profileChecks.filter((c) => c.ok).length / profileChecks.length) * 100);
 </script>
@@ -567,6 +567,7 @@
             <li>Дневной лимит убытка пробит</li>
             <li>Превышен лимит открытых позиций</li>
             <li>Активен cooldown после убытка</li>
+            <li>Обязательные пункты чек-листа «Свои правила» (required в профиле)</li>
           </ul>
         </div>
         <div class="severity-card warn">
@@ -576,7 +577,7 @@
             <li>Нет SL — риск нельзя посчитать</li>
             <li>Серия убытков подходит к лимиту</li>
             <li>Уже открыта противоположная позиция (хедж)</li>
-            <li>Не отмечен чек-лист из заметок</li>
+            <li>Не отмечен чек-лист «Свои правила» (без required — WARN; required — BLOCK)</li>
           </ul>
         </div>
       </div>
@@ -677,30 +678,27 @@
 
     <!-- NOTES -->
     <section id="notes" class="guide-section">
-      <h2><span class="num">9</span>Notes-чек-лист</h2>
+      <h2><span class="num">9</span>Чек-лист «Свои правила»</h2>
       <p class="lead">
-        Свободные заметки в профиле превращаются в чек-лист в форме сделки.
-        Каждая непустая строка — пункт.
+        В профиле во вкладке «Правила» блок <strong>Свои правила</strong> задаёт список как в плейбуке (Preconditions): отдельное
+        поле на пункт и флажок <code>required</code>. В форме сделки пункты отмечаются галочками.
       </p>
 
       <div class="cols-2">
         <div class="code-card">
-          <div class="code-h">Пример заметок профиля:</div>
-          <pre>Тренд на старшем ТФ совпадает
-Уровень / структура подтверждены
-Есть свечной паттерн на входе
-Risk:Reward ≥ 1:2
-# Это комментарий — игнорируется</pre>
+          <div class="code-h">Поведение</div>
+          <ul>
+            <li><code>required</code> не отмечен — сохранение сделки <strong>блокируется</strong> (как обязательный pre в play).</li>
+            <li>Без <code>required</code> — только <strong>WARN</strong> в истории нарушений.</li>
+            <li>Включение/выключение гейта — карточка «Чек-лист «Свои правила»» на той же вкладке.</li>
+            <li>При старом сохранении профиля строки из многолинейного поля «Заметки» могут однократно мигрировать в этот список при загрузке.</li>
+          </ul>
         </div>
         <div class="info-card">
-          <h4>Поведение</h4>
-          <ul>
-            <li>Строки с <code>#</code> в начале — комментарии, не попадают в чек-лист.</li>
-            <li>Если не все пункты отмечены — добавляется <strong>WARN</strong>, но не блокирует.</li>
-            <li>Чек-лист сбрасывается при каждом открытии формы.</li>
-          </ul>
+          <h4>Сейчас в профиле</h4>
           <div class="status-line">
-            Сейчас в профиле: <strong>{notesItems.length}</strong> пунктов чек-листа
+            <strong>{notesItems.length}</strong> пункт(ов){#if notesItems.some((x) => x.required)}
+              {' '}·{' '}<strong>{notesItems.filter((x) => x.required).length}</strong> из них с required → блок{/if}
           </div>
         </div>
       </div>

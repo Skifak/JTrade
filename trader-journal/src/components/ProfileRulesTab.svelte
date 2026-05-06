@@ -1,10 +1,12 @@
 <script>
   import ProfileRulesBlock from './ProfileRulesBlock.svelte';
   import ProfileOwnRulesSection from './ProfileOwnRulesSection.svelte';
-  import { PROFILE_RULE_ENTRIES_TAB } from '../lib/profileRulesRegistry';
+  import { PROFILE_RULE_TAB_SECTIONS } from '../lib/profileRulesRegistry';
   import { getRulesTabDefaults } from '../lib/profileRulesDefaults';
+  import { sanitizeProfileGateRulesInput } from '../lib/profileGateRulesNormalize.js';
   import { formatNumber } from '../lib/utils';
   import { activeJournalAccount } from '../lib/accounts';
+  import { userProfile } from '../lib/stores';
 
   export let formData = {};
 
@@ -31,8 +33,10 @@
   function applyRulesTabDefaults() {
     const d = getRulesTabDefaults();
     for (const k of Object.keys(d)) {
+      if (k === 'profileGateRules') continue;
       formData[k] = d[k];
     }
+    userProfile.setProfileGateRules(sanitizeProfileGateRulesInput(d.profileGateRules ?? []));
     scheduleSummaryRefresh();
   }
 </script>
@@ -62,14 +66,17 @@
       Меняй поля только с пониманием: слишком жёсткие лимиты душат нормальный вход, слишком мягкие — оставляют тебя без
       стоп-крана в плохой день. Если сомневаешься — зафиксируй старые значения и двигай один параметр за раз.
     </p>
+    <p class="profile-rules-tab-callout-text">
+      <strong>Свои правила</strong> сохраняются сразу (как редактор плейбука); лимиты в карточках ниже — после «Сохранить профиль».
+    </p>
   </div>
 
-  <ProfileOwnRulesSection {formData} />
+  <ProfileOwnRulesSection />
 
   <ProfileRulesBlock
     formData={formData}
     summaryTick={profileRulesSummaryTick}
-    entries={PROFILE_RULE_ENTRIES_TAB}
+    sections={PROFILE_RULE_TAB_SECTIONS}
     shellTitle="Правила и ограничения"
     shellLede="Каждая карточка — краткое резюме, при необходимости поля в карточке и «Подробнее». Блок «Свои правила» выше; числовые цели D/W/M/Y — на вкладке «Торговые цели»."
   >

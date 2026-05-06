@@ -1,7 +1,9 @@
 <script>
   import { trades, userProfile } from '../lib/stores';
-  import { formatNumber, calculateStats } from '../lib/utils';
+  import { formatNumber, formatDate, calculateStats } from '../lib/utils';
   import { fxRate, tradeProfitDisplayUnits, decimalsFor } from '../lib/fxRate';
+  import { buildCumulativeReturnPctSeries } from '../lib/traderReferenceProfitCurve.js';
+  import TraderReferenceProfitabilityChart from './charts/TraderReferenceProfitabilityChart.svelte';
   import {
     computeMaxRiskAmount,
     computeMaxDailyLossAmount,
@@ -83,6 +85,35 @@
     profile && profile.dailyProfitLockEnabled !== false ? computeDailyProfitLockAmount(profile) : 0;
 
   $: openRiskAgg = getOpenRisk(openTrades, profile);
+
+  /** Кумулятивная доходность к депозиту профиля, % — та же база пересчёта PnL, что и в блоке журнала ниже */
+  $: profitCurveSeries =
+    closedTrades.length && initialCapital > 0
+      ? buildCumulativeReturnPctSeries(closedTrades, initialCapital, (t) =>
+          tradeProfitDisplayUnits(t, $fxRate))
+      : [];
+
+  $: streakScalingOn = profile?.streakScalingEnabled === true;
+
+  $: baseRiskPctOfCap =
+    profile && initialCapital > 0 && maxRiskPerTrade > 0
+      ? (maxRiskPerTrade / initialCapital) * 100
+      : null;
+
+  $: effectiveRiskPctOfCap =
+    profile && initialCapital > 0 && effectiveRiskCap > 0
+      ? (effectiveRiskCap / initialCapital) * 100
+      : null;
+
+  $: sigmaUtilPct =
+    exposureBudget != null && exposureBudget > 0
+      ? Math.min(100, (Math.max(0, Number(openRiskAgg.totalRisk) || 0) / exposureBudget) * 100)
+      : null;
+
+  $: sigmaHeadroomMoney =
+    exposureBudget != null && exposureBudget > 0
+      ? Math.max(0, exposureBudget - Math.max(0, Number(openRiskAgg.totalRisk) || 0))
+      : null;
 
   $: kellyFractionFull = journalStats?.losingCount && journalStats.avgLoss > 0
     ? (() => {
@@ -188,60 +219,110 @@
 
   <section class="trader-ref__section">
     <h3 class="trader-ref__h">Аллокация риска (из профиля)</h3>
+    <p class="trader-ref__muted">
+      Один столбец — <strong>что ты задал</strong>, второй — <strong>как приложение переводит это в суммы и потолки</strong>.
+      Строки сгруппированы по смыслу: ставка до стопа, одновременные позиции, затем торговые «предохранители». Риск позиции
+      считается по формуле <strong>|entry − SL| × volume × контракт</strong> и сравнивается с профилным лимитом 1R; Σ — сумма таких рисков по
+      открытым сделкам, где указан SL. Дневной / недельный стоп привязаны к убытку по уже <em>закрытым</em> за календарный день /
+      ISO-неделю (это другой объект, не «бумажная» сумма строки профиля).
+    </p>
     <div class="trader-ref__scroll">
-      <table class="ref-table">
+      <table class="ref-table trader-ref-table--alloc">
         <tbody>
+          <tr class="ref-table__subhead">
+            <th colspan="2" scope="colgroup">Ставка (1R) и антимартингейл</th>
+          </tr>
           <tr>
-            <th scope="row">Капитал (профиль)</th>
+            <th scope="row">Стартовый капитал (профиль)</th>
             <td>{formatNumber(initialCapital, amtDec)} {currency}</td>
           </tr>
           <tr>
-            <th scope="row">Риск на сделку (правило)</th>
+            <th scope="row">Риск на сделку, правило профиля</th>
             <td>{riskBasisLabel}</td>
           </tr>
           <tr>
-            <th scope="row">Anti-martingale множитель</th>
-            <td>×{formatNumber(Number(riskScale) || 1, 4)}</td>
+            <th scope="row">1R в процентах депозита (базовый)</th>
+            <td>
+              {#if baseRiskPctOfCap != null}
+                {formatNumber(baseRiskPctOfCap, 2)}% депозита
+              {:else}
+                нет депозита в профиле / лимита
+              {/if}
+            </td>
           </tr>
           <tr>
-            <th scope="row">Эффективный лимит одной ставки до SL</th>
+            <th scope="row">Антимартингейл (множитель после серии убытков)</th>
+            <td>
+              ×{formatNumber(Number(riskScale) || 1, 4)}
+              {#if !streakScalingOn}
+                <span class="trader-ref__muted">— выключен в профиле, фактически ×1.</span>
+              {/if}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Эффективный 1R до SL (правило × множитель)</th>
             <td>
               {#if effectiveRiskCap > 0}
                 −{formatNumber(effectiveRiskCap, amtDec)} {currency}
+                {#if effectiveRiskPctOfCap != null}
+                  <span class="trader-ref__muted">&nbsp;(≈ {formatNumber(effectiveRiskPctOfCap, 2)}% депозита)</span>
+                {/if}
               {:else}
-                не задан
+                не считается (задай депозит, риск в профиле и SL в терминале)
               {/if}
             </td>
           </tr>
-          <tr>
-            <th scope="row">Макс. позиций (профиль)</th>
-            <td>{maxOpen > 0 ? maxOpen : '—'}</td>
+
+          <tr class="ref-table__subhead">
+            <th colspan="2" scope="colgroup">Одновременные позиции (Σ‑лимит)</th>
           </tr>
           <tr>
-            <th scope="row">Бюджет Σ (лимит × позиции)</th>
+            <th scope="row">Максимум позиций (профиль)</th>
+            <td>{maxOpen > 0 ? maxOpen : 'не задан'}</td>
+          </tr>
+          <tr>
+            <th scope="row">Бюджет Σ потерь до SL (≈ эфф.&nbsp;1R × слоты)</th>
             <td>
               {#if exposureBudget != null && exposureBudget > 0}
-                −{formatNumber(exposureBudget, amtDec)} {currency}
+                до −{formatNumber(exposureBudget, amtDec)} {currency}
               {:else}
-                задай две величины выше и SL в сделках
+                задай депозит, риск, макс.&nbsp;позиций и SL — тогда приложение ограничит Σ.
               {/if}
             </td>
           </tr>
           <tr>
-            <th scope="row">Сейчас Σ риска по открытым (по SL)</th>
+            <th scope="row">Сейчас Σ потенциального убытка по открытым (есть SL)</th>
             <td>
-              {formatNumber(Number(openRiskAgg.totalRisk) || 0, amtDec)}
-              {currency}
+              {formatNumber(Number(openRiskAgg.totalRisk) || 0, amtDec)} {currency}
               {#if openRiskAgg.withoutSlCount > 0}
-                <span class="trader-ref__muted">(+{openRiskAgg.withoutSlCount} без SL)</span>
+                <span class="trader-ref__muted trader-ref-table__muted-inline">
+                  (ещё {openRiskAgg.withoutSlCount} без&nbsp;SL — в Σ не входят)
+                </span>
               {/if}
             </td>
           </tr>
           <tr>
-            <th scope="row">Дневной стоп (действует при убытке)</th>
+            <th scope="row">Загрузка бюджета Σ</th>
+            <td>
+              {#if sigmaUtilPct != null}
+                ≈ {formatNumber(sigmaUtilPct, 1)}% занято
+                <span class="trader-ref__muted trader-ref-table__muted-inline">
+                  · остаток под новые позиции до стопов ≈ {formatNumber(sigmaHeadroomMoney, amtDec)} {currency}
+                </span>
+              {:else}
+                бюджет Σ не активен или не считается
+              {/if}
+            </td>
+          </tr>
+
+          <tr class="ref-table__subhead">
+            <th colspan="2" scope="colgroup">Стоп‑лосс и блок прибыли (профильные лимиты для превента)</th>
+          </tr>
+          <tr>
+            <th scope="row">Дневной стоп (факт против лимита дня по закрытым)</th>
             <td>
               {#if dailyStopMoney > 0}
-                −{formatNumber(dailyStopMoney, amtDec)} ({dailyStopBasis})
+                лимит убытка −{formatNumber(dailyStopMoney, amtDec)} ({dailyStopBasis})
               {:else}
                 не задан ({dailyStopBasis})
               {/if}
@@ -251,17 +332,17 @@
             <th scope="row">Недельный стоп</th>
             <td>
               {#if weeklyStopMoney > 0}
-                −{formatNumber(weeklyStopMoney, amtDec)} ({weeklyBasis})
+                лимит убытка −{formatNumber(weeklyStopMoney, amtDec)} ({weeklyBasis})
               {:else}
                 {weeklyBasis}
               {/if}
             </td>
           </tr>
           <tr>
-            <th scope="row">Потолок дневной прибыли</th>
+            <th scope="row">Потолок дневной прибыли (фиксация дня по закрытым)</th>
             <td>
               {#if profitCapMoney > 0}
-                +{formatNumber(profitCapMoney, amtDec)} ({profitCapBasis})
+                лимит +{formatNumber(profitCapMoney, amtDec)} ({profitCapBasis})
               {:else}
                 {profitCapBasis}
               {/if}
@@ -270,6 +351,29 @@
         </tbody>
       </table>
     </div>
+  </section>
+
+  <section class="trader-ref__section trader-ref__section--chart">
+    <h3 class="trader-ref__h trader-ref__h--curve">Trader Profitability Curve</h3>
+    <p class="trader-ref__muted trader-ref__curve-blurb">
+      Визуализация того, как кумулятивно меняется доходность <strong>к твоему депозиту из профиля</strong>: ось&nbsp;Y&nbsp;—
+      суммарный результат закрытых сделок в % от этого депозита, ось&nbsp;X&nbsp;— время закрытия. По вертикали отмечены календарные
+      месяцы: результат месяца и «фаза» рассчитаны по изменению этой же кумулятивной кривой. График может быть шире области — листай
+      горизонтально, чтобы увидеть <strong>дистанцию</strong> истории без скукоживания точек в линию.
+    </p>
+    {#if !initialCapital}
+      <p class="trader-ref__muted">Укажи стартовый капитал в профиле — тогда кривая строится в процентах к депозиту.</p>
+    {:else if profitCurveSeries.length < 2}
+      <p class="trader-ref__muted">Нужны закрытые сделки с датой закрытия и положительный депозит — недостаточно точек для кривой.</p>
+    {:else}
+      <p class="trader-ref__note trader-ref__curve-meta">
+        {closedTrades.length} закрытых · окно:&nbsp;<strong>{formatDate(profitCurveSeries[1]?.ts, 'DD.MM.YYYY')}
+          — {formatDate(profitCurveSeries[profitCurveSeries.length - 1]?.ts, 'DD.MM.YYYY')}</strong
+        >
+        · PnL в валюте отображения, как ниже по журналу.
+      </p>
+      <TraderReferenceProfitabilityChart series={profitCurveSeries} chartHeight={320} />
+    {/if}
   </section>
 
   <section class="trader-ref__section">
@@ -490,6 +594,20 @@
     font-weight: 700;
     color: var(--text-strong);
   }
+  .trader-ref__h--curve {
+    color: color-mix(in srgb, var(--accent) 72%, #e6c948 28%);
+    letter-spacing: 0.02em;
+  }
+  .trader-ref__curve-blurb {
+    max-width: 58rem;
+  }
+  .trader-ref__curve-meta {
+    margin-bottom: 12px;
+    max-width: 58rem;
+  }
+  .trader-ref__section--chart {
+    padding-bottom: 4px;
+  }
   .trader-ref__muted {
     font-size: 12px;
     color: var(--text-muted);
@@ -537,11 +655,24 @@
     border-bottom: 1px solid var(--border);
     vertical-align: top;
   }
-  .ref-table tbody th {
-    font-weight: 600;
-    color: var(--text-strong);
-    white-space: nowrap;
-    width: 40%;
+  .ref-table__subhead th {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    background: color-mix(in srgb, var(--accent) 9%, var(--bg-2));
+    border-top: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+    padding-top: 10px;
+    padding-bottom: 8px;
+  }
+  .ref-table__subhead:first-child th {
+    border-top: none;
+  }
+  .trader-ref-table--alloc .trader-ref-table__muted-inline {
+    display: inline;
+    margin-left: 6px;
+    font-size: 11px;
   }
   .ref-table tbody tr:last-child th,
   .ref-table tbody tr:last-child td {

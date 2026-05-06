@@ -46,6 +46,7 @@
     'journal-day-reminder',
     'post-close-chart',
     'weekly-loss-stop',
+    'monthly-loss-stop',
     'daily-profit-lock',
     'after-hours-cutoff',
     'min-trade-interval',
@@ -138,7 +139,7 @@
     {:else if ruleId === 'notes-checklist'}
       <label class="pr-check">
         <input type="checkbox" bind:checked={formData.profileNotesChecklistEnabled} />
-        <span>Требовать галочки по строкам заметок в форме сделки</span>
+        <span>Требовать чек-лист «Свои правила» в форме сделки</span>
       </label>
     {:else if ruleId === 'anti-martingale'}
       <label class="pr-check">
@@ -241,6 +242,22 @@
           <input class="pr-control" type="number" min="0" step="1" bind:value={formData.weeklyLossLimitAmount} placeholder={`Сумма (${formData.accountCurrency})`} disabled={!formData.weeklyLossLimitEnabled} />
         {:else}
           <input class="pr-control" type="number" min="0" max="100" step="0.1" bind:value={formData.weeklyLossLimitPercent} placeholder="%" disabled={!formData.weeklyLossLimitEnabled} />
+        {/if}
+      </div>
+    {:else if ruleId === 'monthly-loss-stop'}
+      <label class="pr-check">
+        <input type="checkbox" bind:checked={formData.monthlyLossLimitEnabled} />
+        <span>Включить месячный лимит убытка</span>
+      </label>
+      <div class="value-mode-row">
+        <select id="pcf-monthly-mode" class="pr-control" bind:value={formData.monthlyLossLimitMode} disabled={!formData.monthlyLossLimitEnabled}>
+          <option value="percent">В процентах</option>
+          <option value="amount">Фикс. сумма</option>
+        </select>
+        {#if formData.monthlyLossLimitMode === 'amount'}
+          <input class="pr-control" type="number" min="0" step="1" bind:value={formData.monthlyLossLimitAmount} placeholder={`Сумма (${formData.accountCurrency})`} disabled={!formData.monthlyLossLimitEnabled} />
+        {:else}
+          <input class="pr-control" type="number" min="0" max="100" step="0.1" bind:value={formData.monthlyLossLimitPercent} placeholder="%" disabled={!formData.monthlyLossLimitEnabled} />
         {/if}
       </div>
     {:else if ruleId === 'daily-profit-lock'}

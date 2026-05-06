@@ -20,6 +20,12 @@ import { get } from 'svelte/store';
 import { getContractSize, calculateProfit, isMt5DepositCurrencyProfit } from './utils';
 import { fxRate, convertUsd, tradeProfitDisplayUnits } from './fxRate';
 import { normalizeStreakScalingMultipliers } from './streakScaling.js';
+import {
+  legacyProfileNotesChecklistLines,
+  normalizeProfileGateRules
+} from './profileGateRulesNormalize.js';
+
+export { normalizeProfileGateRules } from './profileGateRulesNormalize.js';
 
 dayjs.extend(isoWeek);
 
@@ -295,6 +301,14 @@ export function computeMaxWeeklyLossAmount(profile) {
   return (num(profile.initialCapital) * num(profile.weeklyLossLimitPercent)) / 100;
 }
 
+/** Месячный лимит убытка (календарный месяц), 0 — выкл. */
+export function computeMaxMonthlyLossAmount(profile) {
+  if (!profile) return 0;
+  if (profile.monthlyLossLimitEnabled === false) return 0;
+  if (profile.monthlyLossLimitMode === 'amount') return num(profile.monthlyLossLimitAmount);
+  return (num(profile.initialCapital) * num(profile.monthlyLossLimitPercent)) / 100;
+}
+
 /** Потолок дневной прибыли: после достижения новые входы блокируются. 0 — выкл. */
 export function computeDailyProfitLockAmount(profile) {
   if (!profile) return 0;
@@ -555,6 +569,20 @@ export function evaluateTradeRules(trade, profile, ctx = {}) {
     }
   }
 
+  const maxMonthlyLoss = computeMaxMonthlyLossAmount(profile);
+  if (!isEdit && maxMonthlyLoss > 0) {
+    const monthPnL = getPeriodPnL(closedTrades, 'month', now);
+    if (monthPnL <= -maxMonthlyLoss) {
+      violations.push({
+        severity: 'block',
+        code: 'monthly-stop',
+        message:
+          `Месячный лимит убытка: ${monthPnL.toFixed(2)} ` +
+          `(лимит −${maxMonthlyLoss.toFixed(2)}).`
+      });
+    }
+  }
+
   const profitCap = computeDailyProfitLockAmount(profile);
   if (!isEdit && profitCap > 0) {
     const dp = getDailyPnL(closedTrades, now);
@@ -632,22 +660,34 @@ export function evaluateTradeRules(trade, profile, ctx = {}) {
     });
   }
 
-  // Notes checklist — все строки в profile.notes должны быть отмечены.
-  const checklist = parseNotesChecklist(profile?.notes);
-  const acked = Array.isArray(ctx.acknowledgedChecklist) ? ctx.acknowledgedChecklist : [];
-  const missed = checklist.filter((item) => !acked.includes(item));
-  if (
-    profile.profileNotesChecklistEnabled !== false &&
-    checklist.length > 0 &&
-    missed.length > 0
-  ) {
-    violations.push({
-      severity: 'warn',
-      code: 'notes-checklist',
-      message:
-        `Чек-лист из заметок профиля не пройден ` +
-        `(${missed.length} из ${checklist.length}).`
-    });
+  const gateRules = normalizeProfileGateRules(profile);
+  const ackedGate = Array.isArray(ctx.acknowledgedChecklist) ? ctx.acknowledgedChecklist : [];
+
+  /** @param {{ id:string,label:string }} rule */
+  const gateAcked = (rule) =>
+    ackedGate.includes(rule.id) || ackedGate.includes(rule.label);
+
+  if (profile.profileNotesChecklistEnabled !== false && gateRules.length > 0) {
+    const requiredDefs = gateRules.filter((r) => r.required);
+    const missedReq = gateRules.filter((r) => r.required && !gateAcked(r));
+    const missedOpt = gateRules.filter((r) => !r.required && !gateAcked(r));
+    if (missedReq.length > 0) {
+      violations.push({
+        severity: 'block',
+        code: 'notes-checklist-required',
+        message:
+          `Свои правила (профиль): не отмечены обязательные пункты ` +
+          `(${missedReq.length} из ${requiredDefs.length}).`
+      });
+    } else if (missedOpt.length > 0) {
+      violations.push({
+        severity: 'warn',
+        code: 'notes-checklist',
+        message:
+          `Чек-лист «Свои правила» не пройден ` +
+          `(${missedOpt.length} из ${gateRules.length}).`
+      });
+    }
   }
 
   // Playbook preconditions — required-пункты выбранного play должны быть отмечены.
@@ -738,6 +778,17 @@ export function checkDailyStop(closedTrades, profile, now = new Date()) {
 export function checkWeeklyStop(closedTrades, profile, now = new Date()) {
   const limit = computeMaxWeeklyLossAmount(profile);
   const pnl = getIsoWeekPnL(closedTrades, now);
+  return {
+    hit: limit > 0 && pnl <= -limit,
+    pnl,
+    limit
+  };
+}
+
+/** Месячный стоп — календарный месяц по dateClose (тот же агрегат, что в гейте). */
+export function checkMonthlyStop(closedTrades, profile, now = new Date()) {
+  const limit = computeMaxMonthlyLossAmount(profile);
+  const pnl = getPeriodPnL(closedTrades, 'month', now);
   return {
     hit: limit > 0 && pnl <= -limit,
     pnl,
@@ -882,11 +933,7 @@ export function getStatsByTag(closedTrades) {
  * Игнорируются строки-комментарии (начинаются с #).
  */
 export function parseNotesChecklist(notes) {
-  if (!notes || typeof notes !== 'string') return [];
-  return notes
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !s.startsWith('#'));
+  return legacyProfileNotesChecklistLines(notes);
 }
 
 /* ------------------- bias / play analytics ------------------- */

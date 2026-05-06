@@ -14,6 +14,10 @@ export function getRulesTabDefaults() {
     weeklyLossLimitPercent: 0,
     weeklyLossLimitAmount: 0,
     weeklyLossLimitEnabled: false,
+    monthlyLossLimitMode: 'percent',
+    monthlyLossLimitPercent: 0,
+    monthlyLossLimitAmount: 0,
+    monthlyLossLimitEnabled: false,
     dailyProfitLockMode: 'percent',
     dailyProfitLockPercent: 0,
     dailyProfitLockAmount: 0,
@@ -41,6 +45,7 @@ export function getRulesTabDefaults() {
     journalDayReminderHourLocal: 21,
     postCloseChartReminderEnabled: true,
     profileNotesChecklistEnabled: true,
-    notes: ''
+    notes: '',
+    profileGateRules: []
   };
 }

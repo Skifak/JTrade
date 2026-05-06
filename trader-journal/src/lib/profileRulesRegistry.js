@@ -6,10 +6,10 @@ import {
   computeMaxRiskAmount,
   computeMaxDailyLossAmount,
   computeMaxWeeklyLossAmount,
-  computeDailyProfitLockAmount,
-  computeGoalAmount,
-  parseNotesChecklist
+  computeMaxMonthlyLossAmount,
+  computeDailyProfitLockAmount
 } from './risk.js';
+import { normalizeProfileGateRules } from './profileGateRulesNormalize.js';
 
 function n(v) {
   const x = Number(v);
@@ -97,6 +97,48 @@ export const PROFILE_RULE_ENTRIES = [
       return lim > 0
         ? `Стоп дня: −${lim.toFixed(2)} ${fd.accountCurrency || ''} (${fmtPctOrAmount(fd, 'dailyLossLimitMode', 'dailyLossLimitPercent', 'dailyLossLimitAmount')})`
         : 'Дневной лимит не задан — kill-switch по дню выключен.';
+    }
+  },
+  {
+    id: 'weekly-loss-stop',
+    title: 'Недельный лимит убытка (kill-switch)',
+    layer: 'gate',
+    level: 'block',
+    userConfigurable: true,
+    inlineOnly: true,
+    codes: ['weekly-stop'],
+    sourceIds: ['abu-ruf-01', 'mm-vic-03'],
+    paragraphs: [
+      'Суммируется PnL всех закрытых сделок за текущую ISO-неделю (понедельник–воскресенье по локальному dayjs).',
+      'При достижении лимита новая открытая позиция блокируется и кнопка «Новая сделка» отключена (аналогично дневному kill-switch). Сброс при переходе на новую неделю.'
+    ],
+    summary: (fd) => {
+      if (fd.weeklyLossLimitEnabled === false) return 'Выключено.';
+      const lim = computeMaxWeeklyLossAmount(fd);
+      return lim > 0
+        ? `Включено. Стоп недели: −${lim.toFixed(2)} ${fd.accountCurrency || ''} (${fmtPctOrAmount(fd, 'weeklyLossLimitMode', 'weeklyLossLimitPercent', 'weeklyLossLimitAmount')})`.trim()
+        : 'Включено, но лимит 0 — недельный стоп не задаётся.';
+    }
+  },
+  {
+    id: 'monthly-loss-stop',
+    title: 'Месячный лимит убытка (kill-switch)',
+    layer: 'gate',
+    level: 'block',
+    userConfigurable: true,
+    inlineOnly: true,
+    codes: ['monthly-stop'],
+    sourceIds: ['abu-ruf-01', 'mm-vic-03'],
+    paragraphs: [
+      'Суммируется PnL всех закрытых сделок за текущий календарный месяц (по dateClose, локальный dayjs).',
+      'При достижении лимита новая открытая позиция блокируется и главная кнопка входа отключена. Сброс в начале следующего месяца.'
+    ],
+    summary: (fd) => {
+      if (fd.monthlyLossLimitEnabled === false) return 'Выключено.';
+      const lim = computeMaxMonthlyLossAmount(fd);
+      return lim > 0
+        ? `Включено. Стоп месяца: −${lim.toFixed(2)} ${fd.accountCurrency || ''} (${fmtPctOrAmount(fd, 'monthlyLossLimitMode', 'monthlyLossLimitPercent', 'monthlyLossLimitAmount')})`.trim()
+        : 'Включено, но лимит 0 — месячный стоп не задаётся.';
     }
   },
   {
@@ -206,23 +248,24 @@ export const PROFILE_RULE_ENTRIES = [
   },
   {
     id: 'notes-checklist',
-    title: 'Чек-лист из заметок профиля',
+    title: 'Чек-лист «Свои правила»',
     layer: 'gate',
     level: 'warn',
     userConfigurable: true,
     inlineOnly: true,
-    codes: ['notes-checklist'],
+    codes: ['notes-checklist', 'notes-checklist-required'],
     sourceIds: ['mm-vic-02'],
     paragraphs: [
-      'Каждая непустая строка в блоке «Свои правила» на вкладке «Правила и ограничения» (кроме комментариев #) превращается в пункт. В форме сделки их нужно отметить галочками.',
-      'Иначе — предупреждение при сохранении. Блокировки нет, но дисциплина фиксируется.'
+      'На вкладке «Правила» в блоке «Свои правила» задаётся список пунктов как в плейбуке (Preconditions): поле текста + optional required.',
+      'Пункты с required не отмечены в форме сделки — блокировка сохранения; без required — только предупреждение в истории нарушений.'
     ],
     summary: (fd) => {
       if (fd.profileNotesChecklistEnabled === false) return 'Выключено.';
-      const items = parseNotesChecklist(fd.notes);
+      const items = normalizeProfileGateRules(fd);
+      const req = items.filter((r) => r.required).length;
       return items.length
-        ? `Включено. ${items.length} пункт(ов) в заметках — нужны галочки в форме`
-        : 'Включено. Строк в заметках нет — чек-лист пуст.';
+        ? `Включено. ${items.length} пункт(ов)${req ? `, ${req} required → блок` : ''} — галочки в форме`
+        : 'Включено. Список пуст — чек-лист не показывается.';
     }
   },
   {
@@ -341,27 +384,6 @@ export const PROFILE_RULE_ENTRIES = [
         : 'Выключено.'
   },
   {
-    id: 'weekly-loss-stop',
-    title: 'Недельный лимит убытка (ISO-неделя)',
-    layer: 'gate',
-    level: 'block',
-    userConfigurable: true,
-    inlineOnly: true,
-    codes: ['weekly-stop'],
-    sourceIds: ['abu-ruf-01', 'mm-vic-03'],
-    paragraphs: [
-      'Суммируется PnL всех закрытых сделок за текущую календарную ISO-неделю (понедельник–воскресенье по локальному dayjs).',
-      'Если результат ≤ −лимита из профиля, новая открытая позиция блокируется (как дневной стоп). Сброс при переходе на новую неделю.'
-    ],
-    summary: (fd) => {
-      if (fd.weeklyLossLimitEnabled === false) return 'Выключено.';
-      const lim = computeMaxWeeklyLossAmount(fd);
-      return lim > 0
-        ? `Включено. Стоп недели: −${lim.toFixed(2)} ${fd.accountCurrency || ''} (${fmtPctOrAmount(fd, 'weeklyLossLimitMode', 'weeklyLossLimitPercent', 'weeklyLossLimitAmount')})`.trim()
-        : 'Включено, но лимит 0 — недельный стоп не задаётся.';
-    }
-  },
-  {
     id: 'daily-profit-lock',
     title: 'Потолок дневной прибыли (фиксация дня)',
     layer: 'gate',
@@ -442,6 +464,28 @@ export const PROFILE_RULE_ENTRIES = [
         : 'Выключено (только предупр. ниже 1:1).'
   }
 ];
+
+/** Порядок карточек в блоке «Риски по сделкам» на вкладке правил. */
+export const PROFILE_RULE_TAB_TRADE_RISK_IDS = [
+  'risk-per-trade',
+  'exposure-budget',
+  'daily-stop',
+  'weekly-loss-stop',
+  'monthly-loss-stop'
+];
+
+/** Секции вкладки: сначала риски по сделкам, затем прочие правила в том же порядке, что в реестре. */
+export const PROFILE_RULE_TAB_SECTIONS = (() => {
+  const set = new Set(PROFILE_RULE_TAB_TRADE_RISK_IDS);
+  const trade = PROFILE_RULE_TAB_TRADE_RISK_IDS.map((id) => PROFILE_RULE_ENTRIES.find((e) => e.id === id)).filter(
+    Boolean
+  );
+  const rest = PROFILE_RULE_ENTRIES.filter((e) => !set.has(e.id));
+  return [
+    { title: 'Риски по сделкам', entries: trade },
+    { title: null, entries: rest }
+  ];
+})();
 
 /** Без числовых полей в профиле — встроенное поведение гейта / HUD */
 export const PROFILE_RULE_ENTRIES_CORE = PROFILE_RULE_ENTRIES.filter((e) => !e.userConfigurable);

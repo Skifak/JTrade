@@ -8,6 +8,7 @@
   import { convertAmount, formatNumber, getConversionQuote } from '../lib/utils';
   import { getDisciplineScore, getDisciplinedPnL } from '../lib/risk';
   import { normalizeStreakScalingMultipliers } from '../lib/streakScaling.js';
+  import { sanitizeProfileGateRulesInput } from '../lib/profileGateRulesNormalize.js';
   import { toasts } from '../lib/toasts';
   import Modal from './Modal.svelte';
   import ProfileAccountsTab from './ProfileAccountsTab.svelte';
@@ -63,6 +64,9 @@
     weeklyLossLimitMode: 'percent',
     weeklyLossLimitPercent: 0,
     weeklyLossLimitAmount: 0,
+    monthlyLossLimitMode: 'percent',
+    monthlyLossLimitPercent: 0,
+    monthlyLossLimitAmount: 0,
     dailyProfitLockMode: 'percent',
     dailyProfitLockPercent: 0,
     dailyProfitLockAmount: 0,
@@ -71,10 +75,12 @@
     minRiskRewardHardBlock: false,
     minRiskRewardRatio: 1.5,
     weeklyLossLimitEnabled: false,
+    monthlyLossLimitEnabled: false,
     dailyProfitLockEnabled: false,
     afterHoursCutoffEnabled: false,
     minTradeIntervalEnabled: false,
     profileNotesChecklistEnabled: true,
+    profileGateRules: [],
     achievementUnlockToastEnabled: true
   };
   let wasOpen = false;
@@ -110,6 +116,11 @@
     lastProfileAccountId = '';
     fxMessage = '';
     pnlConversionRate = 1;
+  }
+
+  /** «Свои правила» в сторе (как плейбук) — синхронизируем форму модалки для саммари карточек. */
+  $: if (open && $userProfile) {
+    formData.profileGateRules = sanitizeProfileGateRulesInput($userProfile.profileGateRules ?? []);
   }
 
   $: totalClosedPnL = closedTrades.reduce((sum, trade) => sum + (trade.profit || 0), 0);
@@ -166,6 +177,9 @@
       weeklyLossLimitAmount: Number(formData.weeklyLossLimitAmount) || 0,
       weeklyLossLimitPercent: Number(formData.weeklyLossLimitPercent) || 0,
       weeklyLossLimitMode: formData.weeklyLossLimitMode === 'amount' ? 'amount' : 'percent',
+      monthlyLossLimitAmount: Number(formData.monthlyLossLimitAmount) || 0,
+      monthlyLossLimitPercent: Number(formData.monthlyLossLimitPercent) || 0,
+      monthlyLossLimitMode: formData.monthlyLossLimitMode === 'amount' ? 'amount' : 'percent',
       dailyProfitLockAmount: Number(formData.dailyProfitLockAmount) || 0,
       dailyProfitLockPercent: Number(formData.dailyProfitLockPercent) || 0,
       dailyProfitLockMode: formData.dailyProfitLockMode === 'amount' ? 'amount' : 'percent',
@@ -178,6 +192,7 @@
       minRiskRewardHardBlock: !!formData.minRiskRewardHardBlock,
       minRiskRewardRatio: Math.max(0, Number(formData.minRiskRewardRatio) || 0),
       weeklyLossLimitEnabled: !!formData.weeklyLossLimitEnabled,
+      monthlyLossLimitEnabled: !!formData.monthlyLossLimitEnabled,
       dailyProfitLockEnabled: !!formData.dailyProfitLockEnabled,
       afterHoursCutoffEnabled: !!formData.afterHoursCutoffEnabled,
       minTradeIntervalEnabled: !!formData.minTradeIntervalEnabled,
@@ -206,7 +221,8 @@
         return Math.max(0, Math.min(23, x));
       })(),
       postCloseChartReminderEnabled: !!formData.postCloseChartReminderEnabled,
-      achievementUnlockToastEnabled: !!formData.achievementUnlockToastEnabled
+      achievementUnlockToastEnabled: !!formData.achievementUnlockToastEnabled,
+      profileGateRules: sanitizeProfileGateRulesInput(get(userProfile).profileGateRules ?? [])
     });
     closeModal();
   }
@@ -257,6 +273,10 @@
         formData.weeklyLossLimitMode === 'amount'
           ? convertAmount(formData.weeklyLossLimitAmount, rate, 2)
           : formData.weeklyLossLimitAmount,
+      monthlyLossLimitAmount:
+        formData.monthlyLossLimitMode === 'amount'
+          ? convertAmount(formData.monthlyLossLimitAmount, rate, 2)
+          : formData.monthlyLossLimitAmount,
       dailyProfitLockAmount:
         formData.dailyProfitLockMode === 'amount'
           ? convertAmount(formData.dailyProfitLockAmount, rate, 2)

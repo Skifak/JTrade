@@ -6,6 +6,10 @@ import { loadAccountData, saveAccountData } from './accountStorage.js';
 import { activeJournalAccountId } from './accounts.js';
 import { migrateTemplatesList } from './utils.js';
 import { normalizeStreakScalingMultipliers } from './streakScaling.js';
+import {
+  legacyProfileNotesChecklistLines,
+  sanitizeProfileGateRulesInput
+} from './profileGateRulesNormalize.js';
 
 function loadData(key, defaultValue) {
   return loadAccountData(key, defaultValue);
@@ -73,6 +77,10 @@ const DEFAULT_USER_PROFILE = {
   weeklyLossLimitMode: 'percent',
   weeklyLossLimitPercent: 0,
   weeklyLossLimitAmount: 0,
+  /** Календарный месяц: лимит убытка; 0 — выкл */
+  monthlyLossLimitMode: 'percent',
+  monthlyLossLimitPercent: 0,
+  monthlyLossLimitAmount: 0,
   /** Потолок дневной прибыли: при достижении блок новых входов; 0 — выкл */
   dailyProfitLockMode: 'percent',
   dailyProfitLockPercent: 0,
@@ -86,11 +94,14 @@ const DEFAULT_USER_PROFILE = {
   minRiskRewardRatio: 1.5,
   /** Явное включение опциональных лимитов (чекбоксы у полей на вкладке правил) */
   weeklyLossLimitEnabled: false,
+  monthlyLossLimitEnabled: false,
   dailyProfitLockEnabled: false,
   afterHoursCutoffEnabled: false,
   minTradeIntervalEnabled: false,
   /** Галочки в форме сделки по строкам из «Свои правила» */
   profileNotesChecklistEnabled: true,
+  /** Свои правила (pre-trade), как Preconditions в плейбуке: { id, label, required } */
+  profileGateRules: [],
   nextWeekFocus: '',
   nextMonthFocus: ''
 };
@@ -218,6 +229,12 @@ function migrateProfile(raw) {
         ? num(next.weeklyLossLimitAmount) > 0
         : num(next.weeklyLossLimitPercent) > 0;
   }
+  if (typeof next.monthlyLossLimitEnabled !== 'boolean') {
+    next.monthlyLossLimitEnabled =
+      next.monthlyLossLimitMode === 'amount'
+        ? num(next.monthlyLossLimitAmount) > 0
+        : num(next.monthlyLossLimitPercent) > 0;
+  }
   if (typeof next.dailyProfitLockEnabled !== 'boolean') {
     next.dailyProfitLockEnabled =
       next.dailyProfitLockMode === 'amount'
@@ -244,6 +261,24 @@ function migrateProfile(raw) {
   next.streakScalingApplyFromLossCount =
     Number.isFinite(startRaw) && startRaw >= 1 ? Math.min(99, startRaw) : 2;
   next.streakScalingMultipliers = normalizeStreakScalingMultipliers(next.streakScalingMultipliers);
+
+  const hadGateKey = raw != null && Object.prototype.hasOwnProperty.call(raw, 'profileGateRules');
+  if (hadGateKey) {
+    next.profileGateRules = sanitizeProfileGateRulesInput(next.profileGateRules);
+  } else {
+    const lines = legacyProfileNotesChecklistLines(next.notes);
+    if (lines.length > 0) {
+      next.profileGateRules = lines.map((label) => ({
+        id: uuidv4(),
+        label,
+        required: false
+      }));
+      next.notes = '';
+    } else {
+      next.profileGateRules = [];
+    }
+  }
+
   return next;
 }
 
@@ -265,6 +300,58 @@ function createUserProfileStore() {
       saveData('userProfile', next);
       return next;
     }),
+    /** «Свои правила»: как условия play в плейбуке — сразу persist в счёт-хранилище. */
+    setProfileGateRules(rows) {
+      update((profile) => {
+        const next = { ...profile, profileGateRules: sanitizeProfileGateRulesInput(rows) };
+        saveData('userProfile', next);
+        return next;
+      });
+    },
+    addProfileGateRule(partial = {}) {
+      update((profile) => {
+        const cur = sanitizeProfileGateRulesInput(profile.profileGateRules ?? []);
+        const row = {
+          id: String(partial?.id || '').trim() || uuidv4(),
+          label: String(partial?.label ?? 'Новое правило').trim() || 'Новое правило',
+          required: !!partial?.required
+        };
+        const next = { ...profile, profileGateRules: sanitizeProfileGateRulesInput([...cur, row]) };
+        saveData('userProfile', next);
+        return next;
+      });
+    },
+    updateProfileGateRule(ruleId, patch = {}) {
+      const rid = String(ruleId ?? '').trim();
+      if (!rid) return;
+      update((profile) => {
+        const raw = Array.isArray(profile.profileGateRules) ? profile.profileGateRules : [];
+        const mapped = raw.map((r) => {
+          if (String(r?.id ?? '') !== rid) return r;
+          return {
+            ...r,
+            ...(patch.label !== undefined ? { label: patch.label } : {}),
+            ...(patch.required !== undefined ? { required: !!patch.required } : {})
+          };
+        });
+        const next = { ...profile, profileGateRules: sanitizeProfileGateRulesInput(mapped) };
+        saveData('userProfile', next);
+        return next;
+      });
+    },
+    deleteProfileGateRule(ruleId) {
+      const rid = String(ruleId ?? '').trim();
+      if (!rid) return;
+      update((profile) => {
+        const raw = Array.isArray(profile.profileGateRules) ? profile.profileGateRules : [];
+        const next = {
+          ...profile,
+          profileGateRules: sanitizeProfileGateRulesInput(raw.filter((r) => String(r?.id ?? '') !== rid))
+        };
+        saveData('userProfile', next);
+        return next;
+      });
+    },
     resetProfile: () => {
       set(DEFAULT_USER_PROFILE);
       saveData('userProfile', DEFAULT_USER_PROFILE);

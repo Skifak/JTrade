@@ -1,5 +1,5 @@
 <script>
-  import { createEventDispatcher, onDestroy } from 'svelte';
+  import { createEventDispatcher, onDestroy, tick } from 'svelte';
   import dayjs from 'dayjs';
   import { createNewTrade, closeTrade, calculateProfit, isBrokerImportedTrade, formatNumber, snapshotTradeTemplateFields, normalizeStoredTradeTemplate } from '../lib/utils';
   import { trades, userProfile, templates } from '../lib/stores';
@@ -25,7 +25,7 @@
     evaluatePostCloseTradeRules,
     computeMaxRiskAmount,
     getCurrentRiskScale,
-    parseNotesChecklist,
+    normalizeProfileGateRules,
     countClosedTradesOnDay,
     tradeHasChartAttachment,
     stripPostCloseChartViolations
@@ -79,16 +79,31 @@
   let prevOpenKey = '';
   let persistTimer = null;
 
-  $: notesChecklist = parseNotesChecklist($userProfile?.notes);
-  $: if (open) {
-    // сбрасываем чек-лист при открытии формы
-    acknowledgedChecklist = acknowledgedChecklist.filter((v) => notesChecklist.includes(v));
+  /** Сопоставляет id правил с черновиком (старые черновики могли хранить подписи строк). */
+  function unifyAcknowledgedChecklistIds(rules, saved) {
+    const list = Array.isArray(rules) ? rules : [];
+    const arr = Array.isArray(saved) ? saved : [];
+    return [
+      ...new Set(
+        arr
+          .map((v) => {
+            if (list.some((r) => r.id === v)) return v;
+            const byLabel = list.find((r) => r.label === v);
+            return byLabel ? byLabel.id : null;
+          })
+          .filter((id) => id && list.some((r) => r.id === id))
+      )
+    ];
   }
-  function toggleChecklistItem(item) {
-    if (acknowledgedChecklist.includes(item)) {
-      acknowledgedChecklist = acknowledgedChecklist.filter((v) => v !== item);
+
+  $: profileGateRulesList = normalizeProfileGateRules($userProfile);
+  $: profileGateChecklistOn = $userProfile?.profileNotesChecklistEnabled !== false;
+
+  function toggleChecklistItem(ruleId) {
+    if (acknowledgedChecklist.includes(ruleId)) {
+      acknowledgedChecklist = acknowledgedChecklist.filter((v) => v !== ruleId);
     } else {
-      acknowledgedChecklist = [...acknowledgedChecklist, item];
+      acknowledgedChecklist = [...acknowledgedChecklist, ruleId];
     }
   }
 
@@ -103,6 +118,7 @@
       ]
     : [];
   $: if (open) {
+    acknowledgedChecklist = unifyAcknowledgedChecklistIds(profileGateRulesList, acknowledgedChecklist);
     acknowledgedPlayRules = acknowledgedPlayRules.filter((id) => playRules.some((r) => r.id === id));
   }
   function togglePlayRule(id) {
@@ -389,7 +405,7 @@
     draftBannerVisible = false;
     pendingDraft = null;
     await tick();
-    acknowledgedChecklist = acknowledgedChecklist.filter((v) => notesChecklist.includes(v));
+    acknowledgedChecklist = unifyAcknowledgedChecklistIds(profileGateRulesList, acknowledgedChecklist);
     acknowledgedPlayRules = acknowledgedPlayRules.filter((id) =>
       playRules.some((r) => r.id === id)
     );
@@ -1093,17 +1109,22 @@
         {/if}
       </div>
 
-      {#if notesChecklist.length > 0}
-        <div class="notes-checklist">
-          <div class="trade-section-kicker notes-checklist-kicker">📋 Чек-лист «Свои правила»</div>
-          {#each notesChecklist as item}
-            <label class="notes-checklist-item">
+      {#if profileGateChecklistOn && profileGateRulesList.length > 0}
+        <div class="play-rules">
+          <div class="trade-section-kicker play-rules-title-row">
+            📋 Чек-лист «Свои правила»
+          </div>
+          {#each profileGateRulesList as r}
+            <label class="play-rule">
               <input
                 type="checkbox"
-                checked={acknowledgedChecklist.includes(item)}
-                on:change={() => toggleChecklistItem(item)}
+                checked={acknowledgedChecklist.includes(r.id)}
+                on:change={() => toggleChecklistItem(r.id)}
               />
-              <span class={acknowledgedChecklist.includes(item) ? 'done' : ''}>{item}</span>
+              <span class={acknowledgedChecklist.includes(r.id) ? 'done' : ''}>
+                {r.label}
+                {#if r.required}<em class="req-tag">required</em>{/if}
+              </span>
             </label>
           {/each}
         </div>
@@ -1325,12 +1346,6 @@
     font-weight: 600;
     color: var(--text-strong);
   }
-  .notes-checklist-kicker.trade-section-kicker {
-    text-transform: none;
-    letter-spacing: 0.03em;
-    font-weight: 700;
-    color: var(--text-muted);
-  }
   .violations-preview-kicker.trade-section-kicker {
     text-transform: none;
     letter-spacing: 0.04em;
@@ -1518,29 +1533,7 @@
     color: var(--text-muted);
   }
 
-  .notes-checklist {
-    margin: 0 0 12px 0;
-    padding: 10px 12px;
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--accent-border);
-    background: var(--bg-2);
-    border-radius: 3px;
-  }
-  .notes-checklist-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    padding: 4px 0;
-    font-size: 13px;
-    line-height: 1.4;
-    cursor: pointer;
-    color: var(--text);
-  }
-  .notes-checklist-item input { margin-top: 3px; }
-  .notes-checklist-item .done {
-    color: var(--text-muted);
-    text-decoration: line-through;
-  }
+  /* .play-rules for «Свои правила» — те же классы, что у чек-листа play */
 
   /* ----- Killzone / Bias ----- */
   .ctx-row {

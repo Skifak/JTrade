@@ -4,9 +4,11 @@ import {
   computeMaxRiskAmount,
   computeMaxDailyLossAmount,
   computeMaxWeeklyLossAmount,
+  computeMaxMonthlyLossAmount,
   computeGoalAmount,
   suggestVolumeForRisk,
   parseNotesChecklist,
+  normalizeProfileGateRules,
   getDisciplineScore,
   getStatsByBiasAlignment,
   getOpenRisk,
@@ -130,6 +132,76 @@ describe('suggestVolumeForRisk', () => {
 describe('parseNotesChecklist', () => {
   it('пропускает # и пустые строки', () => {
     expect(parseNotesChecklist('#ignored\n\n  x  \ny')).toEqual(['x', 'y']);
+  });
+});
+
+describe('normalizeProfileGateRules', () => {
+  it('структурированный массив → trim / unique id', () => {
+    const rows = normalizeProfileGateRules({
+      profileGateRules: [{ id: 'keep', label: '  a ', required: false }]
+    });
+    expect(rows).toEqual([{ id: 'keep', label: 'a', required: false }]);
+  });
+
+  it('fallback без profileGateRules → legacy id и порядок строк', () => {
+    expect(normalizeProfileGateRules({ notes: '  x\n#c\ny' }).map((r) => r.label)).toEqual(['x', 'y']);
+    expect(normalizeProfileGateRules({ notes: 'a' })[0].id).toMatch(/^legacy-notes:/);
+  });
+});
+
+describe('evaluateTradeRules — profile gate rules', () => {
+  const baseProf = {
+    initialCapital: 100_000,
+    riskMode: 'percent',
+    riskPerTradePercent: 5,
+    dailyLossLimitMode: 'percent',
+    dailyLossLimitPercent: 100,
+    maxOpenTrades: 10,
+    maxTradesPerDay: 0,
+    maxConsecutiveLosses: 0,
+    streakScalingEnabled: false,
+    profileNotesChecklistEnabled: true,
+    minRiskRewardHardBlock: false,
+    minRiskRewardRatio: 1
+  };
+  const baseTrade = {
+    pair: 'EURUSD',
+    direction: 'long',
+    volume: 0.01,
+    priceOpen: 1.1,
+    sl: 1.099,
+    tp: 1.11
+  };
+  const emptyCtx = { openTrades: [], closedTrades: [] };
+
+  it('required не отмечен → block notes-checklist-required', () => {
+    const prof = {
+      ...baseProf,
+      profileGateRules: [{ id: 'r1', label: 'Must', required: true }]
+    };
+    const v = evaluateTradeRules(baseTrade, prof, { ...emptyCtx, acknowledgedChecklist: [] });
+    const x = v.find((i) => i.code === 'notes-checklist-required');
+    expect(x?.severity).toBe('block');
+  });
+
+  it('только optional не отмечен → warn notes-checklist', () => {
+    const prof = {
+      ...baseProf,
+      profileGateRules: [{ id: 'o1', label: 'Soft', required: false }]
+    };
+    const v = evaluateTradeRules(baseTrade, prof, { ...emptyCtx, acknowledgedChecklist: [] });
+    const x = v.find((i) => i.code === 'notes-checklist');
+    expect(x?.severity).toBe('warn');
+  });
+
+  it('признание по id снимает нарушение', () => {
+    const prof = {
+      ...baseProf,
+      profileGateRules: [{ id: 'r1', label: 'Must', required: true }]
+    };
+    const v = evaluateTradeRules(baseTrade, prof, { ...emptyCtx, acknowledgedChecklist: ['r1'] });
+    expect(v.some((i) => i.code === 'notes-checklist-required')).toBe(false);
+    expect(v.some((i) => i.code === 'notes-checklist')).toBe(false);
   });
 });
 
@@ -294,6 +366,30 @@ describe('computeMaxWeeklyLossAmount + флаг weeklyLossLimitEnabled', () => {
         weeklyLossLimitEnabled: true,
         weeklyLossLimitMode: 'percent',
         weeklyLossLimitPercent: 2,
+        initialCapital: 10_000
+      })
+    ).toBe(200);
+  });
+});
+
+describe('computeMaxMonthlyLossAmount + флаг monthlyLossLimitEnabled', () => {
+  it('выключен явно → 0', () => {
+    expect(
+      computeMaxMonthlyLossAmount({
+        monthlyLossLimitEnabled: false,
+        monthlyLossLimitMode: 'percent',
+        monthlyLossLimitPercent: 5,
+        initialCapital: 10_000
+      })
+    ).toBe(0);
+  });
+
+  it('включён → % от капитала', () => {
+    expect(
+      computeMaxMonthlyLossAmount({
+        monthlyLossLimitEnabled: true,
+        monthlyLossLimitMode: 'percent',
+        monthlyLossLimitPercent: 2,
         initialCapital: 10_000
       })
     ).toBe(200);
