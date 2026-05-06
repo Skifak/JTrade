@@ -570,7 +570,13 @@
       <h1 title="Журнал трейдера">Журнал</h1>
       <div class="world-clocks" role="timer" aria-live="polite" aria-label="Мировое время">
         {#each WORLD_CITIES as c}
-          <span class="wc-item" title="{c.name} · {c.tz}">
+          <span
+            class="wc-item"
+            class:wc-item--kz-zone={c.tz === journalSnap.killzoneTimezone}
+            title="{c.name} · {c.tz}{c.tz === journalSnap.killzoneTimezone
+              ? ' · часовой пояс для расчёта killzone'
+              : ''}"
+          >
             <span class="wc-abbr">{c.abbr}</span>
             <span class="wc-time mono">{formatWorldTime($tickClock, c.tz)}</span>
           </span>

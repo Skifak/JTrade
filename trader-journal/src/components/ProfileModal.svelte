@@ -361,50 +361,6 @@
           on:account-profile-seeded={syncFormAfterAccountMutation}
         />
 
-        <div class="profile-summary-grid profile-summary-grid--stretch">
-      <div class="profile-metric">
-        <div class="profile-metric-label">Текущий баланс</div>
-        <div class="profile-metric-value {currentBalance >= Number(formData.initialCapital || 0) ? 'profit' : 'loss'}">
-          {formatNumber(currentBalance, 2)} {formData.accountCurrency}
-        </div>
-      </div>
-      <div class="profile-metric">
-        <div class="profile-metric-label">Риск на сделку</div>
-        <div class="profile-metric-value">{formatNumber(maxRiskAmount, 2)} {formData.accountCurrency}</div>
-      </div>
-      <div class="profile-metric">
-        <div class="profile-metric-label">Дневной лимит убытка</div>
-        <div class="profile-metric-value">{formatNumber(maxDailyLossAmount, 2)} {formData.accountCurrency}</div>
-      </div>
-      <div class="profile-metric">
-        <div class="profile-metric-label">Цель на месяц</div>
-        <div class="profile-metric-value">{formatNumber(goalMonthAmount, 2)} {formData.accountCurrency}</div>
-      </div>
-      <div class="profile-metric">
-        <div class="profile-metric-label">Цель на год</div>
-        <div class="profile-metric-value">{formatNumber(goalYearAmount, 2)} {formData.accountCurrency}</div>
-      </div>
-      <div class="profile-metric">
-        <div class="profile-metric-label">Дисциплина</div>
-        <div class="profile-metric-value {discipline.score >= 95 ? 'profit' : discipline.score >= 80 ? '' : 'loss'}">
-          {formatNumber(discipline.score, 1)}%
-        </div>
-        <div class="profile-metric-sub">
-          {#if discipline.violationsCount > 0}
-            {discipline.violationsCount} записей в {discipline.total - discipline.clean} сделках
-            {#if discipline.blockViolationItems > 0 || discipline.warnViolationItems > 0}
-              · block {discipline.blockViolationItems} / warn {discipline.warnViolationItems}
-            {/if}
-            {#if pnlGap !== 0}
-              · разрыв PnL <span class={pnlGap >= 0 ? 'loss' : 'profit'}>{formatNumber(pnlGap, 2)}</span>
-            {/if}
-          {:else}
-            {discipline.total} сделок без нарушений
-          {/if}
-        </div>
-      </div>
-    </div>
-
     {#if !hideBasicsSection}
       <div class="profile-section profile-section--basics">
         <div class="profile-section-title">Основное</div>
@@ -495,7 +451,16 @@
       {fxMessage}
     />
   {:else if profileTab === 'goals'}
-    <ProfileGoalsTab {formData} />
+    <ProfileGoalsTab
+      {formData}
+      {currentBalance}
+      {maxRiskAmount}
+      {maxDailyLossAmount}
+      {goalMonthAmount}
+      {goalYearAmount}
+      {discipline}
+      {pnlGap}
+    />
   {:else if profileTab === 'achievements'}
     <ProfileAchievementsTab />
   {:else if profileTab === 'create'}

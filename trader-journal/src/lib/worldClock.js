@@ -1,9 +1,11 @@
-/** Короткие часы по IANA TZ для шапки. */
+/** Короткие часы по IANA TZ для шапки (совпадают с TZ_PRESETS в настройках журнала). */
 export const WORLD_CITIES = [
   { abbr: 'BJ', name: 'Пекин', tz: 'Asia/Shanghai' },
   { abbr: 'LDN', name: 'Лондон', tz: 'Europe/London' },
   { abbr: 'NYC', name: 'Нью-Йорк', tz: 'America/New_York' },
-  { abbr: 'MSK', name: 'Москва', tz: 'Europe/Moscow' }
+  { abbr: 'CHI', name: 'Чикаго', tz: 'America/Chicago' },
+  { abbr: 'MSK', name: 'Москва', tz: 'Europe/Moscow' },
+  { abbr: 'UTC', name: 'UTC', tz: 'UTC' }
 ];
 
 const fmtCache = new Map();
