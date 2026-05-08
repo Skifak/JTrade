@@ -42,17 +42,17 @@ npm run dev
 
 ## Фото журнала
 
-![Аналитика](\trader-journal\public\readme\analitika.png)
-![Календарь](\trader-journal\public\readme\kalendar.png)
-![Дневник](\trader-journal\public\readme\dnevnik.png)
-![Справка](\trader-journal\public\readme\faq.png)
-![Гайд](\trader-journal\public\readme\gaid.png)
-![Глоссарий](\trader-journal\public\readme\glossariy.png)
-![KZ](\trader-journal\public\readme\kz.png)
-![Открытые сделки](\trader-journal\public\readme\open.png)
-![Плейбуки](\trader-journal\public\readme\setap.png)
-![Советы](\trader-journal\public\readme\sovet.png)
-![Справочник](\trader-journal\public\readme\spravka.png)
+![Аналитика](trader-journal/public/readme/analitika.png)
+![Календарь](trader-journal/public/readme/kalendar.png)
+![Дневник](trader-journal/public/readme/dnevnik.png)
+![Справка](trader-journal/public/readme/faq.png)
+![Гайд](trader-journal/public/readme/gaid.png)
+![Глоссарий](trader-journal/public/readme/glossariy.png)
+![KZ](trader-journal/public/readme/kz.png)
+![Открытые сделки](trader-journal/public/readme/open.png)
+![Плейбуки](trader-journal/public/readme/setap.png)
+![Советы](trader-journal/public/readme/sovet.png)
+![Справочник](trader-journal/public/readme/spravka.png)
 
 ## Лицензия
 
