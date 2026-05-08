@@ -40,7 +40,8 @@ npm run dev
 
 ---
 
-Фото журнала:
+## Фото журнала
+
 ![Аналитика](\trader-journal\public\readme\analitika.png)
 ![Календарь](\trader-journal\public\readme\kalendar.png)
 ![Дневник](\trader-journal\public\readme\dnevnik.png)
