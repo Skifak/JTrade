@@ -95,7 +95,7 @@
 
   // прогресс «онбординга»: какие настройки уже заполнены
   $: profileChecks = [
-    { ok: Number($userProfile?.initialCapital) > 0, label: 'Стартовый капитал' },
+    { ok: Number($userProfile?.initialCapital) > 0, label: 'Правила и ограничения' },
     { ok: maxRiskAmount > 0,                         label: 'Риск на сделку' },
     { ok: maxDailyLossAmount > 0,                    label: 'Дневной лимит убытка' },
     { ok: goalDayAmount > 0,                         label: 'Цель дня' },
@@ -176,7 +176,7 @@
       <ol class="steps">
         <li>
           <div class="step-h">Открой <button class="link-btn" on:click={openProfile}>Профиль</button></div>
-          <p>Заполни стартовый капитал и валюту на вкладке <strong>«Настройка счёта»</strong>, затем на <strong>«Правила и ограничения»</strong> — <strong>риск на сделку</strong> и <strong>дневной лимит убытка</strong>. Это база — без неё риск-менеджер молчит.</p>
+          <p><strong>«Правила и ограничения»</strong> — <strong>риск на сделку</strong> и <strong>дневной лимит убытка</strong>. Это база — без неё риск-менеджер молчит.</p>
         </li>
         <li>
           <div class="step-h">Создай первую сделку</div>
@@ -188,7 +188,7 @@
         </li>
         <li>
           <div class="step-h">Включи продвинутые правила</div>
-          <p>В профиле вкладка <strong>«Правила и ограничения»</strong>: лимиты, cooldown, anti-martingale, цели и напоминания — плюс карточки всех провепок гейта и HUD.</p>
+          <p>В профиле вкладка <strong>«Правила и ограничения»</strong>: лимиты, cooldown, anti-martingale, цели и напоминания.</p>
         </li>
       </ol>
 

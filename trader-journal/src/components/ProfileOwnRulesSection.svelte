@@ -24,7 +24,7 @@
   <div class="profile-section-title">Свои правила</div>
   <div class="form-group profile-own-rules-fields">
     <p class="profile-own-rules-hint">
-      Изменения сразу пишутся в профиль счёта (как редактирование плейбука). Чек-лист в форме включается в карточке
+      Изменения сразу пишутся в профиль счёта.
       «Чек-лист «Свои правила»» ниже по странице.
     </p>
     <div class="rules-block">
